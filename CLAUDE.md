@@ -14,7 +14,7 @@ project:
 
 CLI that runs Kiban Dojo katas on a local lab VM (Lima on macOS/Linux, WSL2 on Windows).
 
-- Gate: `make verify` (same as CI). Real-VM tests: `make e2e` once the lab backend lands.
+- Gate: `make verify` (same as CI). Real-VM tests: `make e2e` (needs Lima, boots a real VM, not in `verify`).
 - Small PRs, one concern each, one open at a time; the next branches from the new `main`.
 - `main` is protected by a ruleset: PRs only, squash, signed commits, linear history.
 

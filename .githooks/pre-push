@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs the same gate as CI before every push. Enable once per clone:
+#   git config core.hooksPath .githooks
+exec make verify

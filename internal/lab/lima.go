@@ -19,7 +19,7 @@ func (l *Lima) Name() string { return "lima" }
 
 func (l *Lima) Available() error {
 	if _, err := exec.LookPath(l.Bin); err != nil {
-		return fmt.Errorf("lima is not installed: see https://lima-vm.io/docs/installation/")
+		return fmt.Errorf("lima is %w: see https://lima-vm.io/docs/installation/", ErrNotInstalled)
 	}
 	return nil
 }

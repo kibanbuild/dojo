@@ -4,8 +4,12 @@ package lab
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
+
+// ErrNotInstalled is wrapped by Available when the VM manager is simply absent.
+var ErrNotInstalled = errors.New("not installed")
 
 // Instance is the name of the lab VM on every backend.
 const Instance = "dojo"

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kibanbuild/dojo/internal/doctor"
 	"github.com/kibanbuild/dojo/internal/kata"
 	"github.com/kibanbuild/dojo/internal/lab"
 	"github.com/kibanbuild/dojo/internal/state"
@@ -23,6 +24,7 @@ import (
 const Usage = `dojo: practise real IT work on a local lab machine.
 
 Usage:
+  dojo doctor             check that this computer can run the labs
   dojo list               show the available katas
   dojo start <kata>       create a fresh lab and break it for <kata>
   dojo status             show the current kata and its brief
@@ -40,6 +42,9 @@ Environment:
 // ErrCheckFailed means exit 1; the failure was already explained to the learner.
 var ErrCheckFailed = errors.New("not fixed yet")
 
+// ErrNotReady means exit 1; doctor already listed what to fix.
+var ErrNotReady = errors.New("this computer is not ready for the labs")
+
 // App holds everything the commands touch.
 type App struct {
 	Out     io.Writer
@@ -48,6 +53,8 @@ type App struct {
 	BackendName string
 	NewBackend  func(name string) (lab.Backend, error)
 	Now         func() time.Time
+	// Probe reads the host's facts for dojo doctor.
+	Probe func(context.Context) doctor.Machine
 }
 
 // Run executes one command line (without the program name).
@@ -58,7 +65,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	}
 	cmd, rest := args[0], args[1:]
 	switch cmd {
-	case "list", "status", "hint", "start", "shell", "check", "clean":
+	case "list", "status", "hint", "doctor", "start", "shell", "check", "clean":
 	default:
 		return fmt.Errorf("unknown command %q (see dojo help)", cmd)
 	}
@@ -86,6 +93,8 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	}
 
 	switch cmd {
+	case "doctor":
+		return a.doctor(ctx)
 	case "list":
 		return a.list()
 	case "status":
@@ -293,6 +302,31 @@ func orCanceled(ctx context.Context, err error) error {
 		return cerr
 	}
 	return err
+}
+
+func (a *App) doctor(ctx context.Context) error {
+	backend, err := a.NewBackend(a.BackendName)
+	if err == nil {
+		err = backend.Available()
+	}
+	m := a.Probe(ctx)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	results := doctor.Evaluate(m, a.BackendName, err)
+	marks := map[doctor.Status]string{doctor.OK: "✓", doctor.Warn: "!", doctor.Fail: "✗"}
+	for _, r := range results {
+		fmt.Fprintf(a.Out, "  %s %s\n", marks[r.Status], r.Text)
+		if r.Fix != "" && r.Status != doctor.OK {
+			fmt.Fprintf(a.Out, "      -> %s\n", r.Fix)
+		}
+	}
+	if !doctor.Ready(results) {
+		fmt.Fprintln(a.Out, "\nNot ready yet. Fix the ✗ items and run dojo doctor again.")
+		return ErrNotReady
+	}
+	fmt.Fprintln(a.Out, "\nReady. Next: dojo list, then dojo start <kata>.")
+	return nil
 }
 
 func (a *App) printBrief(k *kata.Kata) {

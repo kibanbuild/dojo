@@ -120,3 +120,45 @@ func TestLimaRunStartError(t *testing.T) {
 		t.Fatalf("Run = %d, %v; want -1 and an error", code, err)
 	}
 }
+
+func TestLimaAuthorizeKeyPipesScriptToShell(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "stdin")
+	l := fakeLima(t, "echo \"$*\" > "+log+".args\ncat > "+log+"\n")
+	if err := l.AuthorizeKey(context.Background(), []byte("ssh-ed25519 AAAA me")); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := os.ReadFile(log + ".args")
+	if strings.TrimSpace(string(args)) != "shell --workdir / dojo bash -s" {
+		t.Errorf("args = %q", args)
+	}
+	script, _ := os.ReadFile(log)
+	if !strings.Contains(string(script), "authorized_keys") {
+		t.Errorf("script = %q", script)
+	}
+	if err := l.AuthorizeKey(context.Background(), []byte("nope")); err == nil {
+		t.Error("an invalid key must fail before limactl runs")
+	}
+	if err := fakeLima(t, "echo denied >&2\nexit 1\n").AuthorizeKey(context.Background(), []byte("ssh-ed25519 AAAA")); err == nil || !strings.Contains(err.Error(), "denied") {
+		t.Errorf("error should carry output, got %v", err)
+	}
+}
+
+func TestLimaSSHConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ssh.config"), []byte("Host lima-dojo\n  Port 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	l := fakeLima(t, "echo "+dir+"\n")
+	got, err := l.SSHConfig(context.Background(), "/k/id")
+	if err != nil || !strings.Contains(got, "Host dojo\n") || !strings.Contains(got, `IdentityFile "/k/id"`) {
+		t.Fatalf("SSHConfig = %q, %v", got, err)
+	}
+	for _, bad := range []string{"/k/\"id", "/k/%d/id", "/k/${HOME}/id", "/k/a\nb"} {
+		if _, err := l.SSHConfig(context.Background(), bad); err == nil {
+			t.Errorf("%q must be refused", bad)
+		}
+	}
+	if _, err := fakeLima(t, "echo "+t.TempDir()+"\n").SSHConfig(context.Background(), "/k/id"); err == nil {
+		t.Error("a missing ssh.config must fail")
+	}
+}

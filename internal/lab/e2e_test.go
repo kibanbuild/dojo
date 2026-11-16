@@ -6,9 +6,11 @@ import (
 	"context"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,6 +92,70 @@ func TestKatasEndToEnd(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+// TestSSHEndToEnd proves a learner's own key reaches the lab as "ssh dojo" and another
+// key does not. Everything uses throwaway keys and config files in a temp dir; the real
+// ~/.ssh is never read or written.
+func TestSSHEndToEnd(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	backend, err := lab.New(lab.DefaultName())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Available(); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	mine, other := filepath.Join(dir, "mine"), filepath.Join(dir, "other")
+	for _, key := range []string{mine, other} {
+		if out, err := exec.Command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", key).CombinedOutput(); err != nil {
+			t.Fatalf("ssh-keygen: %v\n%s", err, out)
+		}
+	}
+	t.Cleanup(func() { _ = backend.Delete(context.Background()) })
+	if err := backend.Recreate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	pub, err := os.ReadFile(mine + ".pub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 { // authorizing twice must be harmless
+		if err := backend.AuthorizeKey(ctx, pub); err != nil {
+			t.Fatal(err)
+		}
+	}
+	body := strings.Fields(string(pub))[1]
+	out, code, err := backend.Run(ctx, []byte("cat /home/*/.ssh/authorized_keys | grep -cF -- '"+body+"'"))
+	if err != nil || code != 0 || strings.TrimSpace(string(out)) != "1" {
+		t.Fatalf("the key should be authorized exactly once: exit %d, err %v\n%s", code, err, out)
+	}
+
+	ssh := func(key string) (string, error) {
+		cfg, err := backend.SSHConfig(ctx, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		file := filepath.Join(dir, filepath.Base(key)+".config")
+		if err := os.WriteFile(file, []byte(cfg), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		out, err := exec.CommandContext(ctx, "ssh", "-F", file, "-o", "BatchMode=yes", "-o", "IdentityAgent=none", "dojo", "true").CombinedOutput()
+		return string(out), err
+	}
+	if out, err := ssh(mine); err != nil {
+		t.Fatalf("ssh dojo with the authorized key: %v\n%s", err, out)
+	}
+	out2, err := ssh(other)
+	if err == nil {
+		t.Fatal("ssh dojo with an unauthorized key succeeded")
+	}
+	if !strings.Contains(out2, "Permission denied") {
+		t.Fatalf("the unauthorized key should be refused, got: %v\n%s", err, out2)
 	}
 }
 

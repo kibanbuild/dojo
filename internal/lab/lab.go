@@ -29,6 +29,11 @@ type Backend interface {
 	Reboot(ctx context.Context) error
 	// Shell attaches the terminal to an interactive login shell in the VM.
 	Shell(ctx context.Context) error
+	// AuthorizeKey lets the holder of the public key log in to the VM over SSH.
+	AuthorizeKey(ctx context.Context, pub []byte) error
+	// SSHConfig returns an ssh_config block that reaches the VM as "Host dojo"
+	// with the given private key.
+	SSHConfig(ctx context.Context, identityFile string) (string, error)
 	// Delete removes the VM.
 	Delete(ctx context.Context) error
 }

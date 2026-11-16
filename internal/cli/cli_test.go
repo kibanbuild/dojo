@@ -33,11 +33,15 @@ func (f *fakeLab) Available() error  { return f.notReady }
 func (f *fakeLab) record(c string)   { f.calls = append(f.calls, c) }
 func (f *fakeLab) has(c string) bool { return strings.Contains(strings.Join(f.calls, " "), c) }
 
-func (f *fakeLab) Recreate(context.Context) error       { f.record("recreate"); return f.recreateErr }
-func (f *fakeLab) Exists(context.Context) (bool, error) { return true, nil }
-func (f *fakeLab) Reboot(context.Context) error         { f.record("reboot"); return nil }
-func (f *fakeLab) Shell(context.Context) error          { f.record("shell"); return nil }
-func (f *fakeLab) Delete(context.Context) error         { f.record("delete"); return f.deleteErr }
+func (f *fakeLab) Recreate(context.Context) error             { f.record("recreate"); return f.recreateErr }
+func (f *fakeLab) Exists(context.Context) (bool, error)       { return true, nil }
+func (f *fakeLab) Reboot(context.Context) error               { f.record("reboot"); return nil }
+func (f *fakeLab) Shell(context.Context) error                { f.record("shell"); return nil }
+func (f *fakeLab) Delete(context.Context) error               { f.record("delete"); return f.deleteErr }
+func (f *fakeLab) AuthorizeKey(context.Context, []byte) error { f.record("authorize"); return nil }
+func (f *fakeLab) SSHConfig(context.Context, string) (string, error) {
+	return "Host dojo\n", nil
+}
 func (f *fakeLab) Run(_ context.Context, script []byte) ([]byte, int, error) {
 	if f.onRun != nil {
 		f.onRun()

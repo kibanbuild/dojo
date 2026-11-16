@@ -3,11 +3,15 @@ package lab
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+
+	"github.com/kibanbuild/dojo/internal/sshconfig"
 )
 
 // Lima runs the lab with Lima (https://lima-vm.io) on macOS and Linux.
@@ -75,6 +79,35 @@ func (l *Lima) Shell(ctx context.Context) error {
 	return cmd.Run()
 }
 
+// AuthorizeKey runs as the lab user (no sudo) so the key lands in their own home.
+func (l *Lima) AuthorizeKey(ctx context.Context, pub []byte) error {
+	script, err := authorizeScript(pub)
+	if err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, l.Bin, "shell", "--workdir", "/", Instance, "bash", "-s") //nolint:gosec // Bin is a constant or caller-controlled, never learner input
+	cmd.Stdin = bytes.NewReader(script)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("authorizing your SSH key: %w\n%s", err, out)
+	}
+	return nil
+}
+
+func (l *Lima) SSHConfig(ctx context.Context, identityFile string) (string, error) {
+	if strings.ContainsAny(identityFile, "\"\r\n%") || strings.Contains(identityFile, "${") {
+		return "", fmt.Errorf("the SSH key path %q has a quote, line break, %% or ${ in it, which ssh would misread", identityFile)
+	}
+	dir, err := l.output(ctx, "list", Instance, "--format", "{{.Dir}}")
+	if err != nil {
+		return "", err
+	}
+	raw, err := os.ReadFile(filepath.Join(strings.TrimSpace(string(dir)), "ssh.config"))
+	if err != nil {
+		return "", err
+	}
+	return limaToDojo(string(raw), identityFile), nil
+}
+
 func (l *Lima) Delete(ctx context.Context) error {
 	exists, err := l.Exists(ctx)
 	if err != nil || !exists {
@@ -101,4 +134,46 @@ func lastLines(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// authorizeScript appends pub to the lab user's authorized_keys once. The key
+// travels base64-encoded and is only ever expanded inside double quotes, so
+// nothing in it is interpreted by the shell.
+func authorizeScript(pub []byte) ([]byte, error) {
+	pub = bytes.TrimSpace(pub)
+	if err := sshconfig.ValidatePublicKey(pub); err != nil {
+		return nil, err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "set -e\nK=$(echo %s | base64 -d)\n", base64.StdEncoding.EncodeToString(pub))
+	b.WriteString("umask 077\nmkdir -p \"$HOME/.ssh\" && touch \"$HOME/.ssh/authorized_keys\"\n")
+	b.WriteString("[ ! -s \"$HOME/.ssh/authorized_keys\" ] || [ -z \"$(tail -c1 \"$HOME/.ssh/authorized_keys\")\" ] || echo >> \"$HOME/.ssh/authorized_keys\"\n")
+	b.WriteString("grep -qxF -- \"$K\" \"$HOME/.ssh/authorized_keys\" || printf '%s\\n' \"$K\" >> \"$HOME/.ssh/authorized_keys\"\n")
+	b.WriteString("chmod 700 \"$HOME/.ssh\" && chmod 600 \"$HOME/.ssh/authorized_keys\"\n")
+	return []byte(b.String()), nil
+}
+
+// limaToDojo renames Lima's generated host to "dojo" and logs in with the learner's
+// own key instead of Lima's. Connection sharing is dropped: a master opened with
+// Lima's key would let any key through.
+func limaToDojo(cfg, identityFile string) string {
+	var b strings.Builder
+	b.WriteString("# Managed by dojo: rewritten on every dojo start and dojo check.\n")
+	for _, line := range strings.Split(cfg, "\n") {
+		trimmed := strings.TrimSpace(line)
+		keyword, _, _ := strings.Cut(strings.NewReplacer("=", " ", "\t", " ").Replace(trimmed), " ")
+		switch strings.ToLower(keyword) {
+		case "", "batchmode", "controlmaster", "controlpath", "controlpersist", "identityfile", "identitiesonly":
+			continue
+		case "host":
+			b.WriteString("Host " + Instance + "\n")
+			b.WriteString("  IdentityFile \"" + filepath.ToSlash(identityFile) + "\"\n  IdentitiesOnly yes\n")
+		default:
+			if strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+			b.WriteString(line + "\n")
+		}
+	}
+	return b.String()
 }

@@ -1,0 +1,9 @@
+name: 'Go: CodeQL config'
+
+queries:
+  - uses: security-and-quality
+
+paths:
+  - 'cmd'
+  - 'internal'
+  - '*.go'

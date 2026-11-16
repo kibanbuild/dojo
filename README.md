@@ -5,6 +5,21 @@ system and a ticket: you fix it from your own terminal, the way the job works.
 
 Work in progress: the first pieces are landing one pull request at a time.
 
+## Use
+
+```sh
+make build                 # builds bin/dojo
+bin/dojo list              # the available katas
+bin/dojo start <kata>      # a fresh lab, broken for that kata
+bin/dojo status            # the current kata and its brief
+bin/dojo hint              # the next hint
+bin/dojo shell             # a terminal inside the lab
+bin/dojo check             # reboots the lab and verifies your fix (--quick skips the reboot)
+bin/dojo clean             # deletes the lab
+```
+
+It needs [Lima](https://lima-vm.io/) on macOS or Linux.
+
 ## Develop
 
 You need Go (the version in `go.mod`) and `make`.

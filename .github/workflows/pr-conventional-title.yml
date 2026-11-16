@@ -1,0 +1,39 @@
+name: 'PR: Conventional Title'
+
+on:
+  pull_request:
+    branches:
+      - 'main'
+    types:
+      - 'opened'
+      - 'edited'
+      - 'reopened'
+      - 'synchronize'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  conventional-title:
+    if: github.repository == 'kibanbuild/dojo'
+    name: Conventional Title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+
+    steps:
+      # The title becomes the squash commit message, so it must follow Conventional Commits.
+      - name: Check the PR title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9-]+\))?!?: [^ ].*$'
+          if [[ "$TITLE" =~ $pattern ]]; then
+            echo "OK: $TITLE"
+          else
+            echo "::error::PR title must follow Conventional Commits, e.g. 'feat(cli): add dojo hint'. Got: $TITLE"
+            exit 1
+          fi

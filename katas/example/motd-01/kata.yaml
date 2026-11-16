@@ -1,0 +1,22 @@
+id: example/motd-01
+title: Hello, lab
+belt: example
+summary: Example kata that shows the format; write a welcome message.
+
+brief: |
+  Ticket OPS-000, from IT:
+
+  > Welcome aboard! Before anything else, please set the message every
+  > user sees when they log in to this server.
+
+  What "fixed" means:
+
+  1. /etc/motd contains exactly one line: Welcome to the dojo
+  2. Anyone can read /etc/motd, and only root can change it.
+
+  Everything must still work after a reboot.
+
+hints:
+  - 'Look first: `ls -l /etc/motd` and `cat /etc/motd`.'
+  - 'Writing a file as root: `sudo tee` is a good friend. `man tee`.'
+  - 'Permissions are three digits. `man chmod`.'

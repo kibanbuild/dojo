@@ -9,6 +9,7 @@ Work in progress: the first pieces are landing one pull request at a time.
 
 ```sh
 make build                 # builds bin/dojo
+bin/dojo doctor            # checks that this computer can run the labs
 bin/dojo list              # the available katas
 bin/dojo start <kata>      # a fresh lab, broken for that kata
 bin/dojo status            # the current kata and its brief

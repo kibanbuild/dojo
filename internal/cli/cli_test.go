@@ -13,6 +13,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/kibanbuild/dojo/internal/doctor"
 	"github.com/kibanbuild/dojo/internal/lab"
 	"github.com/kibanbuild/dojo/internal/state"
 )
@@ -61,6 +62,12 @@ var catalog = fstest.MapFS{
 	"white/a/check.sh":  {Data: []byte("CHECK")},
 }
 
+var goodMachine = doctor.Machine{
+	OS: "linux", MemoryBytes: 16 << 30, FreeDiskBytes: 100 << 30, CPUs: 8,
+	Virtualization: true, VirtualizationKnown: true,
+	HasGit: true, GitName: "Ana", GitEmail: "ana@x.dev", HasVSCode: true,
+}
+
 type env struct {
 	app *App
 	lab *fakeLab
@@ -77,6 +84,7 @@ func newEnv(t *testing.T) *env {
 		Out: out, Catalog: catalog, BackendName: "fake",
 		NewBackend: func(string) (lab.Backend, error) { return f, nil },
 		Now:        func() time.Time { return now },
+		Probe:      func(context.Context) doctor.Machine { return goodMachine },
 	}
 	return &env{app: app, lab: f, out: out}
 }
@@ -375,7 +383,7 @@ func TestInterruptedCommandsReturnTheContextError(t *testing.T) {
 
 func TestExtraArgsAndHelp(t *testing.T) {
 	e := newEnv(t)
-	for _, cmd := range []string{"list", "status", "hint", "shell", "check", "clean"} {
+	for _, cmd := range []string{"doctor", "list", "status", "hint", "shell", "check", "clean"} {
 		if err := e.run(t, cmd, "extra"); err == nil || !strings.Contains(err.Error(), "takes no arguments") {
 			t.Errorf("%s extra: err = %v", cmd, err)
 		}
@@ -398,5 +406,54 @@ func TestCorruptStateNamesTheFile(t *testing.T) {
 	os.WriteFile(filepath.Join(home, "state.json"), []byte("{nope"), 0o600)
 	if err := e.run(t, "list"); err == nil || !strings.Contains(err.Error(), "state.json") || !strings.Contains(err.Error(), "remove it") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestDoctorReady(t *testing.T) {
+	e := newEnv(t)
+	if err := e.run(t, "doctor"); err != nil {
+		t.Fatalf("doctor on a good machine: %v\n%s", err, e.out)
+	}
+	for _, want := range []string{"✓ 16 GB RAM", "✓ VM manager ready (fake)", "Ready. Next: dojo list"} {
+		if !strings.Contains(e.out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, e.out)
+		}
+	}
+	if e.lab.calls != nil {
+		t.Errorf("doctor touched the lab: %v", e.lab.calls)
+	}
+}
+
+func TestDoctorNotReady(t *testing.T) {
+	e := newEnv(t)
+	e.lab.notReady = errors.New("limactl not found")
+	e.app.Probe = func(context.Context) doctor.Machine { m := goodMachine; m.MemoryBytes = 4 << 30; return m }
+	if err := e.run(t, "doctor"); !errors.Is(err, ErrNotReady) {
+		t.Fatalf("err = %v, want ErrNotReady", err)
+	}
+	for _, want := range []string{"✗ 4 GB RAM", "-> the labs need at least 8 GB of RAM", "✗ VM manager (fake) not ready: limactl not found", "Not ready yet"} {
+		if !strings.Contains(e.out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, e.out)
+		}
+	}
+}
+
+func TestDoctorInterruptedPrintsNoReport(t *testing.T) {
+	e := newEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	e.app.Probe = func(context.Context) doctor.Machine { cancel(); return doctor.Machine{} }
+	if err := e.app.Run(ctx, []string{"doctor"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if e.out.Len() != 0 {
+		t.Errorf("an interrupted doctor printed a report:\n%s", e.out)
+	}
+}
+
+func TestDoctorUnknownBackendIsAFinding(t *testing.T) {
+	e := newEnv(t)
+	e.app.NewBackend = func(name string) (lab.Backend, error) { return nil, errors.New("unknown backend " + name) }
+	if err := e.run(t, "doctor"); !errors.Is(err, ErrNotReady) || !strings.Contains(e.out.String(), "unknown backend fake") {
+		t.Errorf("err = %v\n%s", err, e.out)
 	}
 }

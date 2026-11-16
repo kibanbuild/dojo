@@ -17,3 +17,4 @@ All notable changes are listed here. The format follows
   test that boots a real VM and runs every kata's solution and wrong fixes against its check.
 - Example kata `example/motd-01`, licensed CC BY-NC-SA 4.0 like everything in `katas/`.
 - The `dojo` command (`internal/cli`, `cmd/dojo`): `list`, `start`, `status`, `hint`, `shell`, `check` (with `--quick`) and `clean`, plus `make build`.
+- `dojo doctor` (`internal/doctor`): checks RAM, free disk, CPU cores, virtualisation, the VM manager, git and VS Code, and exits 1 when the computer cannot run the labs. Windows reports that labs are not supported yet.

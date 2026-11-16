@@ -12,6 +12,7 @@ import (
 
 	"github.com/kibanbuild/dojo"
 	"github.com/kibanbuild/dojo/internal/cli"
+	"github.com/kibanbuild/dojo/internal/doctor"
 	"github.com/kibanbuild/dojo/internal/lab"
 )
 
@@ -29,11 +30,12 @@ func main() {
 		BackendName: backend,
 		NewBackend:  lab.New,
 		Now:         time.Now,
+		Probe:       doctor.Probe,
 	}
 	err := app.Run(ctx, os.Args[1:])
 	switch {
 	case err == nil:
-	case errors.Is(err, cli.ErrCheckFailed):
+	case errors.Is(err, cli.ErrCheckFailed), errors.Is(err, cli.ErrNotReady):
 		os.Exit(1) // already explained on stdout
 	default:
 		fmt.Fprintln(os.Stderr, "dojo:", err)

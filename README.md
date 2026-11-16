@@ -11,6 +11,7 @@ You need Go (the version in `go.mod`) and `make`.
 
 ```sh
 make verify                        # lint for macOS, Linux and Windows, tests with -race, govulncheck
+make e2e                           # needs Lima; boots a real VM and runs every kata end to end
 git config core.hooksPath .githooks  # run the same gate before every push
 ```
 

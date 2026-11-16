@@ -12,6 +12,8 @@ Thanks for helping. Katas, fixes and ideas are all welcome.
 - Commit messages and PR titles follow [Conventional Commits](https://www.conventionalcommits.org):
   `feat(cli): ...`, `fix(kata): ...`, `chore(ci): ...`.
 - Run `make verify` before pushing. `git config core.hooksPath .githooks` does it for you.
+- `make e2e` boots a real Lima VM (minutes, needs Lima installed) and is not part of `verify`.
+  It reads the catalog from `katas/`, or from the directory in `DOJO_KATAS`.
 
 ## AI-assisted contributions
 

@@ -1,4 +1,4 @@
-.PHONY: verify lint test vuln tools
+.PHONY: verify lint test e2e vuln tools
 
 # Pinned tool versions, installed into the repo (never a shared bin) so the local gate and CI
 # run exactly the same ones. They are built for this machine; GOOS only changes what they check.
@@ -32,6 +32,10 @@ lint: $(GOLANGCI_LINT)
 
 test:
 	go test -race -count=1 -cover ./...
+
+# Boots a real Lima VM and takes minutes: not part of verify.
+e2e:
+	go test -tags e2e -count=1 -v -timeout 30m ./internal/lab/
 
 vuln: $(GOVULNCHECK)
 	$(GOVULNCHECK) ./...

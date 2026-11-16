@@ -16,3 +16,4 @@ All notable changes are listed here. The format follows
 - Lab backend interface and the Lima backend (`internal/lab`), plus `make e2e`, an end-to-end
   test that boots a real VM and runs every kata's solution and wrong fixes against its check.
 - Example kata `example/motd-01`, licensed CC BY-NC-SA 4.0 like everything in `katas/`.
+- The `dojo` command (`internal/cli`, `cmd/dojo`): `list`, `start`, `status`, `hint`, `shell`, `check` (with `--quick`) and `clean`, plus `make build`.

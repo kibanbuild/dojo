@@ -1,4 +1,4 @@
-.PHONY: verify lint test e2e vuln tools
+.PHONY: build verify lint test e2e vuln tools
 
 # Pinned tool versions, installed into the repo (never a shared bin) so the local gate and CI
 # run exactly the same ones. They are built for this machine; GOOS only changes what they check.
@@ -12,6 +12,9 @@ GOVULNCHECK := $(TOOLS)/govulncheck-$(GOVULNCHECK_VERSION)
 PLATFORMS := darwin linux windows
 
 verify: lint test vuln
+
+build:
+	go build -o bin/dojo ./cmd/dojo
 
 tools: $(GOLANGCI_LINT) $(GOVULNCHECK)
 

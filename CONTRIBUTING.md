@@ -14,6 +14,7 @@ Thanks for helping. Katas, fixes and ideas are all welcome.
 - Run `make verify` before pushing. `git config core.hooksPath .githooks` does it for you.
 - `make e2e` boots a real Lima VM (minutes, needs Lima installed) and is not part of `verify`.
   It reads the catalog from `katas/`, or from the directory in `DOJO_KATAS`.
+  CI runs it in the `Go: E2E` workflow.
 
 ## AI-assisted contributions
 

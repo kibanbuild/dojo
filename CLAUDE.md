@@ -23,7 +23,8 @@ CLI that runs Kiban Dojo katas on a local lab VM (Lima on macOS/Linux, WSL2 on W
 - One file per component and purpose: `<component>-<purpose>.yml`, named `'<Component>: <Purpose>'`
   (`go-tests.yml` is `Go: Tests`, a future `web-tests.yml` is `Web: Tests`). `CI:` audits the
   workflows themselves (zizmor, actionlint); `Tools:` names repo-wide tools (gitleaks, PR title).
-- Shared setup per component lives in a composite action: `.github/actions/<component>-setup`.
+- Setup steps are inline for now. A shared `.github/actions/<component>-setup` composite returns once
+  actionlint accepts the `$/` self-repository syntax that zizmor asks for (actionlint 1.7.12 rejects it).
 - `permissions: {}` at the top, the minimum per job; `if: github.repository == 'kibanbuild/dojo'`;
   Harden Runner with `egress-policy: block` on Linux jobs; actions pinned by SHA with the tag in a comment.
 - Job `name:` values are the required checks in the `main` ruleset: renaming a job means updating it.

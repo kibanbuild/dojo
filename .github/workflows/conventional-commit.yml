@@ -1,4 +1,4 @@
-name: 'PR: Conventional Title'
+name: 'Tools: Conventional Commit'
 
 on:
   pull_request:
@@ -11,22 +11,22 @@ on:
       - 'synchronize'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions: {}
 
 jobs:
-  conventional-title:
+  conventional-commit-check:
     if: github.repository == 'kibanbuild/dojo'
-    name: Conventional Title
+    name: Check PR title format
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
 
     steps:
       # The title becomes the squash commit message, so it must follow Conventional Commits.
-      - name: Check the PR title
+      - name: Check PR title format
         env:
           TITLE: ${{ github.event.pull_request.title }}
         run: |

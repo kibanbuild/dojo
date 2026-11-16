@@ -8,7 +8,7 @@ on:
     branches:
       - 'main'
   schedule:
-    - cron: '23 5 * * 1'
+    - cron: '23 05 * * 1'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -45,10 +45,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
+      - name: Go Setup
+        uses: ./.github/actions/go-setup
 
       - name: Run govulncheck
         run: make vuln

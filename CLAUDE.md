@@ -21,10 +21,12 @@ CLI that runs Kiban Dojo katas on a local lab VM (Lima on macOS/Linux, WSL2 on W
 ## Workflows
 
 - One file per component and purpose: `<component>-<purpose>.yml`, named `'<Component>: <Purpose>'`
-  (`go-tests.yml` is `Go: Tests`, a future `web-tests.yml` is `Web: Tests`). Repo-wide checks use
-  `ci-*`, `pr-*` and `find-secrets`.
+  (`go-tests.yml` is `Go: Tests`, a future `web-tests.yml` is `Web: Tests`). `CI:` audits the
+  workflows themselves (zizmor, actionlint); `Tools:` names repo-wide tools (gitleaks, PR title).
+- Shared setup per component lives in a composite action: `.github/actions/<component>-setup`.
 - `permissions: {}` at the top, the minimum per job; `if: github.repository == 'kibanbuild/dojo'`;
   Harden Runner with `egress-policy: block` on Linux jobs; actions pinned by SHA with the tag in a comment.
 - Job `name:` values are the required checks in the `main` ruleset: renaming a job means updating it.
 - Required checks cannot be path-filtered: a skipped required check blocks the PR forever. When a
-  second component arrives, filter inside the job (or add a small "changes" job), not with `on.paths`.
+  second component arrives, skip steps inside the job when its files did not change, using our own
+  `git diff` (not tj-actions/changed-files, compromised in March 2025), never `on.paths`.

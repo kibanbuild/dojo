@@ -135,8 +135,25 @@ func (a *App) Run(ctx context.Context, args []string) error {
 			return err
 		}
 		st.Current, st.HintsShown = "", 0
-		return a.save(st)
+		if err := a.save(st); err != nil {
+			return err
+		}
+		return a.removeSSH()
 	}
+}
+
+// removeSSH empties the ssh dojo entry once the lab is gone, so it never keeps a
+// dead port. It runs after the delete: while the delete fails the lab may still
+// exist and the entry still tells the truth. The learner's own config stays as is.
+func (a *App) removeSSH() error {
+	dir, err := sshconfig.Dir()
+	if err == nil {
+		err = sshconfig.Remove(dir)
+	}
+	if err != nil {
+		return fmt.Errorf("the lab is deleted but ssh dojo could not be cleared: %w (empty %s by hand)", err, sshconfig.FileName)
+	}
+	return nil
 }
 
 // load and save add the state file path and a remedy to any state error.
@@ -227,7 +244,7 @@ func (a *App) start(ctx context.Context, backend lab.Backend, id string) error {
 	if err := a.save(st); err != nil {
 		return err
 	}
-	if err := a.trySSH(ctx, backend, st); err != nil {
+	if err := a.trySSH(ctx, backend, st, true); err != nil {
 		return err
 	}
 	fmt.Fprintf(a.Out, "Lab ready in %s.\n\n", a.Now().Sub(t0).Round(time.Second))
@@ -290,7 +307,7 @@ func (a *App) sshConfig(ctx context.Context, backend lab.Backend, key string) er
 	if key == "" {
 		key = st.SSHKey
 	}
-	priv, err := a.setupSSH(ctx, backend, key)
+	priv, err := a.setupSSH(ctx, backend, key, true)
 	if err != nil {
 		return orCanceled(ctx, err)
 	}
@@ -299,8 +316,8 @@ func (a *App) sshConfig(ctx context.Context, backend lab.Backend, key string) er
 
 // trySSH sets up ssh dojo but never blocks the kata, since dojo shell works
 // without it. Only an interrupt is returned.
-func (a *App) trySSH(ctx context.Context, backend lab.Backend, st *state.State) error {
-	priv, err := a.setupSSH(ctx, backend, st.SSHKey)
+func (a *App) trySSH(ctx context.Context, backend lab.Backend, st *state.State, announce bool) error {
+	priv, err := a.setupSSH(ctx, backend, st.SSHKey, announce)
 	if cerr := ctx.Err(); cerr != nil {
 		return cerr
 	}
@@ -323,7 +340,7 @@ func (a *App) rememberKey(st *state.State, priv string) error {
 
 // setupSSH authorizes the learner's own key in the lab and points "ssh dojo" at
 // it, returning the private key it used. chosen is empty to auto-detect.
-func (a *App) setupSSH(ctx context.Context, backend lab.Backend, chosen string) (string, error) {
+func (a *App) setupSSH(ctx context.Context, backend lab.Backend, chosen string, announce bool) (string, error) {
 	dir, err := sshconfig.Dir()
 	if err != nil {
 		return "", err
@@ -345,7 +362,9 @@ func (a *App) setupSSH(ctx context.Context, backend lab.Backend, chosen string) 
 	if err := sshconfig.Install(dir, block); err != nil {
 		return "", err
 	}
-	fmt.Fprintf(a.Out, "ssh dojo is ready, using your key %s (change it: dojo ssh-config --key <path>).\n", priv)
+	if announce {
+		fmt.Fprintf(a.Out, "ssh dojo is ready, using your key %s (change it: dojo ssh-config --key <path>).\n", priv)
+	}
 	return priv, nil
 }
 
@@ -360,7 +379,7 @@ func (a *App) check(ctx context.Context, backend lab.Backend, quick bool) error 
 			return orCanceled(ctx, err)
 		}
 		// The VM comes back on a new SSH port, so ssh dojo must be pointed at it again.
-		if err := a.trySSH(ctx, backend, st); err != nil {
+		if err := a.trySSH(ctx, backend, st, false); err != nil {
 			return err
 		}
 	}

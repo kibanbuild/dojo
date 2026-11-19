@@ -15,7 +15,7 @@ type State struct {
 	Current    string               `json:"current,omitempty"`
 	HintsShown int                  `json:"hints_shown,omitempty"`
 	Passed     map[string]time.Time `json:"passed,omitempty"`
-	// SSHKey is the private key the learner chose; empty means auto-detect.
+	// SSHKey is the private key ssh dojo was last set up with; empty means auto-detect.
 	SSHKey string `json:"ssh_key,omitempty"`
 }
 

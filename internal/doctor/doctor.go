@@ -41,7 +41,18 @@ type Machine struct {
 	// GitUnknown is set when git did not answer in time.
 	GitUnknown        bool
 	GitName, GitEmail string
-	HasVSCode         bool
+	// GitMajor and GitMinor are 0 when the git version could not be read.
+	GitMajor, GitMinor int
+	// GitSigningFormat, GitSigningKey and GitSignCommits are the global git settings, as written.
+	GitSigningFormat, GitSigningKey, GitSignCommits string
+	HasVSCode                                       bool
+	HasSSHKeygen                                    bool
+	// SSHKeyPath is the private key dojo uses; empty when none was found or the chosen one is unusable.
+	SSHKeyPath string
+	// SSHKeyErr says why no key could be used.
+	SSHKeyErr error
+	// SigningKeyIsSSHKey is set when git's signing key is the file or literal key at SSHKeyPath.
+	SigningKeyIsSSHKey bool
 }
 
 const gib = 1 << 30
@@ -139,6 +150,7 @@ func Evaluate(m Machine, backendName string, backendErr error) []Result {
 			rs = append(rs, Result{OK, "git identity: " + m.GitName + " <" + m.GitEmail + ">", ""})
 		}
 	}
+	rs = append(rs, sshChecks(m)...)
 	if !m.HasVSCode {
 		rs = append(rs, Result{Warn, "`code` command not found (optional, any editor works)", "install VS Code and its shell command: https://code.visualstudio.com"})
 	} else {

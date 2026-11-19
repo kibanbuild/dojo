@@ -704,9 +704,15 @@ func TestCheckPointsSSHAtTheRebootedLabAndSurvivesFailure(t *testing.T) {
 	if !e.lab.has("reboot authorize sshconfig check") {
 		t.Errorf("calls = %v, want ssh refreshed after the reboot, before the check", e.lab.calls)
 	}
+	if strings.Contains(e.out.String(), "ssh dojo is ready") {
+		t.Errorf("a successful refresh after check's reboot must stay quiet:\n%s", e.out)
+	}
 	e.lab.authorizeErr = errors.New("lab said no")
 	if err := e.run(t, "check"); err != nil || !strings.Contains(e.out.String(), "Kata passed") {
 		t.Errorf("a failed ssh refresh must not fail the check: %v\n%s", err, e.out)
+	}
+	if !strings.Contains(e.out.String(), "Warning: ssh dojo is not set up") {
+		t.Errorf("a failed refresh must still warn:\n%s", e.out)
 	}
 	e.lab.calls = nil
 	e.run(t, "check", "--quick")
@@ -753,5 +759,82 @@ func TestDoctorReportsTheSSHKeyAndSigning(t *testing.T) {
 	}
 	if err := e.run(t, "doctor"); err != nil || !strings.Contains(e.out.String(), "not with the key dojo uses (id_work)") {
 		t.Errorf("doctor must judge the key dojo uses (the pinned one): %v\n%s", err, e.out)
+	}
+}
+
+func TestCleanClearsSSHDojoAfterTheLabIsGone(t *testing.T) {
+	e := newEnv(t)
+	writeKey(t, "id_ed25519", "ssh-ed25519 AAAA ana@x")
+	e.run(t, "start", "white/a")
+	if installed(t) == "" {
+		t.Fatal("setup: start should have written the ssh dojo entry")
+	}
+	cfgPath := filepath.Join(os.Getenv("DOJO_SSH_DIR"), "config")
+	cfgBefore, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.run(t, "clean"); err != nil {
+		t.Fatal(err)
+	}
+	if got := installed(t); got != "" {
+		t.Errorf("dojo_config after clean = %q, want empty (no dead port)", got)
+	}
+	cfgAfter, err := os.ReadFile(cfgPath)
+	if err != nil || string(cfgAfter) != string(cfgBefore) {
+		t.Errorf("the learner's config must stay as is: %v\n%s", err, cfgAfter)
+	}
+	if c := current(t); c != "" {
+		t.Errorf("current = %q, want cleared", c)
+	}
+}
+
+func TestCleanWithoutSSHSetupSucceedsAndCreatesNothing(t *testing.T) {
+	e := newEnv(t)
+	e.run(t, "start", "white/a")
+	if err := e.run(t, "clean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(os.Getenv("DOJO_SSH_DIR"), "dojo_config")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("clean must not create dojo_config: %v", err)
+	}
+}
+
+func TestFailedCleanKeepsTheSSHEntry(t *testing.T) {
+	e := newEnv(t)
+	writeKey(t, "id_ed25519", "ssh-ed25519 AAAA ana@x")
+	e.run(t, "start", "white/a")
+	before := installed(t)
+	e.lab.deleteErr = errors.New("busy")
+	if err := e.run(t, "clean"); err == nil {
+		t.Fatal("clean should fail")
+	}
+	if got := installed(t); got == "" || got != before {
+		t.Errorf("the lab may still exist, so ssh dojo must stay: %q", got)
+	}
+}
+
+func TestCleanReportsAnSSHRemovalFailureAfterDeletingTheLab(t *testing.T) {
+	e := newEnv(t)
+	writeKey(t, "id_ed25519", "ssh-ed25519 AAAA ana@x")
+	e.run(t, "start", "white/a")
+	// A non-empty directory in the file's place makes the atomic rewrite fail.
+	path := filepath.Join(os.Getenv("DOJO_SSH_DIR"), "dojo_config")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(path, "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	e.lab.calls = nil
+	err := e.run(t, "clean")
+	if err == nil || !strings.Contains(err.Error(), "ssh dojo could not be cleared") {
+		t.Fatalf("err = %v, want the ssh failure named", err)
+	}
+	if !e.lab.has("delete") {
+		t.Errorf("calls = %v, want the lab deleted", e.lab.calls)
+	}
+	if c := current(t); c != "" {
+		t.Errorf("current = %q: the lab is gone, so state must say so", c)
 	}
 }

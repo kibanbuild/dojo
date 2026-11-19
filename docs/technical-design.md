@@ -36,7 +36,7 @@ Four pieces, one repo:
 | Site | `site/` | Public pages, onboarding, the learner app, lessons. Static build plus interactive islands. |
 | API | `cmd/dojo-server`, `internal/server/...` | Sign-in, progress, quizzes, inbox, notifications, exams. The only writer to the database. |
 | CLI | `cmd/dojo` (exists) | Labs, checks, hints, `dojo login`, `dojo mcp`, `dojo exam`. Reports progress to the API. |
-| Exam runner | `cmd/dojo-runner`, `internal/exam/...`, on the exam host | Starts, snapshots, checks and destroys one exam microVM per attempt; also runs the SSH gateway. The API drives it over mTLS. |
+| Exam runner | `cmd/dojo-runner`, `internal/exam/...`, next to the exam backend | Starts, checks and destroys one exam machine per attempt; also runs the SSH gateway. The API drives it over mTLS. |
 
 The web and the API stay in this monorepo while they release together. They move out only if
 their stack or release rhythm calls for it (vision, Platform).
@@ -51,7 +51,7 @@ their stack or release rhythm calls for it (vision, Platform).
 | Sign-in | GitHub OAuth App (web flow + device flow) | Every learner needs GitHub anyway (repo, SSH key, signing). No passwords to store. |
 | Email | A transactional provider behind an adapter; Mailpit in compose | Only E1 (welcome, sent on the first sign-in) and E2 (belt earned, sent when the result is final) in v1. The adapter keeps the provider swappable. |
 | Push | Web Push with VAPID keys, sent by the API | No third-party push service; the browser vendors' endpoints only. |
-| Exam machines | Firecracker microVMs on a KVM host we run (section 7) | Checks run from outside the guest and egress is filtered on the host, which a hosted container-VM cannot give us. |
+| Exam machines | One fresh VM per attempt, from an image, destroyed after (section 7; backend open) | Checks read the disk from outside the guest and egress is filtered outside it, which a hosted container-VM cannot give us. |
 
 Engineering bars that apply from the first commit:
 
@@ -179,13 +179,13 @@ Every table below also has `org_id`, `created_at`, `updated_at`. Ids are UUIDv7.
 | `writing_drafts` | `learner_id`, `kata_id`, `body`, `submitted_at`, `review` (jsonb: rubric scores and comments) | L9. Feedback only; a writing kata passes when the learner submits it. |
 | `inbox_items` | `learner_id`, `kind`, `ref`, `read_at` | Feeds N1 and the bell. |
 | `push_subscriptions`, `notification_prefs` | endpoint, keys; per-kind toggles, quiet hours | Story max 1 a day, quiet 22:00-08:00 local. |
-| `teardown_jobs` | `machine_ref`, `checker_ref`, `disk_refs`, `attempts`, `done_at` | No learner id: only what the runner must destroy. Also used at the normal end of an exam. |
+| `teardown_jobs` | `backend`, `resources` (list of the backend's ids: machines, volumes, snapshots), `attempts`, `done_at` | No learner id: only what the runner must destroy. Also used at the normal end of an exam. |
 | `exam_tombstones` | `github_id`, `belt`, `retry_after` | The only thing kept after a delete, so deleting an account does not skip the retry wait. It keeps the GitHub numeric id (an identifier, said so on LG1) until `retry_after`, then is deleted. No name, email or results. |
 
 **Delete account (S1 danger zone):** in one transaction, ends any exam not yet final as `not_yet`
 with its `retry_after`, writes the tombstone if a retry wait is running, deletes every other learner
-row and revokes every token. In the same transaction it writes a `teardown_jobs` row (machine,
-checker, both disks), which the runner works through and retries until everything is destroyed,
+row and revokes every token. In the same transaction it writes a `teardown_jobs` row listing every
+resource the attempt used (machines, volumes, snapshots), which the runner works through and retries until everything is destroyed,
 whatever state the exam was in, so a crash after the commit cannot orphan a machine. Backups keep data for 30 days. The
 privacy page (LG1) says all of this.
 
@@ -220,9 +220,10 @@ stateDiagram-v2
   the deadline does not end the exam. At the deadline the runner cuts access and submits whatever is
   there. Milestone announcements (30, 10, 1 minutes left) are live-region messages, not a ticking
   announcement every second.
-- **Pause** kills the open SSH sessions and forwards, refuses new ones, freezes the microVM (no
-  background job keeps working) and stops the clock. After 15 minutes the clock restarts whether or
-  not the learner is back.
+- **Pause** kills the open SSH sessions and forwards, refuses new ones and stops the clock. Where
+  the backend can freeze a VM it does, so no background job keeps working; where it cannot, a job
+  left running during a pause is accepted for the white belt (checks look at the final state, not
+  at when it was reached). After 15 minutes the clock restarts whether or not the learner is back.
 - **Access:** the learner reaches the machine through an exam gateway we run (an SSH jump host).
   `dojo exam start` sends the learner's public key with their CLI token, and the gateway accepts
   that key for that learner's open exam only. No lookup by GitHub username, so a renamed or reused
@@ -238,19 +239,20 @@ stateDiagram-v2
   parameters per attempt. A learner who memorises one attempt does not hold the next one.
 - **Checks run from outside the guest.** The learner is root on the exam machine for two hours and
   could replace any binary or leave a process waiting for the check, so nothing trusted runs inside
-  it. On submit or at the deadline, the runner cuts access, thaws the microVM if it is frozen, asks
-  the guest to `sync` (the learner
-  can refuse, which only hurts their own result), stops the microVM gracefully and force-stops it
-  after 30 seconds. It then makes a reflink copy of the disk (the host keeps disks on XFS or btrfs
-  for this), replays the ext4 journal on that copy,
-  attaches it read-only to a separate checker microVM with its own tools, and runs the checks
-  against that mounted tree. The original disk stays untouched as evidence until the result is final.
-  The learner controls every byte of that image, so the checker treats it as hostile input:
+  it. On submit or at the deadline, the runner cuts access, asks the guest to `sync` (the learner
+  can refuse, which only hurts their own result), stops the machine gracefully and forces it off
+  after 30 seconds. A trusted checker with its own tools then mounts the machine's disk read-only
+  and runs the checks against that tree. An unclean ext4 journal is replayed only on a scratch
+  copy (a second volume or a copy in memory), never on the original, which stays untouched as
+  evidence until the result is final. How the disk reaches the checker depends on the backend
+  (section 7, "Where exam machines run").
+  The learner controls every byte of that disk, so the checker treats it as hostile input:
     - reads never follow symlinks out of the mount (`openat2` with `RESOLVE_IN_ROOT`, or no-follow
       lookups), and file content is only data, never executed, sourced or chrooted into;
-    - the checker microVM has no network and no secrets, and is destroyed after one exam: a crafted
-      filesystem attacks the checker's kernel, which is exactly why it is a disposable VM and not
-      the host.
+    - the checker has no network and no secrets and is used for one exam only: a crafted
+      filesystem attacks the checker's kernel, which is why it is disposable and never our API or
+      runner host. With a rescue system the checker is the exam server itself, rebooted into a
+      kernel and tools the provider controls; it is still one-use and destroyed after the exam.
   White belt checks are about file state (permissions, owners, configs), which a mounted tree
   answers. Checks on a running system (is the service up, does the port answer) need the snapshot
   booted again, and the learner's own init would run; how to trust that is designed before the
@@ -265,26 +267,36 @@ stateDiagram-v2
   an open question (section 11).
 - **When the result is final:** at the end of defend, or of its 30-minute timeout. That moment sets
   `result` and `retry_after`, writes the belt award on a pass and sends E2.
-- **Wiped at the end:** the exam machine and the checker are destroyed after checks; both disks
-  (original and copy) when the result is final, or at once if the account is deleted. Results, tickets and the diff are
+- **Wiped at the end:** the exam machine and any separate checker are destroyed after checks; every
+  disk and volume the attempt used when the result is final, or at once if the account is deleted. Results, tickets and the diff are
   kept; nothing else.
-- **Egress is filtered on the host,** not in the guest, where a root learner could remove it: the
-  microVM's tap device only reaches the gateway and the allowlist a ticket names. Taps cannot reach
-  each other or any host service. CPU and memory are capped per microVM; one open attempt per
-  learner.
+- **Egress is filtered outside the guest,** where a root learner cannot remove it (a provider
+  firewall, security group or host rule, depending on the backend): the machine only reaches the
+  gateway and the allowlist a ticket names (resolved to IP addresses: provider firewalls and
+  security groups filter by address, not by name), and exam machines cannot reach each other, any
+  of our services or the provider's metadata endpoint (169.254.169.254), so no credential can be
+  read from inside. A separate checker gets a firewall or security group with no network at all. CPU and memory are fixed by the machine size; one open attempt per learner.
 
 ### Where exam machines run
 
-The runner talks to an `ExamBackend` interface (`Create`, `Exec`, `Freeze`, `Thaw`, `Stop`,
-`CopyDisk`, `Check` for the checker run, `Destroy`), the same idea as the local `lab.Backend`. The design above needs three things from it: a disk we can
-snapshot and mount elsewhere, egress filtering outside the guest, and full VMs with systemd for the
-yellow belt. Hosted container-VMs (Fly Machines, for example) give none of the first two reliably:
-the root filesystem is ephemeral and there is no per-machine egress policy. So the recommendation
-is **Firecracker on one KVM host we run** (a dedicated or bare-metal server; most cloud VMs do not
-offer nested virtualisation, and where they do it is slower), from the white belt on. The local
-backend in compose runs the same runner code with QEMU for unit and integration tests. Host egress
-filtering and the copy-and-check path only exist on Firecracker, so an end-to-end exam run on a
-real KVM host (escape attempts included: a planted symlink, a removed firewall rule, a job left
+The runner talks to an `ExamBackend` interface (`Create`, `Exec`, `Stop`, `CheckDisk`, `Destroy`,
+plus `Freeze` and `Thaw` where supported), the same idea as the local `lab.Backend`. Any backend
+must give three things: a fresh full VM from an image (systemd included, for the yellow belt), a way
+to read its disk from a trusted checker, and egress filtering outside the guest. Hosted
+container-VMs (Fly Machines, for example) fail the second and third: the root filesystem is
+ephemeral and there is no per-machine egress policy.
+
+| Candidate | Image | How the checker reads the disk | Egress outside the guest |
+|---|---|---|---|
+| Ephemeral cloud servers (for example Hetzner Cloud) | A snapshot built with Packer | Reboot the stopped server into the provider's rescue system and mount its disk there | The provider's cloud firewall |
+| Ephemeral EC2 instances on AWS | An AMI built with Packer | Detach the stopped instance's root volume and attach it to a checker instance | Security groups |
+| Firecracker microVMs on a KVM host we run | A rootfs image | Copy the disk and attach it read-only to a checker microVM | Host rules on each tap device |
+
+The choice follows the shared Kiban platform decision, still open (section 11). The first two are
+billed per hour and cost cents per exam, with no host to patch; the third starts in under a second
+and can freeze a VM, but is a dedicated server to run. Whichever wins, the local backend in compose
+runs the same runner code with QEMU for unit and integration tests, and an end-to-end exam run on
+the real backend (escape attempts included: a planted symlink, a removed firewall rule, a job left
 running in pause) is a gate before `pre`.
 
 ## 8. `dojo mcp` and AGENTS.md
@@ -312,11 +324,11 @@ has an exam open, which is a courtesy, not a control.
 | Environment | What | How |
 |---|---|---|
 | local | Everything in docker compose: API, Postgres, Mailpit, fake OAuth, runner with a local backend; site dev server | `make dev` |
-| `pre` | Site, API and database of its own; real GitHub OAuth app; email in sandbox; exams on the shared exam host | Deploy on merge to `main` |
-| `pro` | Site, API and database of its own; exams on the shared exam host | Deploy on a release tag |
+| `pre` | Site, API and database of its own; real GitHub OAuth app; email in sandbox; exams on the exam backend | Deploy on merge to `main` |
+| `pro` | Site, API and database of its own; exams on the exam backend | Deploy on a release tag |
 
-`pre` and `pro` share the one exam host in v1, with separate runner credentials and separate exam
-networks; a second host comes when load or the yellow belt needs it.
+`pre` and `pro` use the same exam backend in v1, with separate runner credentials and separate
+exam networks.
 
 - Site: static build to a CDN. API: one container image on GHCR, one small instance, behind TLS.
   Postgres managed, daily backups, 30-day retention.
@@ -346,8 +358,9 @@ From the accessibility review of the canvas, things a mockup cannot show:
 Decided 2026-11-19: the defence is feedback only (the belt follows the checks); extra time is
 self-declared in S1.
 
-1. **Exam host:** one dedicated KVM server running Firecracker from the white belt on, as
-   recommended in section 7? Not decided yet.
+1. **Exam backend and hosting:** waits on the shared Kiban platform (one cloud, or a few, for
+   every Kiban project). The three candidates are in section 7; the site, API and database follow
+   the same decision.
 2. **Running-system checks** for the yellow belt: how to check a booted snapshot without trusting
    the learner's init.
 3. **Domain:** the canvas uses `[DOMAIN]`. The site and the API must share one registrable domain
@@ -368,7 +381,7 @@ Small PRs, one open at a time, each with its tests and docs:
 5. Onboarding O1-O5 and Today L1 on real data.
 6. Kata page L3 with hints and the mirrored check panel; path L2; quizzes L11.
 7. `dojo mcp` and the AGENTS.md files.
-8. Exam runner with the local QEMU backend in compose, then the Firecracker host and the gateway;
+8. Exam runner with the local QEMU backend in compose, then the real backend and the gateway;
    exam pages L6; awards L7/L8.
 9. Inbox, emails E1/E2, Web Push, settings S1-S4.
 10. PWA install, offline, system pages; then `pre`, then the first learners.

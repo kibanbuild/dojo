@@ -35,13 +35,15 @@ func Probe(ctx context.Context) Machine {
 	}
 	_, err := exec.LookPath("code")
 	m.HasVSCode = err == nil
+	_, err = exec.LookPath("ssh-keygen")
+	m.HasSSHKeygen = err == nil
 	return m
 }
 
 // probeGit confirms git runs (macOS ships a shim that only prompts to install)
-// and reads the global identity.
+// and reads the version, the global identity and the signing settings.
 func probeGit(ctx context.Context, m *Machine) {
-	_, err := runCmd(ctx, func(c context.Context) *exec.Cmd { return exec.CommandContext(c, "git", "--version") })
+	out, err := runCmd(ctx, func(c context.Context) *exec.Cmd { return exec.CommandContext(c, "git", "--version") })
 	if errors.Is(err, errTimedOut) {
 		m.GitUnknown = true
 		return
@@ -50,27 +52,49 @@ func probeGit(ctx context.Context, m *Machine) {
 		return
 	}
 	m.HasGit = true
-	out, err := runCmd(ctx, func(c context.Context) *exec.Cmd {
-		return exec.CommandContext(c, "git", "config", "--global", "--get-regexp", `^user\.(name|email)$`)
+	m.GitMajor, m.GitMinor = parseGitVersion(out)
+	// --includes: a global config often pulls the identity in through include.path.
+	out, err = runCmd(ctx, func(c context.Context) *exec.Cmd {
+		return exec.CommandContext(c, "git", "config", "--global", "--includes", "--get-regexp",
+			`^(user\.(name|email|signingkey)|gpg\.format|commit\.gpgsign)$`)
 	})
 	if errors.Is(err, errTimedOut) {
 		m.HasGit, m.GitUnknown = false, true
 		return
 	}
-	m.GitName, m.GitEmail = parseGitIdentity(out)
+	cfg := parseGitConfig(out)
+	m.GitName, m.GitEmail = cfg["user.name"], cfg["user.email"]
+	m.GitSigningKey, m.GitSigningFormat, m.GitSignCommits = cfg["user.signingkey"], cfg["gpg.format"], cfg["commit.gpgsign"]
 }
 
-func parseGitIdentity(s string) (name, email string) {
+// parseGitConfig reads `git config --get-regexp` output; the last value of a key wins.
+func parseGitConfig(s string) map[string]string {
+	cfg := map[string]string{}
 	for _, line := range strings.Split(s, "\n") {
 		key, val, _ := strings.Cut(strings.TrimSpace(line), " ")
-		switch key {
-		case "user.name":
-			name = strings.TrimSpace(val)
-		case "user.email":
-			email = strings.TrimSpace(val)
+		if key != "" {
+			cfg[key] = strings.TrimSpace(val)
 		}
 	}
-	return name, email
+	return cfg
+}
+
+// parseGitVersion reads "git version 2.39.5 (Apple Git-154)"; 0, 0 when unreadable.
+func parseGitVersion(s string) (major, minor int) {
+	f := strings.Fields(s)
+	if len(f) < 3 || f[0] != "git" || f[1] != "version" {
+		return 0, 0
+	}
+	parts := strings.Split(f[2], ".")
+	if len(parts) < 2 {
+		return 0, 0
+	}
+	major, err1 := strconv.Atoi(parts[0])
+	minor, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return 0, 0
+	}
+	return major, minor
 }
 
 // parseMemInfo returns MemTotal from /proc/meminfo text, in bytes.

@@ -17,6 +17,7 @@ import (
 	"github.com/kibanbuild/dojo/internal/doctor"
 	"github.com/kibanbuild/dojo/internal/kata"
 	"github.com/kibanbuild/dojo/internal/lab"
+	"github.com/kibanbuild/dojo/internal/sshconfig"
 	"github.com/kibanbuild/dojo/internal/state"
 )
 
@@ -28,7 +29,10 @@ Usage:
   dojo list               show the available katas
   dojo start <kata>       create a fresh lab and break it for <kata>
   dojo status             show the current kata and its brief
-  dojo shell              open a terminal inside the lab
+  dojo shell              open a terminal inside the lab (or: ssh dojo)
+  dojo ssh-config [--key PATH]
+                          let your SSH key into the lab and set up "ssh dojo";
+                          --key picks the key (private or .pub path) from now on
   dojo hint               show the next hint for the current kata
   dojo check [--quick]    reboot the lab and verify your fix (--quick skips the reboot)
   dojo clean              delete the lab machine
@@ -65,15 +69,18 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	}
 	cmd, rest := args[0], args[1:]
 	switch cmd {
-	case "list", "status", "hint", "doctor", "start", "shell", "check", "clean":
+	case "list", "status", "hint", "doctor", "start", "shell", "ssh-config", "check", "clean":
 	default:
 		return fmt.Errorf("unknown command %q (see dojo help)", cmd)
 	}
 	fset := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fset.SetOutput(io.Discard)
-	quick := new(bool)
-	if cmd == "check" {
+	quick, key := new(bool), new(string)
+	switch cmd {
+	case "check":
 		quick = fset.Bool("quick", false, "skip the reboot")
+	case "ssh-config":
+		key = fset.String("key", "", "SSH key to use")
 	}
 	if err := fset.Parse(rest); errors.Is(err, flag.ErrHelp) {
 		fmt.Fprint(a.Out, Usage)
@@ -114,6 +121,8 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		return a.start(ctx, backend, fset.Arg(0))
 	case "shell":
 		return a.shell(ctx, backend)
+	case "ssh-config":
+		return a.sshConfig(ctx, backend, *key)
 	case "check":
 		return a.check(ctx, backend, *quick)
 	default: // clean
@@ -218,9 +227,12 @@ func (a *App) start(ctx context.Context, backend lab.Backend, id string) error {
 	if err := a.save(st); err != nil {
 		return err
 	}
+	if err := a.trySSH(ctx, backend, st); err != nil {
+		return err
+	}
 	fmt.Fprintf(a.Out, "Lab ready in %s.\n\n", a.Now().Sub(t0).Round(time.Second))
 	a.printBrief(k)
-	fmt.Fprintln(a.Out, "Next: dojo shell to get in, dojo check when you think it's fixed.")
+	fmt.Fprintln(a.Out, "Next: dojo shell (or ssh dojo) to get in, dojo check when you think it's fixed.")
 	return nil
 }
 
@@ -261,6 +273,82 @@ func (a *App) shell(ctx context.Context, backend lab.Backend) error {
 	return backend.Shell(ctx)
 }
 
+// sshConfig sets up ssh dojo on demand. The key is remembered only once ssh dojo
+// works with it, so a typo or a bad key never leaves a broken setting behind.
+func (a *App) sshConfig(ctx context.Context, backend lab.Backend, key string) error {
+	st, err := a.load()
+	if err != nil {
+		return err
+	}
+	exists, err := backend.Exists(ctx)
+	if err != nil {
+		return orCanceled(ctx, err)
+	}
+	if !exists {
+		return errors.New("no lab machine yet: run dojo start <kata> first")
+	}
+	if key == "" {
+		key = st.SSHKey
+	}
+	priv, err := a.setupSSH(ctx, backend, key)
+	if err != nil {
+		return orCanceled(ctx, err)
+	}
+	return a.rememberKey(st, priv)
+}
+
+// trySSH sets up ssh dojo but never blocks the kata, since dojo shell works
+// without it. Only an interrupt is returned.
+func (a *App) trySSH(ctx context.Context, backend lab.Backend, st *state.State) error {
+	priv, err := a.setupSSH(ctx, backend, st.SSHKey)
+	if cerr := ctx.Err(); cerr != nil {
+		return cerr
+	}
+	if err == nil {
+		err = a.rememberKey(st, priv)
+	}
+	if err != nil {
+		fmt.Fprintf(a.Out, "Warning: ssh dojo is not set up: %v\nUse dojo shell, or fix that and run dojo ssh-config.\n", err)
+	}
+	return nil
+}
+
+func (a *App) rememberKey(st *state.State, priv string) error {
+	if st.SSHKey == priv {
+		return nil
+	}
+	st.SSHKey = priv
+	return a.save(st)
+}
+
+// setupSSH authorizes the learner's own key in the lab and points "ssh dojo" at
+// it, returning the private key it used. chosen is empty to auto-detect.
+func (a *App) setupSSH(ctx context.Context, backend lab.Backend, chosen string) (string, error) {
+	dir, err := sshconfig.Dir()
+	if err != nil {
+		return "", err
+	}
+	priv, pub, err := sshconfig.ResolveKey(dir, chosen)
+	if errors.Is(err, sshconfig.ErrNoKey) {
+		return "", fmt.Errorf("%w in %s: create one with `ssh-keygen -t ed25519 -C \"you@example.com\"`, or pass --key <path>", err, dir)
+	}
+	if err != nil {
+		return "", fmt.Errorf("%w (pick another key with dojo ssh-config --key <path>)", err)
+	}
+	if err := backend.AuthorizeKey(ctx, pub); err != nil {
+		return "", err
+	}
+	block, err := backend.SSHConfig(ctx, priv)
+	if err != nil {
+		return "", err
+	}
+	if err := sshconfig.Install(dir, block); err != nil {
+		return "", err
+	}
+	fmt.Fprintf(a.Out, "ssh dojo is ready, using your key %s (change it: dojo ssh-config --key <path>).\n", priv)
+	return priv, nil
+}
+
 func (a *App) check(ctx context.Context, backend lab.Backend, quick bool) error {
 	st, k, err := a.current()
 	if err != nil {
@@ -270,6 +358,10 @@ func (a *App) check(ctx context.Context, backend lab.Backend, quick bool) error 
 		fmt.Fprintln(a.Out, "Rebooting the lab: a real fix survives a restart...")
 		if err := backend.Reboot(ctx); err != nil {
 			return orCanceled(ctx, err)
+		}
+		// The VM comes back on a new SSH port, so ssh dojo must be pointed at it again.
+		if err := a.trySSH(ctx, backend, st); err != nil {
+			return err
 		}
 	}
 	out, code, err := backend.Run(ctx, k.Check)
@@ -310,6 +402,11 @@ func (a *App) doctor(ctx context.Context) error {
 		err = backend.Available()
 	}
 	m := a.Probe(ctx)
+	var chosen string
+	if st, serr := a.load(); serr == nil { // a corrupt state file is reported by the other commands
+		chosen = st.SSHKey
+	}
+	doctor.ProbeSSH(&m, chosen)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -318,7 +415,7 @@ func (a *App) doctor(ctx context.Context) error {
 	for _, r := range results {
 		fmt.Fprintf(a.Out, "  %s %s\n", marks[r.Status], r.Text)
 		if r.Fix != "" && r.Status != doctor.OK {
-			fmt.Fprintf(a.Out, "      -> %s\n", r.Fix)
+			fmt.Fprintf(a.Out, "      -> %s\n", strings.ReplaceAll(r.Fix, "\n", "\n         "))
 		}
 	}
 	if !doctor.Ready(results) {

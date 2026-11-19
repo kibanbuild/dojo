@@ -26,6 +26,12 @@ type fakeLab struct {
 	recreateErr, deleteErr error
 	setupCode              int
 	onRun                  func()
+	// SSH: errors to return, the keys the lab was given, and a lab that does not exist.
+	authorizeErr, configErr error
+	onAuthorize             func()
+	noLab                   bool
+	authorized              [][]byte
+	configKeys              []string
 }
 
 func (f *fakeLab) Name() string      { return "fake" }
@@ -33,14 +39,26 @@ func (f *fakeLab) Available() error  { return f.notReady }
 func (f *fakeLab) record(c string)   { f.calls = append(f.calls, c) }
 func (f *fakeLab) has(c string) bool { return strings.Contains(strings.Join(f.calls, " "), c) }
 
-func (f *fakeLab) Recreate(context.Context) error             { f.record("recreate"); return f.recreateErr }
-func (f *fakeLab) Exists(context.Context) (bool, error)       { return true, nil }
-func (f *fakeLab) Reboot(context.Context) error               { f.record("reboot"); return nil }
-func (f *fakeLab) Shell(context.Context) error                { f.record("shell"); return nil }
-func (f *fakeLab) Delete(context.Context) error               { f.record("delete"); return f.deleteErr }
-func (f *fakeLab) AuthorizeKey(context.Context, []byte) error { f.record("authorize"); return nil }
-func (f *fakeLab) SSHConfig(context.Context, string) (string, error) {
-	return "Host dojo\n", nil
+func (f *fakeLab) Recreate(context.Context) error       { f.record("recreate"); return f.recreateErr }
+func (f *fakeLab) Exists(context.Context) (bool, error) { return !f.noLab, nil }
+func (f *fakeLab) Reboot(context.Context) error         { f.record("reboot"); return nil }
+func (f *fakeLab) Shell(context.Context) error          { f.record("shell"); return nil }
+func (f *fakeLab) Delete(context.Context) error         { f.record("delete"); return f.deleteErr }
+func (f *fakeLab) AuthorizeKey(_ context.Context, pub []byte) error {
+	f.record("authorize")
+	f.authorized = append(f.authorized, pub)
+	if f.onAuthorize != nil {
+		f.onAuthorize()
+	}
+	return f.authorizeErr
+}
+func (f *fakeLab) SSHConfig(_ context.Context, identityFile string) (string, error) {
+	f.record("sshconfig")
+	f.configKeys = append(f.configKeys, identityFile)
+	if f.configErr != nil {
+		return "", f.configErr
+	}
+	return "Host dojo\n  IdentityFile \"" + identityFile + "\"\n", nil
 }
 func (f *fakeLab) Run(_ context.Context, script []byte) ([]byte, int, error) {
 	if f.onRun != nil {
@@ -81,6 +99,7 @@ type env struct {
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	t.Setenv("DOJO_HOME", filepath.Join(t.TempDir(), "home"))
+	t.Setenv("DOJO_SSH_DIR", filepath.Join(t.TempDir(), "ssh"))
 	f := &fakeLab{}
 	out := &bytes.Buffer{}
 	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
@@ -459,5 +478,280 @@ func TestDoctorUnknownBackendIsAFinding(t *testing.T) {
 	e.app.NewBackend = func(name string) (lab.Backend, error) { return nil, errors.New("unknown backend " + name) }
 	if err := e.run(t, "doctor"); !errors.Is(err, ErrNotReady) || !strings.Contains(e.out.String(), "unknown backend fake") {
 		t.Errorf("err = %v\n%s", err, e.out)
+	}
+}
+
+// writeKey creates a key pair in the test SSH directory and returns the private path.
+func writeKey(t *testing.T, name, pub string) string {
+	t.Helper()
+	dir := os.Getenv("DOJO_SSH_DIR")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	priv := filepath.Join(dir, name)
+	for p, body := range map[string]string{priv: "PRIVATE", priv + ".pub": pub + "\n"} {
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return priv
+}
+
+func savedKey(t *testing.T) string {
+	t.Helper()
+	st, err := state.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st.SSHKey
+}
+
+func installed(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(os.Getenv("DOJO_SSH_DIR"), "dojo_config"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return ""
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestStartSetsUpSSHAndRemembersTheKey(t *testing.T) {
+	e := newEnv(t)
+	priv := writeKey(t, "id_ed25519", "ssh-ed25519 AAAA ana@x")
+	if err := e.run(t, "start", "white/a"); err != nil {
+		t.Fatal(err)
+	}
+	if !e.lab.has("setup authorize sshconfig") {
+		t.Errorf("calls = %v, want setup, then authorize, then sshconfig", e.lab.calls)
+	}
+	if len(e.lab.authorized) != 1 || string(e.lab.authorized[0]) != "ssh-ed25519 AAAA ana@x" || e.lab.configKeys[0] != priv {
+		t.Errorf("lab got keys %q, config for %v; want the learner's key %s", e.lab.authorized, e.lab.configKeys, priv)
+	}
+	if got := installed(t); !strings.Contains(got, "Host dojo") {
+		t.Errorf("dojo_config = %q", got)
+	}
+	if got := savedKey(t); got != priv {
+		t.Errorf("state.SSHKey = %q, want %q", got, priv)
+	}
+	if !strings.Contains(e.out.String(), "ssh dojo is ready") {
+		t.Errorf("output:\n%s", e.out)
+	}
+}
+
+func TestStartWithoutAKeyStillStartsTheKata(t *testing.T) {
+	e := newEnv(t)
+	if err := e.run(t, "start", "white/a"); err != nil {
+		t.Fatal(err)
+	}
+	if e.lab.has("authorize") || installed(t) != "" || savedKey(t) != "" {
+		t.Errorf("nothing should be set up without a key: calls %v, config %q, key %q", e.lab.calls, installed(t), savedKey(t))
+	}
+	if current(t) != "white/a" {
+		t.Error("the kata should be in progress")
+	}
+	for _, want := range []string{"Warning: ssh dojo is not set up", "no SSH key found", "ssh-keygen -t ed25519", "dojo shell"} {
+		if !strings.Contains(e.out.String(), want) {
+			t.Errorf("missing %q in:\n%s", want, e.out)
+		}
+	}
+}
+
+func TestStartSSHFailuresWriteNothingAndKeepTheKata(t *testing.T) {
+	for name, set := range map[string]func(*fakeLab){
+		"authorize fails": func(f *fakeLab) { f.authorizeErr = errors.New("lab said no") },
+		"sshconfig fails": func(f *fakeLab) { f.configErr = errors.New("lab said no") },
+	} {
+		e := newEnv(t)
+		writeKey(t, "id_ed25519", "ssh-ed25519 AAAA ana@x")
+		set(e.lab)
+		if err := e.run(t, "start", "white/a"); err != nil {
+			t.Fatalf("%s: start failed: %v", name, err)
+		}
+		if installed(t) != "" || savedKey(t) != "" {
+			t.Errorf("%s: config %q and key %q written for a setup that failed", name, installed(t), savedKey(t))
+		}
+		if !strings.Contains(e.out.String(), "lab said no") || current(t) != "white/a" {
+			t.Errorf("%s: warning missing or kata not in progress:\n%s", name, e.out)
+		}
+	}
+}
+
+func TestStartKeepsAPinnedKeyAndFallsBackWithAWarning(t *testing.T) {
+	e := newEnv(t)
+	writeKey(t, "id_ed25519", "ssh-ed25519 AAAA ana@x")
+	other := writeKey(t, "id_work", "ssh-ed25519 BBBB work@x")
+	st, _ := state.Load()
+	st.SSHKey = other
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.run(t, "start", "white/a"); err != nil {
+		t.Fatal(err)
+	}
+	if string(e.lab.authorized[0]) != "ssh-ed25519 BBBB work@x" || savedKey(t) != other {
+		t.Errorf("a pinned key must win over the default: %q, saved %q", e.lab.authorized, savedKey(t))
+	}
+	if err := os.Remove(other + ".pub"); err != nil {
+		t.Fatal(err)
+	}
+	e.lab.authorized = nil
+	if err := e.run(t, "start", "white/a"); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.lab.authorized) != 0 || !strings.Contains(e.out.String(), "Warning: ssh dojo is not set up") || !strings.Contains(e.out.String(), "--key") {
+		t.Errorf("a pinned key that vanished must warn, not silently switch keys:\n%s", e.out)
+	}
+}
+
+func TestSSHConfigKeyIsRememberedAfterSuccess(t *testing.T) {
+	e := newEnv(t)
+	writeKey(t, "id_ed25519", "ssh-ed25519 AAAA ana@x")
+	e.run(t, "start", "white/a")
+	other := writeKey(t, "id_work", "ssh-ed25519 BBBB work@x")
+	for _, key := range []string{other, other + ".pub"} {
+		e.lab.authorized = nil
+		if err := e.run(t, "ssh-config", "--key", key); err != nil {
+			t.Fatal(err)
+		}
+		if string(e.lab.authorized[0]) != "ssh-ed25519 BBBB work@x" || savedKey(t) != other {
+			t.Errorf("--key %s: authorized %q, saved %q", key, e.lab.authorized, savedKey(t))
+		}
+		if !strings.Contains(installed(t), other) {
+			t.Errorf("dojo_config does not point at %s:\n%s", other, installed(t))
+		}
+	}
+}
+
+func TestSSHConfigFailuresKeepTheOldKey(t *testing.T) {
+	e := newEnv(t)
+	first := writeKey(t, "id_ed25519", "ssh-ed25519 AAAA ana@x")
+	other := writeKey(t, "id_work", "ssh-ed25519 BBBB work@x")
+	e.run(t, "start", "white/a")
+	before := installed(t)
+	e.lab.calls = nil
+
+	if err := e.run(t, "ssh-config", "--key", filepath.Join(filepath.Dir(first), "missing")); err == nil {
+		t.Error("a missing key should fail")
+	}
+	if e.lab.has("authorize") {
+		t.Error("the lab was touched for a key that does not exist")
+	}
+	e.lab.authorizeErr = errors.New("lab said no")
+	if err := e.run(t, "ssh-config", "--key", other); err == nil || !strings.Contains(err.Error(), "lab said no") {
+		t.Errorf("err = %v", err)
+	}
+	e.lab.authorizeErr, e.lab.configErr = nil, errors.New("config said no")
+	if err := e.run(t, "ssh-config", "--key", other); err == nil || !strings.Contains(err.Error(), "config said no") {
+		t.Errorf("err = %v", err)
+	}
+	if savedKey(t) != first || installed(t) != before {
+		t.Errorf("failed runs changed things: key %q, config %q", savedKey(t), installed(t))
+	}
+}
+
+func TestSSHConfigNeedsALabAndAKey(t *testing.T) {
+	e := newEnv(t)
+	e.lab.noLab = true
+	writeKey(t, "id_ed25519", "ssh-ed25519 AAAA ana@x")
+	if err := e.run(t, "ssh-config"); err == nil || !strings.Contains(err.Error(), "dojo start") {
+		t.Errorf("no lab: err = %v", err)
+	}
+	if e.lab.has("authorize") || installed(t) != "" || savedKey(t) != "" {
+		t.Error("nothing should be done without a lab")
+	}
+	e.lab.noLab = false
+	if err := os.Remove(filepath.Join(os.Getenv("DOJO_SSH_DIR"), "id_ed25519.pub")); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.run(t, "ssh-config"); err == nil || !strings.Contains(err.Error(), "--key") {
+		t.Errorf("unusable default key: err = %v", err)
+	}
+	if err := os.RemoveAll(os.Getenv("DOJO_SSH_DIR")); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.run(t, "ssh-config"); err == nil || !strings.Contains(err.Error(), "ssh-keygen") || e.lab.has("authorize") {
+		t.Errorf("no key: err = %v, calls %v", err, e.lab.calls)
+	}
+}
+
+func TestSSHConfigArgsAndFlags(t *testing.T) {
+	e := newEnv(t)
+	if err := e.run(t, "ssh-config", "extra"); err == nil {
+		t.Error("a stray argument should fail")
+	}
+	if err := e.run(t, "ssh-config", "--nope"); err == nil {
+		t.Error("an unknown flag should fail")
+	}
+	if err := e.run(t, "start", "--key", "x", "white/a"); err == nil {
+		t.Error("--key belongs to ssh-config only")
+	}
+	if e.lab.calls != nil {
+		t.Errorf("lab touched: %v", e.lab.calls)
+	}
+}
+
+func TestCheckPointsSSHAtTheRebootedLabAndSurvivesFailure(t *testing.T) {
+	e := newEnv(t)
+	writeKey(t, "id_ed25519", "ssh-ed25519 AAAA ana@x")
+	e.run(t, "start", "white/a")
+	e.lab.calls = nil
+	if err := e.run(t, "check"); err != nil {
+		t.Fatal(err)
+	}
+	if !e.lab.has("reboot authorize sshconfig check") {
+		t.Errorf("calls = %v, want ssh refreshed after the reboot, before the check", e.lab.calls)
+	}
+	e.lab.authorizeErr = errors.New("lab said no")
+	if err := e.run(t, "check"); err != nil || !strings.Contains(e.out.String(), "Kata passed") {
+		t.Errorf("a failed ssh refresh must not fail the check: %v\n%s", err, e.out)
+	}
+	e.lab.calls = nil
+	e.run(t, "check", "--quick")
+	if e.lab.has("authorize") {
+		t.Error("--quick does not reboot, so ssh needs no refresh")
+	}
+}
+
+func TestInterruptDuringSSHSetupIsReturned(t *testing.T) {
+	e := newEnv(t)
+	writeKey(t, "id_ed25519", "ssh-ed25519 AAAA ana@x")
+	ctx, cancel := context.WithCancel(context.Background())
+	e.lab.onAuthorize = cancel
+	e.lab.authorizeErr = errors.New("signal: killed")
+	err := e.app.Run(ctx, []string{"start", "white/a"})
+	if !errors.Is(err, context.Canceled) || strings.Contains(e.out.String(), "Lab ready") {
+		t.Errorf("err = %v\n%s", err, e.out)
+	}
+}
+
+func TestDoctorReportsTheSSHKeyAndSigning(t *testing.T) {
+	e := newEnv(t)
+	if err := e.run(t, "doctor"); err != nil || !strings.Contains(e.out.String(), "no SSH key found") {
+		t.Errorf("no key: %v\n%s", err, e.out)
+	}
+	if !strings.Contains(e.out.String(), "-> create an SSH key first, then:\n         git config --global gpg.format ssh") {
+		t.Errorf("multi-line advice should be indented under its item:\n%s", e.out)
+	}
+	priv := writeKey(t, "id_ed25519", "ssh-ed25519 AAAA ana@x")
+	e.app.Probe = func(context.Context) doctor.Machine {
+		m := goodMachine
+		m.HasSSHKeygen = true
+		m.GitSigningFormat, m.GitSigningKey, m.GitSignCommits = "ssh", priv+".pub", "true"
+		return m
+	}
+	if err := e.run(t, "doctor"); err != nil || !strings.Contains(e.out.String(), "SSH key found: id_ed25519") || !strings.Contains(e.out.String(), "configured to sign commits with id_ed25519") {
+		t.Errorf("key and signing set: %v\n%s", err, e.out)
+	}
+	other := writeKey(t, "id_work", "ssh-ed25519 BBBB work@x")
+	st, _ := state.Load()
+	st.SSHKey = other
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.run(t, "doctor"); err != nil || !strings.Contains(e.out.String(), "not with the key dojo uses (id_work)") {
+		t.Errorf("doctor must judge the key dojo uses (the pinned one): %v\n%s", err, e.out)
 	}
 }

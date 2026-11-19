@@ -3,10 +3,13 @@ package doctor
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/kibanbuild/dojo/internal/lab"
+	"github.com/kibanbuild/dojo/internal/sshconfig"
 )
 
 func with(m Machine, f func(*Machine)) Machine { f(&m); return m }
@@ -19,6 +22,8 @@ func statusOf(rs []Result, text string) (Status, bool) {
 	}
 	return 0, false
 }
+
+var sshErrNoKey = sshconfig.ErrNoKey
 
 var good = Machine{
 	OS: "linux", MemoryBytes: 16 * gib, FreeDiskBytes: 100 * gib, CPUs: 8,
@@ -119,13 +124,28 @@ func TestParseWindowsFacts(t *testing.T) {
 	}
 }
 
-func TestParseGitIdentity(t *testing.T) {
-	name, email := parseGitIdentity("user.name Ana Pérez\nuser.email ana@x.dev\n")
-	if name != "Ana Pérez" || email != "ana@x.dev" {
-		t.Errorf("got %q <%q>", name, email)
+func TestParseGitConfig(t *testing.T) {
+	cfg := parseGitConfig("user.name Ana Pérez\nuser.email ana@x.dev\ngpg.format ssh\nuser.name Ana P\n")
+	if cfg["user.name"] != "Ana P" || cfg["user.email"] != "ana@x.dev" || cfg["gpg.format"] != "ssh" {
+		t.Errorf("got %v", cfg)
 	}
-	if name, email = parseGitIdentity(""); name != "" || email != "" {
-		t.Errorf("empty config: %q <%q>", name, email)
+	if cfg = parseGitConfig(""); len(cfg) != 0 {
+		t.Errorf("empty config: %v", cfg)
+	}
+}
+
+func TestParseGitVersion(t *testing.T) {
+	for in, want := range map[string][2]int{
+		"git version 2.39.5 (Apple Git-154)\n": {2, 39},
+		"git version 2.45.1.windows.1\n":       {2, 45},
+		"git version 2.34\n":                   {2, 34},
+		"":                                     {0, 0},
+		"git version two.x\n":                  {0, 0},
+		"something else 2.1.0":                 {0, 0},
+	} {
+		if a, b := parseGitVersion(in); a != want[0] || b != want[1] {
+			t.Errorf("parseGitVersion(%q) = %d.%d, want %d.%d", in, a, b, want[0], want[1])
+		}
 	}
 }
 
@@ -206,5 +226,169 @@ func TestParseWindowsFactsKeepsPositions(t *testing.T) {
 	parseWindowsFacts("", &m)
 	if m != (Machine{}) {
 		t.Errorf("empty output: %+v", m)
+	}
+}
+
+func textsOf(rs []Result) string {
+	var b strings.Builder
+	for _, r := range rs {
+		b.WriteString(r.Text + " | " + r.Fix + "\n")
+	}
+	return b.String()
+}
+
+func TestSSHChecks(t *testing.T) {
+	withKey := func(m *Machine) { m.HasSSHKeygen, m.SSHKeyPath = true, "/home/ana/.ssh/id_ed25519" }
+	signing := func(m *Machine) {
+		withKey(m)
+		m.GitSigningFormat, m.GitSigningKey, m.GitSignCommits = "ssh", "/home/ana/.ssh/id_ed25519.pub", "true"
+	}
+	tests := []struct {
+		name string
+		m    Machine
+		text string
+		want Status
+	}{
+		{"key found", with(good, withKey), "SSH key found: id_ed25519", OK},
+		{"no key", with(good, func(m *Machine) { m.HasSSHKeygen = true; m.SSHKeyErr = fmt.Errorf("x: %w", sshErrNoKey) }), "no SSH key found", Warn},
+		{"unusable chosen key", with(good, func(m *Machine) { m.HasSSHKeygen = true; m.SSHKeyErr = errors.New("permission denied") }), "could not use an SSH key: permission denied", Warn},
+		{"no ssh-keygen", with(good, func(m *Machine) { m.HasSSHKeygen = false }), "`ssh-keygen` not found", Warn},
+		{"signing not configured", with(good, withKey), "not set up to sign", Warn},
+		{"format is gpg", with(good, func(m *Machine) { signing(m); m.GitSigningFormat = "openpgp" }), "not set up to sign", Warn},
+		{"gpgsign off", with(good, func(m *Machine) { signing(m); m.GitSignCommits = "false" }), "not set up to sign", Warn},
+		{"signing with dojo's key", with(good, func(m *Machine) { signing(m); m.SigningKeyIsSSHKey = true }), "configured to sign commits with id_ed25519", OK},
+		{"signing with another key", with(good, signing), "not with the key dojo uses", Warn},
+		{"signing, no key to compare", with(good, func(m *Machine) { signing(m); m.SSHKeyPath = "" }), "configured to sign commits with an SSH key", OK},
+		{"git too old", with(good, func(m *Machine) { signing(m); m.GitMajor, m.GitMinor = 2, 30 }), "too old", Warn},
+		{"git 2.34 is enough", with(good, func(m *Machine) { signing(m); m.SigningKeyIsSSHKey = true; m.GitMajor, m.GitMinor = 2, 34 }), "configured to sign", OK},
+		{"git version unknown is not too old", with(good, func(m *Machine) { signing(m); m.SigningKeyIsSSHKey = true }), "configured to sign", OK},
+	}
+	for _, tt := range tests {
+		rs := Evaluate(tt.m, "lima", nil)
+		got, ok := statusOf(rs, tt.text)
+		if !ok || got != tt.want {
+			t.Errorf("%s: status %v (found %v), want %v\n%s", tt.name, got, ok, tt.want, textsOf(rs))
+		}
+	}
+}
+
+func TestSigningChecksSkippedWithoutGit(t *testing.T) {
+	rs := Evaluate(with(good, func(m *Machine) { m.HasGit, m.HasSSHKeygen = false, true }), "lima", nil)
+	if strings.Contains(textsOf(rs), "commits") {
+		t.Errorf("signing reported without git:\n%s", textsOf(rs))
+	}
+}
+
+func TestSSHAdviceMatchesTheMachine(t *testing.T) {
+	fix := func(m Machine, text string) string {
+		for _, r := range Evaluate(m, "lima", nil) {
+			if strings.Contains(r.Text, text) {
+				return r.Fix
+			}
+		}
+		t.Fatalf("no result containing %q", text)
+		return ""
+	}
+	m := with(good, func(m *Machine) { m.HasSSHKeygen, m.SSHKeyPath = true, `C:\Users\Ana\.ssh\id_ed25519` })
+	got := fix(m, "not set up to sign")
+	if !strings.Contains(got, `user.signingkey "C:\Users\Ana\.ssh\id_ed25519.pub"`) || strings.Contains(got, "&&") || strings.Contains(got, `\\`) {
+		t.Errorf("advice must use the found key, one command per line, no doubled backslashes:\n%s", got)
+	}
+	nokey := with(good, func(m *Machine) { m.HasSSHKeygen = true })
+	if got := fix(nokey, "not set up to sign"); !strings.Contains(got, "create an SSH key first") {
+		t.Errorf("no key found, advice should say to create one:\n%s", got)
+	}
+	for goos, want := range map[string]string{"windows": "Optional features", "darwin": "ships with macOS", "linux": "apt install openssh-client"} {
+		if got := fix(with(good, func(m *Machine) { m.OS = goos }), "`ssh-keygen` not found"); !strings.Contains(got, want) {
+			t.Errorf("%s keygen advice = %q, want %q", goos, got, want)
+		}
+	}
+	for goos, want := range map[string]string{"darwin": "brew install git", "windows": "git-scm.com", "linux": "package manager"} {
+		old := with(good, func(m *Machine) {
+			m.OS, m.HasSSHKeygen, m.GitMajor, m.GitMinor = goos, true, 2, 30
+			m.GitSigningFormat, m.GitSigningKey, m.GitSignCommits = "ssh", "k", "true"
+		})
+		if got := fix(old, "too old"); !strings.Contains(got, want) {
+			t.Errorf("%s git advice = %q, want %q", goos, got, want)
+		}
+	}
+}
+
+func writeKey(t *testing.T, dir, name, pub string) string {
+	t.Helper()
+	priv := filepath.Join(dir, name)
+	for p, body := range map[string]string{priv: "PRIVATE", priv + ".pub": pub + "\n"} {
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return priv
+}
+
+func TestProbeSSH(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DOJO_SSH_DIR", dir)
+	pub := "ssh-ed25519 AAAAC3Nza me@x"
+	priv := writeKey(t, dir, "id_ed25519", pub)
+	other := writeKey(t, dir, "id_other", "ssh-ed25519 BBBB other@x")
+
+	tests := []struct {
+		name, chosen, signing string
+		wantMatch             bool
+	}{
+		{"pub path", "", priv + ".pub", true},
+		{"private path", "", priv, true},
+		{"literal key", "", pub, true},
+		{"key:: literal", "", "key::" + pub + " comment", true},
+		{"other key's path", "", other + ".pub", false},
+		{"other literal", "", "ssh-ed25519 BBBB other@x", false},
+		{"missing file", "", filepath.Join(dir, "nope.pub"), false},
+		{"unset", "", "", false},
+		{"chosen key differs from signing key", other, priv + ".pub", false},
+	}
+	for _, tt := range tests {
+		m := Machine{GitSigningKey: tt.signing}
+		ProbeSSH(&m, tt.chosen)
+		if m.SSHKeyErr != nil || m.SigningKeyIsSSHKey != tt.wantMatch {
+			t.Errorf("%s: err=%v match=%v, want match=%v", tt.name, m.SSHKeyErr, m.SigningKeyIsSSHKey, tt.wantMatch)
+		}
+	}
+	var m Machine
+	ProbeSSH(&m, "")
+	if m.SSHKeyPath != priv {
+		t.Errorf("default key = %q, want %q", m.SSHKeyPath, priv)
+	}
+}
+
+func TestProbeSSHExpandsHomeInSigningKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	dir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DOJO_SSH_DIR", dir)
+	writeKey(t, dir, "id_ed25519", "ssh-ed25519 AAAA me@x")
+	m := Machine{GitSigningKey: "~/.ssh/id_ed25519.pub"}
+	ProbeSSH(&m, "")
+	if !m.SigningKeyIsSSHKey {
+		t.Errorf("~/ path not matched: %+v", m)
+	}
+}
+
+func TestProbeSSHFailures(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DOJO_SSH_DIR", dir)
+	var m Machine
+	ProbeSSH(&m, "")
+	if !errors.Is(m.SSHKeyErr, sshErrNoKey) || m.SSHKeyPath != "" {
+		t.Errorf("empty dir: %+v", m)
+	}
+	writeKey(t, dir, "id_bad", "not a key")
+	m = Machine{}
+	ProbeSSH(&m, filepath.Join(dir, "id_bad"))
+	if m.SSHKeyErr == nil || errors.Is(m.SSHKeyErr, sshErrNoKey) || m.SSHKeyPath != "" || m.SigningKeyIsSSHKey {
+		t.Errorf("bad chosen key must be an error, not 'no key': %+v", m)
 	}
 }

@@ -7,7 +7,7 @@ project:
   waiting: "the first learner (FP ASIR/SMR students)"
   monthly_cost: 0
   tracked: true
-  next_gate: "M0: compose stack up locally and a deployed page on a public URL"
+  next_gate: "M0a: the whole stack up with docker compose (public URL deferred to M0b, after the local build)"
   close_if: "no learner passes Support L1 by 2027-03-31, or local labs fail on typical student PCs and hosted machines cost more than the budget allows"
 ---
 

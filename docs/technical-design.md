@@ -823,3 +823,10 @@ parallel (section 5).
   text, live Stripe keys, a11y and UX fixes, E7 and E8, the first school. Launch checklist (phase 6).
 
 M7 and M8 can swap; M5a and M5b must precede M6b.
+
+**Order decided 2026-11-20:** everything is built and tested on the local stack first. M0b and
+every AWS step that hangs off it (ECS, RDS, `pre`, the CLI installer on S3, the EC2 backend and
+its first isolation test in M5a, the exam spend alarm in M6b, Bedrock and SES region checks) run
+after M8 and before M9. Until then M5a and M6b use the container backend, M7 uses the local AI
+stand-in and M3 sends email through Mailpit. The order is M0a, M1 to M8 on the local stack, M0b,
+M9.

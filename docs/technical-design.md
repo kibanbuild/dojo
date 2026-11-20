@@ -14,7 +14,7 @@ side wins; the canvas is fixed in a parallel round.
 
 Category: fast-money. Free to learn, with limits; money only where we pay for machines (Supporter
 and hour packs). Done-line: a first learner finishes Foundations and Support L1 and passes the
-Support L1 work-day exam on a hosted machine by 2026-03-31.
+Support L1 work-day exam on a hosted machine by 2027-03-31.
 
 In v1 (from the brief): the `dojo` CLI with one verb set; local labs by default; hosted EC2
 machines for the role exam and for laptops that cannot run labs, with a browser terminal; the web
@@ -713,7 +713,7 @@ request within 30 days is a manual backup restore, not a soft delete.
 ## 5. Delivery notes
 
 Tickets and exam content are a parallel track to this build (authoring in `kibanbuild/dojo-katas`)
-and the critical path to the 2026-03-31 done-line: Foundations, about 12 Support L1 tickets, two
+and the critical path to the 2027-03-31 done-line: Foundations, about 12 Support L1 tickets, two
 quizzes, writing tasks and one exam definition with its checks. It is tracked in `docs/plan.md`,
 not designed here.
 

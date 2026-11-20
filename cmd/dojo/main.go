@@ -26,6 +26,8 @@ func main() {
 	}
 	app := &cli.App{
 		Out:         os.Stdout,
+		In:          os.Stdin,
+		Err:         os.Stderr,
 		Catalog:     catalog(),
 		BackendName: backend,
 		NewBackend:  lab.New,

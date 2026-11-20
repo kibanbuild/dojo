@@ -37,6 +37,7 @@ Usage:
   dojo hint               show the next hint for the current kata
   dojo check [--quick]    reboot the lab and verify your fix (--quick skips the reboot)
   dojo clean              delete the lab machine
+  dojo mcp                run the mentor server your AI tool connects to (see the README)
 
 Environment:
   DOJO_BACKEND     lab backend (default lima)
@@ -52,7 +53,10 @@ var ErrNotReady = errors.New("this computer is not ready for the labs")
 
 // App holds everything the commands touch.
 type App struct {
-	Out     io.Writer
+	Out io.Writer
+	// In and Err carry dojo mcp's protocol and logs.
+	In      io.Reader
+	Err     io.Writer
 	Catalog fs.FS
 	// BackendName is the configured lab backend; NewBackend builds it.
 	BackendName string
@@ -70,7 +74,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	}
 	cmd, rest := args[0], args[1:]
 	switch cmd {
-	case "list", "status", "hint", "doctor", "start", "shell", "ssh-config", "check", "clean":
+	case "list", "status", "hint", "doctor", "start", "shell", "ssh-config", "check", "clean", "mcp":
 	default:
 		return fmt.Errorf("unknown command %q (see dojo help)", cmd)
 	}
@@ -109,6 +113,8 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		return a.status()
 	case "hint":
 		return a.hint()
+	case "mcp":
+		return a.mcp(ctx)
 	}
 	backend, err := a.NewBackend(a.BackendName)
 	if err != nil {

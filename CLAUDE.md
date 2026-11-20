@@ -1,13 +1,14 @@
 ---
 project:
-  category: open-source
-  phase: 1
-  phase_since: 2026-11-16
-  done_line: "A first learner installs dojo, fixes white/permissions-01 from the README alone and sees it pass"
-  waiting: "the first learner"
+  category: fast-money
+  phase: 4
+  phase_since: 2026-11-20
+  done_line: "A first learner finishes Foundations and Support L1 and passes the Support L1 work-day exam on a hosted machine, by 2026-03-31"
+  waiting: "the first learner (FP ASIR/SMR students)"
   monthly_cost: 0
-  next_gate: define
-  close_if: "local labs are too heavy for typical student PCs and Codespaces cannot cover the gap"
+  tracked: true
+  next_gate: "M0: compose stack up locally and a deployed page on a public URL"
+  close_if: "no learner passes Support L1 by 2026-03-31, or local labs fail on typical student PCs and hosted machines cost more than the budget allows"
 ---
 
 # dojo

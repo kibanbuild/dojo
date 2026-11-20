@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"unicode/utf8"
 )
 
 // State is what the CLI remembers on this machine.
@@ -15,8 +16,25 @@ type State struct {
 	Current    string               `json:"current,omitempty"`
 	HintsShown int                  `json:"hints_shown,omitempty"`
 	Passed     map[string]time.Time `json:"passed,omitempty"`
+	// LastCheck is the tail of the last dojo check's output (at most MaxCheckOutput
+	// bytes), for the mentor to read. Empty until a check has run in this lab.
+	LastCheck string `json:"last_check,omitempty"`
 	// SSHKey is the private key ssh dojo was last set up with; empty means auto-detect.
 	SSHKey string `json:"ssh_key,omitempty"`
+}
+
+// MaxCheckOutput bounds LastCheck so the state file stays small.
+const MaxCheckOutput = 16 << 10
+
+// SetLastCheck keeps the last MaxCheckOutput bytes of out, starting on a character boundary.
+func (s *State) SetLastCheck(out []byte) {
+	if len(out) > MaxCheckOutput {
+		out = out[len(out)-MaxCheckOutput:]
+		for len(out) > 0 && !utf8.RuneStart(out[0]) {
+			out = out[1:]
+		}
+	}
+	s.LastCheck = string(out)
 }
 
 // Dir returns the dojo home directory, honouring DOJO_HOME.

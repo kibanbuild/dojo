@@ -31,7 +31,14 @@ type fakeLab struct {
 	onAuthorize             func()
 	noLab                   bool
 	authorized              [][]byte
-	configKeys              []string
+	// checkOut overrides check.sh's output; checkErr fails the run itself.
+	checkOut []byte
+	checkErr error
+	// mentorCode and mentorErr answer the AGENTS.md script; mentorScripts keeps what it was sent.
+	mentorCode    int
+	mentorErr     error
+	mentorScripts [][]byte
+	configKeys    []string
 }
 
 func (f *fakeLab) Name() string      { return "fake" }
@@ -70,10 +77,21 @@ func (f *fakeLab) Run(_ context.Context, script []byte) ([]byte, int, error) {
 		return []byte("setup output"), f.setupCode, nil
 	case "CHECK":
 		f.record("check")
+		if f.checkErr != nil {
+			return nil, 0, f.checkErr
+		}
+		if f.checkOut != nil {
+			return f.checkOut, f.checkCode, nil
+		}
 		if f.checkCode != 0 {
 			return []byte("PASS  one\nFAIL  two\n"), f.checkCode, nil
 		}
 		return []byte("PASS  one\nPASS  two\n"), 0, nil
+	}
+	if strings.Contains(string(script), "AGENTS.md") {
+		f.record("mentor")
+		f.mentorScripts = append(f.mentorScripts, script)
+		return []byte("mentor output"), f.mentorCode, f.mentorErr
 	}
 	return nil, 99, errors.New("unexpected script")
 }
@@ -836,5 +854,122 @@ func TestCleanReportsAnSSHRemovalFailureAfterDeletingTheLab(t *testing.T) {
 	}
 	if c := current(t); c != "" {
 		t.Errorf("current = %q: the lab is gone, so state must say so", c)
+	}
+}
+
+func TestCheckKeepsItsOutputForTheMentor(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		args  []string
+		code  int
+		wantE error
+	}{
+		{"failing", []string{"check"}, 1, ErrCheckFailed},
+		{"passing", []string{"check"}, 0, nil},
+		{"quick failing", []string{"check", "--quick"}, 1, ErrCheckFailed},
+		{"quick passing", []string{"check", "--quick"}, 0, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.run(t, "start", "white/a")
+			e.lab.checkCode = tc.code
+			e.lab.checkOut = []byte("PASS  one\nFAIL  two: mode is 666\n")
+			if err := e.run(t, tc.args...); !errors.Is(err, tc.wantE) {
+				t.Fatalf("err = %v, want %v", err, tc.wantE)
+			}
+			if st, _ := state.Load(); st.LastCheck != "PASS  one\nFAIL  two: mode is 666\n" {
+				t.Errorf("LastCheck = %q", st.LastCheck)
+			}
+		})
+	}
+}
+
+func TestCheckThatCouldNotRunKeepsThePreviousOutput(t *testing.T) {
+	e := newEnv(t)
+	e.run(t, "start", "white/a")
+	e.lab.checkOut = []byte("first run")
+	e.lab.checkCode = 1
+	e.run(t, "check", "--quick")
+	e.lab.checkErr = errors.New("ssh broke")
+	if err := e.run(t, "check", "--quick"); err == nil {
+		t.Fatal("a check that could not run should fail")
+	}
+	if st, _ := state.Load(); st.LastCheck != "first run" {
+		t.Errorf("LastCheck = %q, want the previous run kept", st.LastCheck)
+	}
+}
+
+func TestStartAndCleanDropTheLastCheck(t *testing.T) {
+	e := newEnv(t)
+	e.run(t, "start", "white/a")
+	e.lab.checkOut = []byte("old run")
+	e.lab.checkCode = 1
+	e.run(t, "check", "--quick")
+	e.run(t, "clean")
+	if st, _ := state.Load(); st.LastCheck != "" {
+		t.Errorf("clean kept LastCheck = %q", st.LastCheck)
+	}
+	e.run(t, "start", "white/a")
+	e.run(t, "check", "--quick")
+	e.lab.recreateErr = errors.New("boom")
+	e.run(t, "start", "white/a")
+	if st, _ := state.Load(); st.LastCheck != "" {
+		t.Errorf("start kept LastCheck = %q", st.LastCheck)
+	}
+}
+
+func TestStartWritesTheMentorFilesAfterTheLabIsReady(t *testing.T) {
+	e := newEnv(t)
+	if err := e.run(t, "start", "white/a"); err != nil {
+		t.Fatal(err)
+	}
+	if !e.lab.has("setup mentor") {
+		t.Errorf("calls = %v, want the mentor files after setup", e.lab.calls)
+	}
+	if len(e.lab.mentorScripts) != 1 {
+		t.Fatalf("mentor scripts = %d, want 1", len(e.lab.mentorScripts))
+	}
+	script := string(e.lab.mentorScripts[0])
+	for _, want := range []string{"Never write the fix", "AGENTS.md", "@AGENTS.md", "chown"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("script missing %q", want)
+		}
+	}
+	for _, leak := range []string{"SETUP", "CHECK"} {
+		if strings.Contains(script, leak) {
+			t.Errorf("script carries kata content %q", leak)
+		}
+	}
+}
+
+func TestMentorFileFailuresWarnAndKeepTheKata(t *testing.T) {
+	for name, set := range map[string]func(*fakeLab){
+		"exit code": func(f *fakeLab) { f.mentorCode = 1 },
+		"run error": func(f *fakeLab) { f.mentorErr = errors.New("vm gone") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			set(e.lab)
+			if err := e.run(t, "start", "white/a"); err != nil {
+				t.Fatalf("start failed: %v", err)
+			}
+			if !strings.Contains(e.out.String(), "Warning: the mentor rules") || !strings.Contains(e.out.String(), "Lab ready") {
+				t.Errorf("want a warning and a ready lab:\n%s", e.out)
+			}
+			if got := current(t); got != "white/a" {
+				t.Errorf("current = %q", got)
+			}
+		})
+	}
+}
+
+func TestMentorFilesNotWrittenWhenSetupFails(t *testing.T) {
+	e := newEnv(t)
+	e.lab.setupCode = 1
+	if err := e.run(t, "start", "white/a"); err == nil {
+		t.Fatal("setup failure should fail start")
+	}
+	if len(e.lab.mentorScripts) != 0 {
+		t.Error("mentor files written into a lab whose setup failed")
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/kibanbuild/dojo/internal/doctor"
 	"github.com/kibanbuild/dojo/internal/kata"
 	"github.com/kibanbuild/dojo/internal/lab"
+	"github.com/kibanbuild/dojo/internal/mentor"
 	"github.com/kibanbuild/dojo/internal/sshconfig"
 	"github.com/kibanbuild/dojo/internal/state"
 )
@@ -134,7 +135,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		st.Current, st.HintsShown = "", 0
+		st.Current, st.HintsShown, st.LastCheck = "", 0, ""
 		if err := a.save(st); err != nil {
 			return err
 		}
@@ -223,7 +224,7 @@ func (a *App) start(ctx context.Context, backend lab.Backend, id string) error {
 	if err != nil {
 		return err
 	}
-	st.Current, st.HintsShown = "", 0
+	st.Current, st.HintsShown, st.LastCheck = "", 0, ""
 	if err := a.save(st); err != nil {
 		return err
 	}
@@ -245,6 +246,9 @@ func (a *App) start(ctx context.Context, backend lab.Backend, id string) error {
 		return err
 	}
 	if err := a.trySSH(ctx, backend, st, true); err != nil {
+		return err
+	}
+	if err := a.tryMentorFiles(ctx, backend); err != nil {
 		return err
 	}
 	fmt.Fprintf(a.Out, "Lab ready in %s.\n\n", a.Now().Sub(t0).Round(time.Second))
@@ -391,11 +395,19 @@ func (a *App) check(ctx context.Context, backend lab.Backend, quick bool) error 
 		return err
 	}
 	a.printResults(out)
+	// Kept for the mentor, after the check ran and whatever its verdict.
+	st.SetLastCheck(out)
 	if code != 0 {
+		if err := a.save(st); err != nil {
+			return err
+		}
 		fmt.Fprintln(a.Out, "\nNot fixed yet. Keep going, or try dojo hint.")
 		return ErrCheckFailed
 	}
 	if quick {
+		if err := a.save(st); err != nil {
+			return err
+		}
 		fmt.Fprintln(a.Out, "\nLooks fixed. Run dojo check without --quick to confirm it survives a reboot.")
 		return nil
 	}
@@ -405,6 +417,41 @@ func (a *App) check(ctx context.Context, backend lab.Backend, quick bool) error 
 	}
 	fmt.Fprintf(a.Out, "\nKata passed: %s.\n", k.Title)
 	return nil
+}
+
+// tryMentorFiles writes the mentor rules into the learner's home in the lab, where
+// an AI tool run through ssh dojo or VS Code Remote reads them. Like ssh dojo it
+// never blocks the kata; only an interrupt is returned.
+func (a *App) tryMentorFiles(ctx context.Context, backend lab.Backend) error {
+	out, code, err := backend.Run(ctx, mentorScript())
+	if cerr := ctx.Err(); cerr != nil {
+		return cerr
+	}
+	if err == nil && code != 0 {
+		err = fmt.Errorf("exit %d: %s", code, strings.TrimSpace(string(out)))
+	}
+	if err != nil {
+		fmt.Fprintf(a.Out, "Warning: the mentor rules (AGENTS.md) were not written in the lab: %v\n", err)
+	}
+	return nil
+}
+
+// mentorScript runs as root and writes AGENTS.md and CLAUDE.md into the lab
+// user's home. Run goes through sudo, so SUDO_USER names that user whatever
+// its uid or home.
+func mentorScript() []byte {
+	var b strings.Builder
+	b.WriteString(`set -eu
+user="${SUDO_USER:-}"
+[ -n "$user" ] && [ "$user" != root ] || { echo "no lab user: the script must run through sudo from the lab user" >&2; exit 1; }
+home=$(getent passwd "$user" | cut -d: -f6)
+[ -n "$home" ] && [ -d "$home" ] || { echo "no lab user home found for $user" >&2; exit 1; }
+cat > "$home/AGENTS.md" <<'DOJO_AGENTS_EOF'
+`)
+	b.WriteString(mentor.AgentsMD())
+	b.WriteString("DOJO_AGENTS_EOF\nprintf '%s\\n' '" + strings.TrimSuffix(mentor.ClaudeMD, "\n") + "' > \"$home/CLAUDE.md\"\n")
+	b.WriteString("chown \"$user:$(id -gn \"$user\")\" \"$home/AGENTS.md\" \"$home/CLAUDE.md\"\n")
+	return []byte(b.String())
 }
 
 // orCanceled reports the interruption instead of whatever the killed command said.

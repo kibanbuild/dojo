@@ -4,8 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestLoadWithoutFileIsEmpty(t *testing.T) {
@@ -74,5 +76,22 @@ func TestDirDefaultsToUserConfigDir(t *testing.T) {
 	}
 	if filepath.Base(dir) != "dojo" || !filepath.IsAbs(dir) {
 		t.Errorf("Dir() = %q, want an absolute path ending in dojo", dir)
+	}
+}
+
+func TestSetLastCheckKeepsTheTailOnACharacterBoundary(t *testing.T) {
+	var s State
+	s.SetLastCheck([]byte("short"))
+	if s.LastCheck != "short" {
+		t.Errorf("LastCheck = %q", s.LastCheck)
+	}
+	// 2-byte runes: an odd cut lands inside one, which must be dropped, not kept as garbage.
+	big := strings.Repeat("é", MaxCheckOutput) + "END"
+	s.SetLastCheck([]byte(big))
+	if len(s.LastCheck) > MaxCheckOutput || !strings.HasSuffix(s.LastCheck, "END") || !utf8.ValidString(s.LastCheck) {
+		t.Errorf("len %d, valid %v, tail %q", len(s.LastCheck), utf8.ValidString(s.LastCheck), s.LastCheck[len(s.LastCheck)-5:])
+	}
+	if len(s.LastCheck) < MaxCheckOutput-4 {
+		t.Errorf("kept only %d bytes, want nearly %d", len(s.LastCheck), MaxCheckOutput)
 	}
 }

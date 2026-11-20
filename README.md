@@ -17,9 +17,36 @@ bin/dojo hint              # the next hint
 bin/dojo shell             # a terminal inside the lab
 bin/dojo check             # reboots the lab and verifies your fix (--quick skips the reboot)
 bin/dojo clean             # deletes the lab
+bin/dojo mcp               # the mentor server for your AI tool (see below)
 ```
 
 It needs [Lima](https://lima-vm.io/) on macOS or Linux.
+
+## Let your AI mentor you
+
+`dojo mcp` is an [MCP](https://modelcontextprotocol.io/) server over stdio for your own AI tool.
+It lets the AI read your current ticket, the output of your last `dojo check` and the hints you
+already opened, so it can explain and point you to documentation. It is read-only and has no way
+to reach a solution: the ticket text and the hints you opened are all it can see. It does not
+start labs or run commands.
+
+Claude Code:
+
+```sh
+claude mcp add dojo -- dojo mcp
+```
+
+Any other client that reads an `mcpServers` config (Cursor, VS Code with Copilot, and others):
+
+```json
+{
+  "mcpServers": {
+    "dojo": { "command": "dojo", "args": ["mcp"] }
+  }
+}
+```
+
+Use the full path to the binary if `dojo` is not on your `PATH`.
 
 ## Develop
 

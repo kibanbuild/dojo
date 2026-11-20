@@ -1,14 +1,37 @@
-# Technical design: the Dojo web, v1
+# Technical design: Dojo v1
 
-Status: draft for review. Scope: the white belt web described in the vision ("Web for v1") and
-drawn on the design canvas. Everything parked on the canvas ("Later") stays out: public
-portfolio, project review, community pages, belt share images, a chat mentor.
+Status: draft for review, rewritten 2026-11-20 for the paths, roles and work-day exam model.
+It replaces the belt and kata design of 2026-11-19. Updated the same day with the project's answers to
+the open questions (exam grading and appeals, onboarding, waitlist, share link, caps, domain,
+accounts).
 
-The CLI and the local labs already exist in this repo (`cmd/dojo`, `internal/lab`). This document
-covers what v1 adds around them: the web, an API, a database, sign-in, the `dojo mcp` server and
-the belt exam that runs on our machines.
+Sources of truth: the project brief of 2026-11-20, the design canvas v104 (its Map lists every
+screen, codes below are the Map's) and the design ledger, both kept outside this repo. Where this document needs something none of them decides, it says
+NEEDS-DECISION. Section 6 lists every place where the canvas and the brief disagree and says which
+side wins; the canvas is fixed in a parallel round.
 
-## 1. Shape
+## 0. Scope and shape
+
+Category: fast-money. Free to learn, with limits; money only where we pay for machines (Supporter
+and hour packs). Done-line: a first learner finishes Foundations and Support L1 and passes the
+Support L1 work-day exam on a hosted machine by 2027-03-31.
+
+In v1 (from the brief): the `dojo` CLI with one verb set; local labs by default; hosted EC2
+machines for the role exam and for laptops that cannot run labs, with a browser terminal; the web
+(public pages, onboarding with "pick your path", Today, Path, ticket page with written hints and
+the AI hint button, Practice, the role exam, "Ready for: Support L1", track record, emails, PWA);
+Free, Supporter and hour packs through Stripe; usage analytics (EU, consent) and CLI telemetry
+with opt-out.
+
+Out of v1 (binding non-goals): Systems L2, Junior DevOps, SOC L1, Dev fundamentals, Backend,
+Frontend (paths are drawn, not built); a Data path; chat with the AI on the site; peer review;
+public portfolio and community pages; a Teams plan; per-learner ticket variants for practice; belt
+marks beyond what Foundations and Support L1 need; any promise of a job or salary. Where a
+non-goal touches a screen, this document designs at most a seam (a column or a flag) and says so.
+
+The CLI and the local labs exist in this repo (`cmd/dojo`, `internal/lab`, `internal/kata`,
+`internal/doctor`, `internal/sshconfig`, `internal/state`; the mentor files and `dojo mcp` are in
+flight in PRs 6d and 6e). This document covers the CLI changes v1 needs and everything around it.
 
 ```mermaid
 flowchart LR
@@ -17,371 +40,786 @@ flowchart LR
     ai[Learner's own AI] -- stdio --> mcp[dojo mcp]
     term[Terminal / VS Code] -- ssh dojo --> lab
   end
-  browser[Browser / PWA] -->|HTTPS, session cookie| api
-  site[Static site<br/>site/] --> browser
-  cli -->|HTTPS, CLI token| api[API<br/>cmd/dojo-server]
-  api --> db[(Postgres)]
-  api --> runner[Exam runner]
-  runner --> exam[(Exam machine<br/>one per attempt)]
-  term -. ssh exam .-> exam
-  api --> mail[Email provider]
-  api --> push[Web Push]
+  browser[Browser / PWA] -->|HTTPS| cf[CloudFront]
+  cli -->|HTTPS, CLI token| cf
+  cf -->|static| s3[(S3: site, app, installers)]
+  cf -->|/v1/*| api[API<br/>dojo-server, ECS]
+  api --> db[(Postgres, RDS)]
+  api --> bedrock[Bedrock<br/>hint button, reviews]
+  api --> stripe[Stripe]
+  api --> ses[SES email]
   api -. sign-in .-> gh[GitHub OAuth]
+  api == mTLS ==> runner
+  subgraph machines[AWS account: dojo-machines]
+    runner[Runner + gateway<br/>dojo-runner, ECS] --> ec2[(EC2 lab and exam machines<br/>private, no egress)]
+    runner --> checker[(One-use checker)]
+  end
+  browser -- WebSocket terminal --> runner
+  term -. ssh exam / ssh dojo hosted .-> runner
 ```
 
-Four pieces, one repo:
+Pieces, one repo (public now; it will likely become one private monorepo, section 1.6):
 
 | Piece | Where | What it does |
 |---|---|---|
-| Site | `site/` | Public pages, onboarding, the learner app, lessons. Static build plus interactive islands. |
-| API | `cmd/dojo-server`, `internal/server/...` | Sign-in, progress, quizzes, inbox, notifications, exams. The only writer to the database. |
-| CLI | `cmd/dojo` (exists) | Labs, checks, hints, `dojo login`, `dojo mcp`, `dojo exam`. Reports progress to the API. |
-| Exam runner | `cmd/dojo-runner`, `internal/exam/...`, next to the exam backend | Starts, checks and destroys one exam machine per attempt; also runs the SSH gateway. The API drives it over mTLS. |
+| Site and app | `web/` | Public pages (static Astro) and the signed-in app (one React SPA). |
+| API | `cmd/dojo-server`, `internal/server/...` | Sign-in, progress, hints, billing, exams, emails. The only writer to the database. |
+| Runner | `cmd/dojo-runner`, `internal/runner/...` | Starts, pools, checks and destroys machines; SSH gateway; browser terminal. Runs in the machines account. |
+| CLI | `cmd/dojo` (exists) | Labs, checks, hints, `dojo login`, `dojo exam`, `dojo mcp`. |
+| Infra | `infra/` | OpenTofu for both accounts. |
 
-The web and the API stay in this monorepo while they release together. They move out only if
-their stack or release rhythm calls for it (vision, Platform).
+## 1. Stack and services
 
-## 2. Stack, and why each piece
+### 1.1 Choices and why
+
+Each row says why for this project. Nothing is here because another Kiban project uses it.
 
 | Layer | Choice | Why this and not the alternative |
 |---|---|---|
-| Site | Astro (static output) + React islands, Tailwind 4, shadcn/ui primitives | Most pages are content or read views; Astro ships no JS by default. Islands for the interactive parts (path graph, quiz, exam progress, command palette, inbox). shadcn/ui is the kit the identity board was drawn on. Starlight for lessons when lessons arrive (not v1). |
-| API | Go, `net/http` routing, `pgx` + `sqlc`, `goose` migrations | Same language as the CLI: the kata format (`internal/kata`) and lab code are shared, not re-implemented. `sqlc` keeps SQL visible and typed without an ORM. |
-| Database | Postgres | Relational data with constraints (one active exam per learner, unique usernames). Nothing in v1 needs more. |
-| Sign-in | GitHub OAuth App (web flow + device flow) | Every learner needs GitHub anyway (repo, SSH key, signing). No passwords to store. |
-| Email | A transactional provider behind an adapter; Mailpit in compose | Only E1 (welcome, sent on the first sign-in) and E2 (belt earned, sent when the result is final) in v1. The adapter keeps the provider swappable. |
-| Push | Web Push with VAPID keys, sent by the API | No third-party push service; the browser vendors' endpoints only. |
-| Exam machines | One fresh VM per attempt, from an image, destroyed after (section 7; backend open) | Checks read the disk from outside the guest and egress is filtered outside it, which a hosted container-VM cannot give us. |
+| API | Go, `net/http` routing, `pgx` + `sqlc`, `goose` | The CLI is Go, so the ticket format, the check protocol and the lab code are shared, not rewritten. `sqlc` keeps SQL visible and typed; the schema is relational and small, an ORM adds nothing. |
+| Database | Postgres on RDS (`db.t4g.micro`, single AZ, daily backups, 30-day retention) | Constraints do real work here: one open exam per learner, unique usernames, a role pass needs a passed exam. RDS, not Aurora: Aurora is blocked on a Free-plan account and costs more than we need. One task fans live updates out with `LISTEN/NOTIFY`, so no cache or broker is needed. |
+| Public pages | Astro, static output, Tailwind 4, shadcn/ui tokens | The distribution plan rests on search ("prácticas ASIR/SMR"), so public pages must be real HTML with no JavaScript needed to read them. |
+| Signed-in app | One React SPA (Vite build) mounted at `/app` by an Astro page, React Router, TanStack Query, xterm.js | The app keeps state across screens: the command palette (K1), the inbox bell (N1), the live check mirror and the exam clock must survive navigation. Per-page islands would reload them on every move. No SEO is needed behind sign-in. |
+| Live updates | Server-sent events (`GET /v1/stream`) from the API, `LISTEN/NOTIFY` between tasks | The web mirrors what the CLI reports (O3 "this page updates while you run it", L3 check results, H1 progress). One-way push is all that is needed; SSE passes CloudFront and the ALB without extra setup. Fallback: polling every 5 s. |
+| Browser terminal | xterm.js, WebSocket to the runner, the runner opens SSH to the machine | Brief and design decision 2026-11-20. The runner holds the only route to the private machines. |
+| Hosting, web and API | CloudFront in front of S3 (static) and an ALB (`/v1/*`, WebSocket); API on ECS Fargate (ARM) | All-in on AWS (decided 2026-11-20). Fargate: no host to patch. Not Lambda or App Runner: the API holds SSE and long-lived connections. One origin for site and API: no CORS, `SameSite` cookies just work, and the domain choice no longer constrains the design. The ALB accepts only CloudFront (managed prefix list plus a secret header). This choice does not depend on the parked one-shared-platform decision: everything here is Dojo's own account and is easy to move. |
+| Region | `eu-south-2` (Spain) for both accounts, if Bedrock (and SES) are available there | Learners are in Spain; prices from the research (2026-11-19) match between the two regions for `t3.small`. Availability of the Bedrock model and SES in `eu-south-2` is not verified: M0b checks it. Fallback, decided now: Bedrock (and SES if needed) in `eu-west-1`, or the EU cross-region inference profile, with everything else staying in `eu-south-2`. |
+| Hosted machines | EC2 `t3.small` from a Packer AMI, private subnet, no public IP, no egress, no instance profile, IMDS off, separate account | Per-machine isolation, per-second billing, security groups enforced outside the guest. Measured cost about EUR 0.025 per hosted hour. Fly Machines, E2B and Hetzner were compared and lost on systemd, egress control or checker access (ledger 2026-11-20). See ADR 0001. |
+| Warm pool | A pool of running spare instances kept by the runner (1, 3, 10 at 100, 1,000, 10,000 active learners) | Cuts the 30 to 90 s start to a few seconds. About EUR 15 per spare instance per month; the pricing research says to cut it first if conversion stays low. Not the Auto Scaling warm pool: it keeps stopped instances and we do not use an Auto Scaling group. |
+| Sign-in | GitHub OAuth App: web flow and device flow | Every learner needs GitHub anyway (repo, SSH key, signed commits). No passwords. |
+| Payments | Stripe: Checkout, Customer Portal, webhooks | Chosen 2026-11-20. Monthly and yearly Supporter prices, one-off hour packs. Tax handling (Stripe Tax, a merchant of record or a gestor) and the GDPR review for 14 to 17 year olds are decided before the first charge (M8), not before building starts (section 7). |
+| Email | Amazon SES over SMTP, from `carmen@` and `hello@` the domain | Same cloud, cents per thousand. SMTP gives one code path in production and in compose (Mailpit speaks it). Bounces and complaints come back through SNS to an API endpoint. Needs SES production access before launch. |
+| Push | Web Push with VAPID keys sent by the API | No third-party push service. |
+| AI hint button and reviews | Amazon Bedrock, a Haiku-class Claude model, called through an adapter | All-in on AWS (decided 2026-11-20), pays per token, and the provider does not train on inputs (verify in AWS service terms before launch). Cost estimate in the pricing research: about EUR 0.04 per learner a month. Exact model id and region verified in M7. |
+| Web analytics | PostHog Cloud EU, loaded only after consent | Confirmed 2026-11-20: EU hosting, consent first. |
+| CLI telemetry | Our own `POST /v1/telemetry`, a table in our database, kept 12 months | The CLI must not talk to a third party. Opt-out with `dojo telemetry off`; events carry command names, results and timings, never files or output. A daily job deletes rows older than 12 months. |
+| Infrastructure as code | OpenTofu in `infra/`, state in S3, GitHub OIDC for CI | Portable HCL with no long-lived AWS keys. |
+| Domain and accounts | `dojo.kyoten.dev`, kept a config value (`PUBLIC_ORIGIN`); an AWS Organization with an app account and a machines account, created in M0b | Decided 2026-11-20. Dojo may get its own domain later, so no code, cookie name or email template hardcodes the host. `kyoten.dev` is not registered yet (ledger): NEEDS-DECISION to buy it; until then M0b runs on the CloudFront default domain. |
+| Environments | `pre` from M0b, `pro` created only at launch | Halves fixed cost until there are learners (the research estimates about USD 55 to 60 per environment). `pre` and `pro` are separate stacks (VPC, database, ECS) in the app account; the machines account holds the machine networks of both. Names are `pre` and `pro`, never "prod". |
 
-Engineering bars that apply from the first commit:
+### 1.2 Engineering bars (from the first commit)
 
-- **Supply chain (site):** pnpm, exact versions, `save-exact=true`, committed lockfile,
+- **Supply chain (web):** pnpm, exact versions, `save-exact=true`, committed lockfile,
   `--frozen-lockfile` in CI, `pnpm audit` and OSV failing on high or critical, install scripts off,
   every dependency justified in its PR, an SBOM per release.
-- **Layers (API):** handlers stay thin; logic in `internal/server/service/<domain>`; database access
-  in `internal/server/repo`; external systems (GitHub, email, push, exam backend, AI) behind adapters
-  with one interface each.
-- **Tenant column from day one:** every learner-owned row carries `org_id`. In v1 there is one org,
-  "public". Schools (teacher dashboard) later become orgs without a migration of every table.
-- **Tests:** `test` is unit; `test:integration` runs against the real stack in docker compose
-  (Postgres, Mailpit, a fake GitHub OAuth server, the exam runner with a local backend). No mocks of
-  services we own a real stand-in for.
+- **Layers (API):** handlers thin; logic in `internal/server/service/<domain>`; database access in
+  `internal/server/repo`; every external system (GitHub, Stripe, SES, Bedrock, the runner,
+  PostHog) behind an adapter with one interface.
+- **Tenant column from day one:** every learner-owned row carries `org_id`. v1 has one org,
+  `public`. Teams are parked; the column costs nothing and avoids a migration of every table.
+- **Webhooks:** none leave us in v1. Inbound ones are verified: Stripe by its signature header, SNS
+  by its signing certificate. If we ever send one it carries HMAC-SHA256.
+- **Tests:** `test` is unit; `test:integration` runs against the real stack from
+  `docker compose` (section 1.7), never mocks. Isolation is not testable on a container backend:
+  an end-to-end exam on real EC2 with escape attempts (a planted symlink, a removed firewall rule,
+  a job left running in a pause) is a gate before `pro`.
+- **Workflows** follow the repo rules: one file per component and purpose (`Web: Tests`,
+  `API: Tests`, `Infra: Plan`), Harden Runner, SHA-pinned actions, required checks never
+  path-filtered (steps skip inside the job using our own `git diff`).
 
-## 3. Screens to routes
+### 1.3 Hosted machines
 
-The canvas Map is the source of truth for screens. Every Map card maps to a route or a state of one.
+The runner talks to a `Backend` interface (`Create`, `Assign`, `Exec`, `Stop`, `DetachDisk`,
+`CheckDisk`, `Destroy`), the same idea as the local `lab.Backend`. Implementations: `ec2` and a
+container backend for compose.
 
-| Map | Route | Rendering | Notes |
+- **Network:** each machine has a private IP, a security group with no egress and ingress only
+  from the runner's group, no instance profile, IMDS disabled, and a hard lifetime cap (the
+  deadline plus one hour for exams, the session cap for labs) so a stuck machine cannot bill
+  forever. Per-ticket egress allowlists are a seam, not built: v1 machines have no internet.
+- **Control channel:** the runner SSHes in with its own key (public half baked into the AMI).
+  There is no SSM and no instance role, so nothing on the machine can call AWS.
+- **Assign:** a warm machine is taken from the pool, tagged to the learner, the ticket's
+  `setup.sh` runs over SSH ("breaking the server on purpose", H1), and the learner's public key is
+  authorized for that machine only. With an empty pool the runner launches a new instance (30 to
+  90 s) and H1 says so.
+- **Gateway:** the runner runs a small Go SSH server on a public endpoint. `dojo ssh` and
+  `dojo exam` connect with the learner's own key, which is accepted only for that learner's open
+  machine, then proxy to the private IP. The browser terminal does the same from a WebSocket to the
+  runner (a `term.` hostname in `pre` and `pro`, the `/term` path on Caddy locally),
+  authenticated by a one-minute ticket the API mints from the session. The CLI writes an
+  `ssh exam` and `ssh dojo` host entry as it does today. Public endpoint type (NLB or a single
+  Elastic IP on a Fargate task) is chosen in M5b on cost.
+- **Metering:** a `hosted_sessions` row opens when the terminal first opens and closes when the
+  machine ends. Free hosted lab sessions are capped at 90 minutes and stop after 15 minutes idle
+  (decided 2026-11-20). The role exam is never metered: it does not draw on hosted hours, on any
+  plan, and its session is recorded as `counted_as = exam` for cost tracking only.
+- **Supporter hosted hours (fair use).** Supporter lab hours are not unlimited: a soft cap of
+  60 hours a month (about 2 hours a day) after which the app asks for an hour pack (pricing research wording), and a hard stop at 100 hours a month (numbers from the
+  pricing research). Both live in `system_flags` (`supporter_soft_cap_h`, `supporter_hard_cap_h`)
+  and are served with the quota by `/v1/me`, so `dojo status --quota` and E4 read them from
+  `hosted_sessions` totals without a second source. The exam is never counted against them.
+- **Machine ceilings.** `system_flags.max_concurrent_machines` caps every running machine, and
+  `system_flags.max_free_lab_machines` caps the share free learners can hold (the free-pool
+  ceiling). When a ceiling is hit, a new lab start is queued, not refused: H1 and `dojo start`
+  say "All hosted machines are busy. You are number N in line; we will start yours as soon as one
+  frees up." Exam machines are never queued behind labs: each exam slot is reserved outside the
+  free-lab ceiling, so an exam that passed preflight never loses its slot.
+- **Abuse limits.** Sign-in and machine starts are rate-limited by IP (and by learner on starts)
+  at the API, so farmed accounts cannot drain the free pool. The exam has its own spend alarm: an
+  AWS Budget on the machines account at EUR 100 a month for exam machines, emailing us at 80 and
+  100 percent.
+- **Exam checks run outside the guest** (ADR 0001): stop the machine gracefully, force it off
+  after 30 seconds, attach its root volume to a one-use checker with no network (the runner reads
+  results over the checker's SSH, which needs no outbound), mount read-only with `noload,nodev,
+  nosuid,noexec`, and run the checks against that tree. File content is treated as hostile data:
+  no symlink follows out of the mount (`openat2` with `RESOLVE_IN_ROOT`), nothing from the disk is
+  executed. A crafted filesystem attacks the checker's kernel and could in principle forge its
+  output; v1 accepts that for a step on our own path rather than a third-party credential, and the
+  checker is destroyed after every use. Whether to read with userspace tools instead of a kernel
+  mount is decided in the M6b spike. Consequence for content: Support L1 exam tickets are written
+  as file-state checks (configs, enabled units, permissions, rotation rules).
+
+### 1.4 AI hint button and reviews
+
+One adapter, one endpoint family, two uses.
+
+- **Hint (`POST /v1/hints/ai`, also `dojo hint`):** needs an active ticket id. The server loads the
+  ticket brief and the written hints the learner already opened, plus the last check output (cut at
+  16 KB), and calls Bedrock. It sends nothing else. Rules, all server side, none in the prompt:
+  3 per ticket on Free and 10 on Supporter; each hint is unlocked by a failed check since the
+  previous one; each one is more specific than the last and never the command; a hint is refused on
+  an exam machine and in role exams; input capped at 6,000 tokens and output at 400; one request
+  per 20 seconds. The reply is checked before it is shown: any code block, or a match against the
+  ticket's `hint_guard` patterns (derived from the private solution and kept in the API-only
+  `catalog_secrets` table, section 3.3; the CLI never has them), rejects it and the learner gets the next written hint instead.
+- **Spend control (decided 2026-11-20):** every call records its tokens in `ai_hints`. A hidden
+  daily cap of 20 AI hints per learner (never shown in the UI; hitting it reads as "no more hints
+  today, try the written hints, back tomorrow") and a monthly Bedrock spend cap of EUR 50. The
+  app estimates spend from recorded tokens and, at the cap, sets `system_flags.ai_enabled` to
+  false; an AWS Budget alarm at 80 percent and 100 percent of EUR 50 emails us and is the backstop
+  if the estimate drifts. When AI is off, the button on L3 is disabled with the text "AI hints are
+  paused for now. The written hints still work", `dojo hint` says the same, nothing is charged
+  to the learner, and writing-task and exam rubric reviews keep their own reserve: the reserve is
+  a separate flag (`ai_reviews_enabled`) that only the operator turns off, so a hint spike can
+  never block an exam grade.
+- **Review (writing tasks, story tone, simulated feedback rounds):** the same adapter returns a
+  rubric review as strict JSON (a list of named boolean criteria with a quoted line as evidence).
+  Feedback only: it never decides a role. The exam is the exception, section 2.7, where the same
+  booleans feed the pass rule and a person confirms each grade while volume is low.
+- **Privacy:** terminal output of learners aged 14 to 17 goes to a processor. Legal review is open
+  (section 7).
+
+### 1.5 Environments, delivery, operations
+
+| Environment | What | How |
+|---|---|---|
+| local | The whole product, `docker compose up` (section 1.7) | Docker and Docker Compose only |
+| `pre` | Real GitHub OAuth app, Stripe test mode, SES sandbox, real Bedrock, a small machine pool of its own | Deploy on merge to `main` |
+| `pro` | Same shape in its own stack in the app account, real Stripe, warm pool sized to the active learners | Deploy on a release tag, created at launch |
+
+- API and runner are container images on ECR (pushed over GitHub OIDC); migrations run as a
+  one-off ECS task before each deploy; the site and app are synced to S3 and invalidated.
+- Logs are JSON to CloudWatch with a request id that the 500 page (X2) shows. Metrics and alarms:
+  request errors, machines running, exam start latency and failure rate (alarm over 2%, a kill
+  trigger in the pricing research), hosted spend against revenue, Bedrock spend, SES bounces.
+- Maintenance (X3) is a `system_flags` value the API serves; the CLI keeps working on local labs
+  and queues events.
+- Backups: RDS daily, 30 days. The privacy page says deleted accounts leave backups within 30 days.
+
+### 1.6 Distribution, and the switch to a private repo
+
+The repo is public now and will likely become one private monorepo (CLI, web, API). Nothing may
+depend on its being public:
+
+- The installer (`curl -fsSL <domain>/install | sh`) and the binaries are served from our own S3
+  and CloudFront (`/dl/<version>/dojo-<os>-<arch>` plus a checksum manifest signed with a key the
+  script knows). The release workflow builds with GoReleaser and uploads over OIDC; GitHub Releases
+  is not used. There is no Homebrew tap in v1.
+- The API tells the CLI the minimum version it supports (`min_cli_version`); `dojo doctor` and
+  `dojo exam check` report an outdated CLI.
+- Ticket bundles (`ticket.yaml`, `setup.sh`, `check.sh`, no solutions) are built from the private
+  catalog repo (`kibanbuild/dojo-katas`) into S3 and fetched by `dojo start` through the API, with
+  a `catalog_version`. A ticket can be fixed without a CLI release. Solutions, wrong-fix tests,
+  the exam pool and exam checks stay in the private repo and on the runner, never in a bundle.
+  The hint guard patterns travel the other way: the deploy job reads them from the private catalog
+  repo and writes them to `catalog_secrets` (API-only, section 3.3) in the same step that loads
+  `catalog_items`; they are not in S3 and no endpoint serves them.
+- **`check.sh` ships.** It is in every bundle and on hosted labs, so a practice ticket's expected
+  end state is readable by the learner and by their AI. That is an accepted limit of practice,
+  which is self-reported anyway (section 3.2). Exams never ship checks.
+- **Going private.** On the free GitHub org plan, private repos lose rulesets and get capped
+  Actions minutes. The move to a private monorepo therefore goes together with GitHub Team.
+- "Report a broken ticket" and "I'm stuck: get help" post to our API (section 3.3,
+  `ticket_reports`) instead of opening a GitHub issue, so they keep working when the repo closes.
+- The learner's own practice repo (`<login>/dojo`) is theirs and unaffected.
+
+### 1.7 Local stack
+
+Every piece must run locally with Docker and Docker Compose, and one `docker compose up` brings up
+the whole product. The AWS deployment stays the target, but nothing is built against AWS first:
+every milestone is built and tested on the local stack, and deploying to `pre` is a separate step.
+Each external service sits behind an adapter (section 1.2); production and local differ only in
+configuration and the adapter implementation chosen, never in the code that calls it.
+
+| Piece | Production | Local stand-in | Not covered locally |
 |---|---|---|---|
-| P1 Landing | `/` | static | Copyable install command; no sign-in needed. |
-| P2 How it works | `/how-it-works` | static | |
-| P3 Belts | `/belts` | static | |
-| P4 Requirements | `/requirements` | static | Same numbers as `dojo doctor`. |
-| O1-O5 Onboarding | `/start/1` ... `/start/5` | island | Mirrors the terminal: each step turns green from CLI events (section 5). O3 blocked state: online labs are not built in v1, so the offer is a "tell me when" sign-up (`learners.lab_waitlist`) plus a link to the requirements. |
-| L1 Today | `/today` | island | First-run variant after O5. |
-| L2 Path | `/katas` | island | The git graph; data from `GET /v1/path`. |
-| L3 Kata | `/katas/:belt/:name` | island | Ticket, fixed-means, hints, "mirrored from your laptop" panel. States: lab starting, failed, expired, passed, revisit. "Report a broken kata" and O3's "I'm stuck: get help" open a prefilled GitHub issue form on `kibanbuild/dojo` (kata id, CLI version, last check); no endpoint of ours in v1. |
-| L4 Story | `/story` | island | |
-| L6 Exam | `/exam/:belt` | island | Preflight, run, pause, defend, not-yet. Own header, no app nav. |
-| L7/L8 Celebrations | `/stripe/:n`, `/belt/:belt` | island | Shown once, then reachable from the inbox. |
-| L9 Writing kata | `/katas/:belt/:name` (kind `writing`) | island | Draft plus rubric review. |
-| L11 Quiz | `/quiz/:id` | island | Never blocks progress. |
-| N1 Inbox | dropdown / `/inbox` on phone | island | |
-| K1 Command palette | everywhere in the app, desktop | island | |
-| S1-S4 Settings | `/settings/{account,notifications,phone,ai}` | island | S1 holds username, language, extra time, danger zone. |
-| W1-W4 Phone app | manifest, service worker | static | Install sheet, notification ask, offline page. |
-| X1-X3 System | `/404`, `/500`, `/maintenance` | static | 500 shows the request id. |
-| LG1 Legal | `/privacy` (tabs Terms, Code of conduct) | static | States what we keep after an account is deleted (section 6). |
-| E1, E2 | email templates in the API | server | Light only. |
+| Edge (site, `/v1/*`, WebSocket) | CloudFront, S3, ALB | Caddy in front of the web build and the API on `http://localhost:8080`, same single origin and path routing | CDN caching, TLS, the ALB-only-from-CloudFront rule |
+| Web and app | S3 static | Vite dev server for `make dev`, or the built static files served by Caddy | none |
+| API | ECS Fargate | The same container image | Fargate limits |
+| Database | RDS Postgres | Postgres in a container, same major version, migrations run by a one-off service | RDS backups, failover |
+| Installer, binaries, ticket bundles | S3 over CloudFront | MinIO (S3 API, so the same adapter and presigned URLs) | CloudFront signing |
+| Email (E1 to E8) | SES over SMTP | Mailpit (SMTP in, web inbox to read) | Deliverability, DKIM, SNS bounce delivery (tests post a signed bounce payload to the endpoint) |
+| Payments | Stripe | `stripe-mock` (Stripe's own mock API) for Checkout and Portal calls. Webhooks are sent by a small test helper that signs them with a local signing secret, so the handler verifies signatures exactly as in production. The Stripe CLI forwarder is not used: it needs a Stripe account and the network | Real Stripe behaviour, Tax, 3-D Secure |
+| AI hints and reviews | Bedrock | The same adapter pointed at a deterministic stand-in (fixed replies keyed on the ticket and the hint number, used by every test). An optional compose profile points it at Ollama with a small local model to try real wording | Real model quality, quotas, Bedrock spend |
+| Web analytics | PostHog Cloud EU | An analytics adapter with a local sink (a log line and a table), so nothing leaves the machine | PostHog itself |
+| CLI telemetry | Our endpoint | The same endpoint and table | none |
+| Sign-in | GitHub OAuth App (web flow, device flow, check-token and revoke endpoints) | A small fake GitHub in the repo that implements those endpoints (a generic OIDC stand-in such as dex does not implement GitHub's device flow or token check). The API reads the GitHub base URL from config | GitHub's real consent screen, rate limits |
+| Hosted machines | EC2 in the machines account | The runner with a container backend: each machine is a systemd-capable container on an internal Docker network with no route out, started through the Docker socket (a development-only privilege, never in `pre` or `pro`). The warm pool, assignment, SSH gateway, browser-terminal WebSocket, pause and metering all run. The check flow is scoped to "exercises the same runner code path": a container rootfs is not a detachable volume, so the local machine keeps the state to be checked on a named Docker volume (not its rootfs), and the checker is a second container that mounts that volume read-only. systemd inside Docker Desktop is fragile; the M6b spike proves the local design (or the claim stays at this scope) | Real isolation (security groups, IMDS, no instance role), EBS detach and attach, kernel-mount attacks, real start times. The EC2 exam with escape attempts is the gate for this |
+| API-to-runner mTLS | Private CA certificates, client cert on the API, server cert on the runner | The same mTLS code path: a one-off compose service generates a throwaway CA and the two certificates into a shared volume at start; the API and runner load them like in `pre` | Real certificate issuance and rotation |
+| Machine image | Packer AMI | A Dockerfile per image | Packer |
+| Push | Browser vendors' endpoints | A local push endpoint stub | Real delivery |
+| Infrastructure | OpenTofu | none | All of it, checked by `Infra: Plan` in CI |
 
-The app pages are static shells that fetch from the API with the session cookie. A signed-out
-visit to an app route redirects to sign-in and back. The site never holds secrets.
+- One `compose.yaml` starts all of it; profiles keep the heavy parts optional (the Ollama model,
+  the browser end-to-end tests). `make dev` is `docker compose up` plus the web dev server.
+- Secrets in local are fixed test values in `.env.example`. The public origin is a config value
+  (`PUBLIC_ORIGIN`), `http://localhost:8080` locally.
+- `test:integration` runs against this stack and never mocks a service we have a stand-in for. The
+  fake GitHub and the deterministic AI stand-in are ours; each gets one smoke test against the
+  real service in `pre`.
 
-**Offline (W4):** the service worker caches the app shell, the current kata's ticket and its
-opened hints. Writes made offline are not queued: the page says it is offline and the CLI keeps
-working against the local lab.
+## 2. App flow
 
-## 4. Sign-in and tokens
+### 2.1 Where the learner moves
 
-- **Web:** OAuth authorization-code flow run by the API (`/v1/auth/github/start`,
-  `/v1/auth/github/callback`), with PKCE and a `state` bound to the browser by a short-lived cookie.
-  Scopes: `read:user user:email` (the email is needed for E1 and E2; `/user/emails` requires
-  `user:email`). On callback the API upserts the learner by numeric `github_id` and sets a session
-  cookie: random 256-bit id, stored hashed, `HttpOnly`, `Secure`, `SameSite=Lax`, 30-day sliding
-  expiry.
-- **CLI:** `dojo login` uses the GitHub device flow (like `gh`) with our OAuth app's client id. The
-  CLI sends the resulting GitHub token to `POST /v1/auth/cli` once. The API accepts it only if
-  GitHub's check-token endpoint (`POST /applications/{client_id}/token`, authenticated with our
-  client secret) confirms it was issued to **our** app; a personal token or one from another app is
-  refused, so a leaked token cannot mint a Dojo login. The device flow asks for the same scopes
-  as the web, since a learner may sign in from the CLI first. The API reads the profile (id, login,
-  email), revokes that one token (`DELETE /applications/{client_id}/token`, never `.../grant`,
-  which would sign out every device), and only then returns its own CLI token. The revoke is part
-  of the request: if it fails, the login fails and the learner tries again, so no GitHub token is
-  ever stored, not even to retry (OAuth app tokens do not expire on their own). The web flow's
-  token is revoked the same way inside the callback. CLI tokens are random,
-  stored hashed, listed and revocable in S1. The CLI stores its token in the OS keychain where
-  there is one, else in `DOJO_HOME` with `0600`.
-- **We hold no token to the learner's GitHub account.** Their public repo is read without auth,
-  which keeps the attack surface small (vision, Progress).
-- **Same site:** the session cookie is `SameSite=Lax`, so the site and the API must share one
-  registrable domain (for example the site on the apex and the API on `api.`). This is a constraint
-  on the domain choice (section 11).
-- **CSRF:** every state-changing request needs a JSON body and a custom header, and the API allows
-  CORS with credentials only from the site's own origin.
-- **Input from the CLI is untrusted text:** event payloads are size-limited (64 KB per event, 1 MB
-  per batch, check output cut at 16 KB) and always rendered escaped.
-- **Username:** `@name` chosen in S1, unique, lowercased, 3-30 chars `[a-z0-9-]`, reserved list
-  (admin, api, dojo, kiban, ...). Defaults to the GitHub login when free.
+```
+public (P1-P4, P6, LG1) -> O0 pick path -> O1 sign in -> O2 install -> O3 doctor -> O4 key+repo
+  -> O5 first ticket -> Today (L1) <-> Path (R1) <-> Practice (R6)
+Today -> Ticket (L3) -> writing task (L9) / quiz (L11) / story moment (L4) -> next ticket
+Path -> all tickets of the role done -> L6 rules + preflight -> H1 preparing -> R3/H2 work day
+  -> submit -> defend (feedback) and grade pending -> result: R4 role passed -> R5 record
+     or L6 not yet -> practise -> retry (an appeal is possible once, after the result)
+```
 
-## 5. Progress: who is trusted with what
+The app nav is Today, Path, Practice, plus the inbox bell (N1), the command palette (K1, desktop)
+and the avatar menu (Settings S1-S4). Exam screens drop the nav for the on-call header: role, four
+parts as a status strip, "no hints, no AI", the shift clock, Pause and Leave.
 
-The local check runs on the learner's machine, so a kata pass is **self-reported**. That is fine:
-katas are practice, not a credential. Only the belt exam is authoritative, and it runs on our
-machines (section 7). The design follows from that:
+A signed-out visit to an app route redirects to sign-in and returns. A signed-in learner with no
+role progress lands on O0 (no path) or the first unfinished onboarding step.
 
-| Event | Source | Trusted for |
+### 2.2 Screens
+
+Routes are a proposal; the Map's codes are the contract. "State" lists the first-run, empty and
+error cases the page must draw. Status is the Map's.
+
+| Code | Route | Primary action | States |
+|---|---|---|---|
+| P1 Home | `/` | Pick your path (to O0); copyable install command | Static. |
+| P2 How it works | `/how-it-works` | Start Support L1 (to O0) | Static. Ends with the FAQ as a section of this page (no page of its own). |
+| P3 Paths and roles | `/paths` | Pick your path | Static. Four paths drawn; only Systems and DevOps is open, the others say "coming soon" (section 2.3). |
+| P4 The story | `/story` | Pick your path | Static. |
+| P6 Pricing | `/pricing` | Become a supporter (to sign-in, then Stripe Checkout); Buy hours | Monthly and yearly toggle. Signed-in learners see their own plan. Teams: "Contact us" mailto only. |
+| LG1 Privacy, terms, conduct | `/privacy`, `/terms`, `/conduct` | none | Names the hint button, usage stats and what survives account deletion. Legal text written and reviewed before launch (NEEDS-DECISION for the reviewer). |
+| O0 Pick your path | `/start` | Continue: stores the chosen path in a short-lived cookie, applied at first sign-in | Reachable signed out. Security, Backend and Frontend show "coming soon" with "Tell me when" (the waitlist, section 2.3). |
+| O1 Sign in | `/start/signin` | Continue with GitHub (web flow, section 3.1) | Asks for age (14 or older) and terms on first sign-in. Error: GitHub refused or the state check failed, retry. |
+| O2 Install | `/start/install` | Copy the install command per OS (Windows with WSL, macOS, Linux), then `dojo login` | Waits for `login` via SSE ("Waiting for dojo login on your computer"). Shows the usage-stats notice and `dojo telemetry off`. Error: code expired, show a new one. |
+| O3 Doctor | `/start/doctor` | Continue (enabled when every line is green) | Waiting, 2 to fix, all good, blocked. Blocked: "Use a hosted lab" turns on `learners.hosted_default` and goes on. "I'm stuck: get help" opens the report form. |
+| O4 SSH key and repo | `/start/key` | Continue when the checklist is green | Steps the learner follows, each with the command to copy; `dojo doctor` verifies them and the page turns each line green (section 2.4). Failing lines show the fix. |
+| O5 First ticket | `/start/first` | Copy `dojo start support-l1/terminal-01` | Updates when the lab is ready, then when the ticket passes (a signed commit). |
+| L1 Today | `/today` | Continue the ticket / Start the next one | First run (after O5): "day one done", next ticket, role progress. Empty never occurs after onboarding. Maintenance and offline show a banner. |
+| R1 Your path | `/path` | Start or continue the role; Test out of Support L1 | Systems L2 and Junior DevOps show as locked "coming later" with no test-out card. Foundations passed; belt on the side. |
+| L3 Ticket | `/t/*id` (for example `/t/support-l1/perms-03`) | Copy `dojo start <id>`; Show hint; Ask Carmen (AI hint) | States below. |
+| L9 Writing task | `/t/*id` (kind `writing`) | Ask for review; Save draft | Draft saved as you type; review shows criteria and one fix. Passes when submitted (feedback only). |
+| L11 Quiz | `/quiz/:id` | Check answer, Next | Never blocks. Done screen offers the missed question again. |
+| L4 Story moment | `/story/:id` | Choose a reply | Tone review; Today shows the next moment. In v1. |
+| R6 Practice | `/practice` | Copy `dojo start <slug>` | Filter chips; a scenario you have passed shows "passed". Never blocks the path. |
+| N1 Inbox | bell dropdown, `/inbox` on phone | Open the item | Empty: "Nothing new". Mark all read. |
+| K1 Command palette | `Cmd+K`, everywhere in the app on desktop | Run the highlighted action | Continue ticket, next hint, copy `dojo check`, search tickets and lessons. No docs search in v1. |
+| L6 Exam rules and preflight | `/exam/:role` | Start the exam | Rules; preflight checklist (CLI version, SSH reachable, no other lab, three free hours); disabled reason shown for each unmet rule (section 2.7). Leave says what happens to the clock and the work. |
+| H1 Preparing your machine | `/exam/:role/machine`, also shown for hosted labs | none (waits) | Four steps with real progress from the runner, CLI mirror. Error: no capacity or start failed, retry; the clock has not started. |
+| R3/H2 The work day | `/exam/:role/day` | Submit the exam (after a confirm step) | Queue of four parts, answer boxes that autosave ("Saved 10:42"), browser terminal or `dojo exam`. Clock states: extra time applied, paused, warnings, clock hidden (section 2.7). Phone: "open this on a computer", the clock has not started. |
+| L6 Defend | `/exam/:role/defend` | Send answers | Three questions, 30 minutes, draft saved, skip allowed. Feedback only, never scored. |
+| L6 Submitted, grade pending | `/exam/:role/result` | none (waits) | Canvas v103 L6 Submitted. "Submitted. Your grade is being checked and you will get an email." Shows the submitted time and the one-appeal rule. `dojo status` shows the same. |
+| L6 Not yet / R4 Role passed | `/exam/:role/result`, `/roles/:role/passed` | Practise (not yet); See your track record (passed); Appeal | Not yet shows the five scored items, what did not hold and one retry date. Appeal is offered once per attempt, with a reason box (canvas v104 L6 Appeal and L6 Appeal decided, section 2.7). |
+| R5 Track record | `/record` | Share (opt-in switch, copy link, regenerate or revoke) | Empty before the first role. Private by default; the learner turns sharing on and chooses which practice items show. Foundations and Support L1 entries read "Verified by Dojo" only when the pass is server-side (exam); tickets and practice read "Practice". |
+| Public record | `/r/:token` | none | Only when the learner opted in; the token is long, random and unguessable, and the learner can revoke it or regenerate it (the old link then dies). Shows verified work and the items they chose, nothing else, `noindex`, not listed. There is no per-name record URL and no username namespace. This is not a public portfolio. |
+| L7 / L8 Belt mark, belt | `/celebrate/:id` | Next ticket | Shown once, then in the inbox. L8 only when the four white marks are done. |
+| A1 Review queue | `/review` | Confirm a grade; Override a part with a note; Resolve an appeal | Operator only, internal, not public; canvas v104 A1 (desktop only). Section 2.7. |
+| Accessibility statement | `/accessibility` | none | New, from the a11y review; linked from the footer. |
+| S1 Account | `/settings/account` | Save; Switch path; Test out; Delete account | Username, language of explanations, path, plan, hour packs, extra time, usage stats, danger zone. |
+| S2 Machines | `/settings/machines` | Revoke a CLI token | Lists CLI devices (OS, version, last seen) and the SSH key. |
+| S3 Notifications | `/settings/notifications` | Toggle | Per-kind push and email; quiet 22:00 to 08:00 local. No streak emails ever. |
+| S4 Your AI | `/settings/ai` | Copy MCP config; Test the connection | Per-tool tabs. |
+| E1-E8 | emails | see 2.9 | |
+| W1-W5 | PWA | see 2.10 | |
+| X1-X3 | `/404`, `/500`, `/maintenance` | Go to Today; Try again | 500 shows the request id. |
+
+**Ticket page (L3) states:** starting (progress while the lab boots), in progress, lab did not
+start (for example not enough disk: offers `dojo doctor` and a hosted lab), lab expired (after
+7 days without a dojo command, work is in the repo, run `dojo start` again), failed check (last
+output mirrored), passed (time, hints, the commit), revisit (a passed ticket; all written hints
+open; `dojo start <id>` again restarts the same ticket, with no new variant and no change to
+progress).
+
+### 2.3 Paths in v1
+
+O0 shows the four paths. v1 builds only Systems and DevOps: Foundations and Support L1, with
+Systems L2 and Junior DevOps drawn as locked "coming later". Security, Backend and Frontend are
+"coming soon": picking one does not start anything. The learner can leave their email address on
+file (their sign-in email) with "Tell me when", which adds a row to `path_waitlist`; signed out,
+the choice is kept in the cookie and the row is written after sign-in. A learner who wants to
+start meanwhile picks Systems and DevOps, whose Foundations every path shares. The waitlist counts
+are the signal for which path to build next.
+
+### 2.4 First run (O0 to O5), with the CLI
+
+1. **O0:** pick a path.
+2. **O1:** sign in with GitHub, confirm age 14 or older and the terms. First sign-in creates the
+   learner and sends E1.
+3. **O2:** `curl ... | sh` installs the CLI, `dojo login` runs the device flow. The page turns
+   green when the API sees the login.
+4. **O3:** `dojo doctor` checks memory, disk, git, git identity and a VM manager (Lima, or WSL2 on
+   Windows), prints a fix line per problem, and reports each result to the page. A laptop that
+   cannot run labs sets the hosted lab default and skips to O4.
+5. **O4:** the learner follows the steps on the page: create an SSH key, add it to GitHub for
+   signing, turn on commit signing (`gpg.format ssh`), create the practice repo `<login>/dojo`
+   and a ruleset on `main`, and turn on 2FA and secret scanning. Every step shows the command or
+   the GitHub link to copy. We never receive write access to their GitHub, which keeps O1's
+   promise ("no access to your code"). `dojo doctor` verifies each step from the laptop (the key
+   exists and is on the account, signing is configured, the repo exists and is public, the
+   ruleset is on, AGENTS.md is present) and reports the result, so the page turns green line by
+   line. There is no `dojo setup git` command. The `ssh dojo` host entry is written by
+   `dojo start`.
+6. **O5:** `dojo start support-l1/terminal-01` boots the first lab; `dojo check` passes it as a
+   signed commit; Today opens.
+
+### 2.5 CLI commands
+
+One verb set for tickets, practice and exams. Labs run on the laptop by default; a hosted machine
+only for the role exam and for laptops that cannot run labs.
+
+| Command | What it does | States and errors |
 |---|---|---|
-| Onboarding steps (O1-O5) | CLI: `doctor` results, `login`, SSH key found, commit signing configured, repo and AGENTS.md written, first `start` | Showing progress only |
-| Kata started, check run (pass/fail + output), hint opened | CLI | Today, path, stripes |
-| Quiz answer | Web | Quizzes |
-| Writing kata draft and review | Web + our AI | Feedback only, never pass/fail by AI |
-| Exam result | Exam runner | Belts |
+| `dojo doctor` | Checks the computer can run labs and, for O4, the SSH key, signing, practice repo and ruleset; a fix to copy per problem; reports results to the API when logged in. | Offline works, results queue. Outdated CLI is reported. |
+| `dojo login` | GitHub device flow (section 3.1), stores the CLI token in the OS keychain or `DOJO_HOME` (0600). | Code expired: retry. Already logged in: says who. |
+| `dojo start <id>` | Fetches the ticket bundle (a ticket already started or passed restarts the same ticket, `--again` is not a variant), starts the lab (or a hosted machine when the laptop cannot, `--hosted` to force it), runs the ticket's `setup.sh`, writes `AGENTS.md` and `CLAUDE.md` (`@AGENTS.md`) into the lab and repo (PR 6d), reports `ticket.started`. | Not enough disk or memory: says how much and offers a hosted lab. Offline: starts from a cached bundle if present, else says it needs the network once. Out of hosted hours: on Free, names the pack and Supporter options; a Supporter at the 100 h hard stop is told the fair-use limit is reached and the date it resets. |
+| `dojo ssh` | Opens a root shell on the lab (local, or through the gateway for a hosted one). | No lab running: says `dojo start <id>`. |
+| `dojo check` | Reboots the lab so only persistent fixes pass, runs the checks, keeps the last output (PR 6d), reports pass or fail and the output, and on a pass writes a signed commit into the practice repo. | `--quick` skips the reboot. Offline: result saved and sent later. |
+| `dojo stop` | Stops the lab, frees memory. Hosted: ends the machine and the session. | Work stays in the repo. |
+| `dojo status` | What is running and the current ticket id; `--quota` shows hosted hours (E4). | Nothing running: says so. |
+| `dojo exam` | `check` runs preflight; bare `exam` connects to the hosted exam machine over SSH; `submit` ends the exam. | Refuses with the missing rule (section 2.7). No AI, no hints on this machine. |
+| `dojo hint` | The AI hint for the current ticket (section 1.4). Written hints stay on the web. | Needs a failed check; shows hints left; offline or capped says so. |
+| `dojo mcp` | MCP server over stdio for the learner's own AI: current ticket, last check, hints opened, docs links; never a solution (PR 6e, hand-rolled JSON-RPC). | Does not run while an exam is open (a courtesy). |
+| `dojo telemetry [on\|off]` | Local switch for CLI usage stats; mirrored to the account setting. | |
 
-- The CLI sends events to `POST /v1/events` (batched, idempotent by a client-generated id) after
-  each command. Offline, it queues them in `DOJO_HOME` and sends them on the next command. The local
-  state file stays the CLI's own record; the API is the web's.
-- A **stripe** is awarded by the API when the learner has passed the katas of that stripe's group.
-  The **belt** is awarded only by an exam pass.
-- "Mirrored from your laptop" on L3 means the API shows the last `dojo check` output and the lab
-  state the CLI reported. It is not a live terminal stream; that stays out of v1.
-- **Hints** live in the catalog (`kata.yaml`). The web shows a hint only after the learner opens it
-  (from the web or `dojo hint`, which report the same event), so both stay in step. Hint 3 unlocks
-  after hint 2 and a check run, as drawn. The gating is a nudge, not a lock: hints ship in the
-  CLI binary with the kata, and that is fine for practice.
+The CLI today has `list`, `hint` (written), `shell`, `clean` and `ssh-config`; v1 renames `shell`
+to `ssh`, `clean` to `stop`, drops `list` (the web lists tickets), repoints `hint`, folds
+`ssh-config` into `start` and `doctor`, and adds `login`, `exam`, `mcp`, `telemetry`. Each is its
+own small PR.
 
-## 6. Data model (v1)
+### 2.6 Hints
 
-Every table below also has `org_id`, `created_at`, `updated_at`. Ids are UUIDv7.
+- **Written hints** (three per ticket, in the catalog): shown on the web only after the learner
+  opens them (`hint.opened` event). Hint 3 needs hint 2. It is a nudge, not a lock: they ship in
+  the bundle, which is fine for practice.
+- **AI hint:** the button on L3 ("Ask Carmen") opens after a failed check and works as in 1.4,
+  with the same limits from `dojo hint`. It shows hints left and the answer in place. No chat.
+- Hints are counted for the learner, never gate anything.
 
-| Table | Key columns | Notes |
-|---|---|---|
-| `learners` | `github_id` (unique), `github_login`, `username` (unique), `email`, `language`, `extra_time` (bool), `deleted_at` | `extra_time` set in S1 applies to every exam. |
-| `sessions`, `cli_tokens` | `learner_id`, `token_hash`, `last_used_at`, `revoked_at` | Hashes only. |
-| `catalog_items` | `kata_id`, `belt`, `kind` (kata, quiz, writing), `position`, `stripe`, `catalog_version` | Loaded from the catalog at deploy; the API never parses YAML at request time. |
-| `kata_progress` | `learner_id`, `kata_id`, `state` (started, passed), `hints_opened`, `checks`, `first_passed_at`, `last_check_output` | One row per learner and kata; revisits do not change `first_passed_at`. |
-| `events` | `learner_id`, `client_id` (unique per learner), `type`, `payload` (jsonb), `at` | Append-only, the audit trail behind `kata_progress`. |
-| `quiz_answers` | `learner_id`, `quiz_id`, `question`, `choice`, `correct` | |
-| `awards` | `learner_id`, `kind` (stripe, belt), `belt`, `n`, `exam_id`, `exam_result` | Belt rows: `exam_result` is checked to equal `passed` and `(exam_id, learner_id, belt, exam_result)` is a foreign key to `exams(id, learner_id, belt, result)` (unique there), so a belt row needs a passed exam by the same learner for the same belt. A foreign key skips rows with a null column, so two checks close the gap: `(kind = 'belt') = (exam_id IS NOT NULL AND exam_result IS NOT NULL)` and `kind <> 'belt' OR exam_result = 'passed'`, plus `kind <> 'belt' OR belt IS NOT NULL`. Stripe rows leave both null. |
-| `exams` | `learner_id`, `belt`, `state`, `started_at`, `deadline`, `paused_at`, `pause_used`, `time_factor`, `machine_ref`, `result`, `retry_after` | Partial unique index: one exam not in a final state per learner. A trigger refuses any change to `result` once it is final. |
-| `exam_tickets` | `exam_id`, `ticket`, `params`, `check_passed`, `check_output`, `learner_summary` | Five per white belt exam. `check_output` is for us; the learner only sees `learner_summary`, a line written with the ticket ("the service still runs as root"). |
-| `exam_defence` | `exam_id`, `question`, `answer`, `review` | Three questions. |
-| `writing_drafts` | `learner_id`, `kata_id`, `body`, `submitted_at`, `review` (jsonb: rubric scores and comments) | L9. Feedback only; a writing kata passes when the learner submits it. |
-| `inbox_items` | `learner_id`, `kind`, `ref`, `read_at` | Feeds N1 and the bell. |
-| `push_subscriptions`, `notification_prefs` | endpoint, keys; per-kind toggles, quiet hours | Story max 1 a day, quiet 22:00-08:00 local. |
-| `teardown_jobs` | `backend`, `resources` (list of the backend's ids: machines, volumes, snapshots), `attempts`, `done_at` | No learner id: only what the runner must destroy. Also used at the normal end of an exam. |
-| `exam_tombstones` | `github_id`, `belt`, `retry_after` | The only thing kept after a delete, so deleting an account does not skip the retry wait. It keeps the GitHub numeric id (an identifier, said so on LG1) until `retry_after`, then is deleted. No name, email or results. |
+### 2.7 Role exam: the work day
 
-**Delete account (S1 danger zone):** in one transaction, ends any exam not yet final as `not_yet`
-with its `retry_after`, writes the tombstone if a retry wait is running, deletes every other learner
-row and revokes every token. In the same transaction it writes a `teardown_jobs` row listing every
-resource the attempt used (machines, volumes, snapshots), which the runner works through and retries until everything is destroyed,
-whatever state the exam was in, so a crash after the commit cannot orphan a machine. Backups keep data for 30 days. The
-privacy page (LG1) says all of this.
-
-## 7. Belt exam
-
-The exam is where the Dojo is strict about what it can actually guarantee: the learner cannot
-read or change the checks, cannot extend the clock and cannot reach the internet from the exam
-machine. It **cannot** stop a learner from asking an AI on their own computer: there is no
-proctoring. That is acceptable because a Dojo belt is a step on our own path, not a third-party
-credential, and the defend step (below) asks the learner to explain their own changes. Values from
-the canvas: 5 tickets, 2 hours, one pause of up to 15 minutes, pass at 4 of 5, retry after 7 days,
-extra time 1.5x.
+One rule, for this document and the canvas. The work day has **four parts**: a ticket from Javi
+(the printer), a vague brief from Lucía, an incident, and a handoff. It is scored on **five
+items**: (1) the fixes, checked on the machine, (2) the ticket reply, (3) the response to the brief
+(the questions asked), (4) the incident update, (5) the handoff. Pass is **4 of 5**. Three hours,
+one pause of up to 15 minutes, extra time 1.5x if the learner turned it on, retry 7 days after the
+result is published. No hints, man pages and docs allowed. The learner's own AI is never allowed
+during the exam, and neither is ours.
 
 ```mermaid
 stateDiagram-v2
   [*] --> preflight: dojo exam check
-  preflight --> running: Start (all green)
+  preflight --> preparing: Start (all green)
+  preparing --> running: terminal opens, clock starts
   running --> paused: Pause (once, max 15 min)
   paused --> running: Resume or 15 min
-  running --> checking: Submit or deadline
-  checking --> defending: checks done
-  defending --> passed: >= 4 of 5 hold
-  defending --> not_yet: < 4 of 5 hold
-  passed --> [*]
-  not_yet --> [*]: retry after 7 days
+  running --> submitted: Submit or deadline
+  submitted --> grade_pending: machine checks and rubric scored by code
+  grade_pending --> published: operator confirms
+  published --> appealed: one appeal
+  appealed --> published: human review resolves it
+  preflight --> voided: overturn of the earlier attempt
+  preparing --> voided: overturn of the earlier attempt
+  running --> voided: overturn of the earlier attempt
+  paused --> voided: overturn of the earlier attempt
+  submitted --> voided: overturn of the earlier attempt
+  grade_pending --> voided: overturn of the earlier attempt
+  appealed --> voided: overturn of the earlier attempt
+  published --> voided: overturn of the earlier attempt
+  published --> [*]
+  voided --> [*]
 ```
 
-- **Clock on the server.** `deadline = started_at + 2h × time_factor`, and on resume the deadline
-  moves by the time actually paused. The page and CLI only display it. Deadlines live in the `exams`
-  table and a sweeper in the API acts on them every 15 seconds (it resumes any pause past 15
-  minutes, and never ends a paused exam), so a restart loses nothing and a pause started just before
-  the deadline does not end the exam. At the deadline the runner cuts access and submits whatever is
-  there. Milestone announcements (30, 10, 1 minutes left) are live-region messages, not a ticking
-  announcement every second.
-- **Pause** kills the open SSH sessions and forwards, refuses new ones and stops the clock. Where
-  the backend can freeze a VM it does, so no background job keeps working; where it cannot, a job
-  left running during a pause is accepted for the white belt (checks look at the final state, not
-  at when it was reached). After 15 minutes the clock restarts whether or not the learner is back.
-- **Access:** the learner reaches the machine through an exam gateway we run (an SSH jump host).
-  `dojo exam start` sends the learner's public key with their CLI token, and the gateway accepts
-  that key for that learner's open exam only. No lookup by GitHub username, so a renamed or reused
-  login cannot be authorised by mistake. The CLI writes an `ssh exam` host entry, like `ssh dojo`.
-- **Who can start:** the API refuses `/exam/:belt` and `dojo exam start` unless the learner holds
-  the 4 stripes of that belt, has no open attempt, and both their latest `retry_after` and any
-  tombstone for their `github_id` are in the past. The rules page (L6) shows which one is missing.
-- **Preflight (`dojo exam check`):** connects to the gateway with the learner's key (this proves the
-  key works and that their network allows outbound SSH, which school networks sometimes block) and
-  confirms no other attempt is open. Start stays disabled until it is green.
-- **Tickets vary per attempt.** Each ticket in the private pool (`kibanbuild/dojo-katas`) has
-  parameters (which file, which user, which port); the runner draws five tickets and their
-  parameters per attempt. A learner who memorises one attempt does not hold the next one.
-- **Checks run from outside the guest.** The learner is root on the exam machine for two hours and
-  could replace any binary or leave a process waiting for the check, so nothing trusted runs inside
-  it. On submit or at the deadline, the runner cuts access, asks the guest to `sync` (the learner
-  can refuse, which only hurts their own result), stops the machine gracefully and forces it off
-  after 30 seconds. A trusted checker with its own tools then mounts the machine's disk read-only
-  and runs the checks against that tree. An unclean ext4 journal is replayed only on a scratch
-  copy (a second volume or a copy in memory), never on the original, which stays untouched as
-  evidence until the result is final. How the disk reaches the checker depends on the backend
-  (section 7, "Where exam machines run").
-  The learner controls every byte of that disk, so the checker treats it as hostile input:
-    - reads never follow symlinks out of the mount (`openat2` with `RESOLVE_IN_ROOT`, or no-follow
-      lookups), and file content is only data, never executed, sourced or chrooted into;
-    - the checker has no network and no secrets and is used for one exam only: a crafted
-      filesystem attacks the checker's kernel, which is why it is disposable and never our API or
-      runner host. With a rescue system the checker is the exam server itself, rebooted into a
-      kernel and tools the provider controls; it is still one-use and destroyed after the exam.
-  White belt checks are about file state (permissions, owners, configs), which a mounted tree
-  answers. Checks on a running system (is the service up, does the port answer) need the snapshot
-  booted again, and the learner's own init would run; how to trust that is designed before the
-  yellow belt (section 11).
-  The checks never enter the learner's machine, and the learner sees only `learner_summary` per
-  ticket, never check output.
-- **Defend (L6Defend):** after checks, our AI writes three "why" questions from what the learner
-  changed (a diff of the snapshot against the broken baseline, read as text, never run). The learner
-  answers in the web within 30 minutes. The review can ask for more but **does not decide the
-  belt**: pass or fail is the checks, as the vision says. A timeout records the defence as
-  unanswered; the belt still follows the checks. Whether a blank defence should block the belt is
-  an open question (section 11).
-- **When the result is final:** at the end of defend, or of its 30-minute timeout. That moment sets
-  `result` and `retry_after`, writes the belt award on a pass and sends E2.
-- **Wiped at the end:** the exam machine and any separate checker are destroyed after checks; every
-  disk and volume the attempt used when the result is final, or at once if the account is deleted. Results, tickets and the diff are
-  kept; nothing else.
-- **Egress is filtered outside the guest,** where a root learner cannot remove it (a provider
-  firewall, security group or host rule, depending on the backend): the machine only reaches the
-  gateway and the allowlist a ticket names (resolved to IP addresses: provider firewalls and
-  security groups filter by address, not by name), and exam machines cannot reach each other, any
-  of our services or the provider's metadata endpoint (169.254.169.254), so no credential can be
-  read from inside. A separate checker gets a firewall or security group with no network at all. CPU and memory are fixed by the machine size; one open attempt per learner.
+- **What is written where.** The fixes happen on the machine. The reply, the questions on the
+  brief, the incident update and the handoff are written in answer boxes on the page and autosave
+  to `exam_artifacts` ("Saved 10:42"); the page shows the autosave state.
+- **Who can start.** The API refuses unless the learner passed every ticket of the role (or is
+  testing out of Support L1), has no open attempt (open = preflight, preparing, running, paused, submitted or grade_pending; published, appealed and voided are not open), and `retry_after` and any tombstone for their
+  GitHub id are past. L6 names which rule is missing. **Test out** (Support L1 only) skips the
+  "passed every ticket" rule and nothing else: `POST /v1/exams/support-l1/attempts` with
+  `{"test_out": true}` (stored as `exam_attempts.test_out`), the same preflight, the same exam,
+  the same 4 of 5 pass rule. The API ignores the flag for any other role. Support L1 is free on every plan. Roles
+  marked `advanced` need Supporter (a seam for later roles, nothing in v1).
+- **Clock on the server.** `deadline = started_at + 3h x time_factor`; resume moves it by the time
+  actually paused. A sweeper (one task at a time, Postgres advisory lock) runs every 15 seconds:
+  it resumes pauses past 15 minutes, never ends a paused exam, and submits at the deadline.
+  Whatever is autosaved at the deadline is what is graded, and the page says so.
+- **Exam screen states** (all components of the on-call header): extra time applied ("Extra time
+  on, 4:30"), running, paused with "Pause used" and a Resume button, warnings at 30, 10 and 5
+  minutes as a text banner (never colour or sound alone), expired (autosaved answers submitted),
+  clock hidden on request (the warnings stay), saved or saving, a submit confirmation that lists
+  the parts done and not started, and a Leave dialog that says what happens to the clock and the
+  work (the clock keeps running; leaving does not pause it). Pause is one control with one name.
+- **Pause** kills open SSH sessions and forwards, refuses new ones and stops the clock. A job left
+  running is accepted: checks read the final state.
+- **Access.** Preparing uses a warm machine when one exists. Exams are free and equal on every
+  plan: no plan is served first. The clock starts when the terminal opens. The learner reaches the machine through the gateway with
+  their own key, or the browser terminal.
+- **Scoring.** On submit the machine is checked on the checker (section 1.3), item 1 passing only
+  if every fix holds. Items 2 to 5 are scored by the Bedrock reviewer, which returns booleans
+  against a fixed rubric per item with a quoted line as evidence; an item passes when its required
+  booleans are true, computed by code, not by the model. The reviewer reads the learner's free
+  text, so prompt injection could try to flip the booleans; the operator confirm gate (below)
+  covers it. `grade_review_required` is not switched off until a prompt-injection eval set
+  passes against the rubric reviewer. The result so far is stored as
+  `provisional_result`. The learner sees a one-line `learner_summary` per item and never check
+  output or the rubric.
+- **Grade review (while volume is low).** the operator confirms every grade before it is published, so
+  results are delayed. A submitted attempt sits in `grade_pending` and appears in the review queue
+  (`/review`, operator only): oldest first, showing the learner's answers, each rubric boolean with
+  its evidence, the machine results and the learner summary. The operator confirms, or overrides an
+  item with a note; the override is recorded and wins. Publishing sets `result`, `retry_after`
+  (publication plus 7 days) and `published_at`, writes the role pass on a pass and sends E2 or E3.
+  The requirement is a flag (`system_flags.grade_review_required`) so it can be switched off when
+  volume justifies it; with it off, publication is automatic when scoring ends. While pending the
+  learner sees "Submitted, grade pending" on L6 and in `dojo status`, and gets no result email
+  until publication. The target turnaround shown to the learner is NEEDS-DECISION.
+- **Appeal.** After publication the learner can appeal once per attempt, with a short reason, within
+  7 days. A person reads the answers and the grade, and either upholds it or overturns an item;
+  an overturn can turn a not yet into a pass (then the role pass is written, `retry_after` is
+  cleared and a corrected E2 is sent); an overturn also voids any open second attempt, so the
+  learner never holds a pass and a live retry together: an open, published or appealed second attempt moves to `voided`, its result (if any) is dropped, and its machine, if still running, is destroyed through `teardown_jobs`. The appeal does not pause the retry wait. The decision and
+  who made it are stored in `exam_appeals`. Appeals appear in the same review queue.
+- **Defend.** After submit the learner answers three "why" questions written from a text diff of
+  their changes against the broken baseline (read, never run), within 30 minutes, skippable. It is
+  feedback only and is never scored. It happens while the grade is pending, so it costs no waiting
+  time. It stays in v1.
+- **One retry date.** `retry_after` is the only date, set at publication; L6 Not yet, E3 and
+  `dojo status` all show it.
+- **After scoring:** the machine and the checker are destroyed; the root volume is kept as
+  evidence until the appeal window ends (7 days after publication), then deleted.
+- **Delete during an exam:** it ends as `not_yet`, writes the tombstone, queues the teardown.
 
-### Where exam machines run
+### 2.8 Hosted lab (a laptop that cannot run labs)
 
-The runner talks to an `ExamBackend` interface (`Create`, `Exec`, `Stop`, `CheckDisk`, `Destroy`,
-plus `Freeze` and `Thaw` where supported), the same idea as the local `lab.Backend`. Any backend
-must give three things: a fresh full VM from an image (systemd included, for the yellow belt), a way
-to read its disk from a trusted checker, and egress filtering outside the guest. Hosted
-container-VMs (Fly Machines, for example) fail the second and third: the root filesystem is
-ephemeral and there is no per-machine egress policy.
+`learners.hosted_default` (set from O3 or `--hosted`) makes `dojo start` ask the API for a hosted
+machine. The same H1 progress screen appears in the web and the CLI; the ticket page shows the
+browser terminal next to the ticket ("hosted machine, no internet"); `dojo ssh` works through the
+gateway; `dojo check` runs `check.sh` on the machine over SSH and the result is self-reported like
+a local one. Free is 10 hours a month; at 80 percent and at 100 percent the learner gets E4 and
+sees "Buy 10 hours" and "Become a supporter". Packs are used last, after the monthly allowance.
+Sessions stop at the 90 minute cap or after 15 minutes idle. Supporters have fair use: a soft cap
+of 60 hours a month and a hard stop at 100 (section 1.3). When the machine ceilings are hit,
+starts wait in a queue with a clear message (section 1.3). The role exam machine is never drawn
+from these hours. On a phone there is no terminal.
 
-| Candidate | Image | How the checker reads the disk | Egress outside the guest |
-|---|---|---|---|
-| Ephemeral cloud servers (for example Hetzner Cloud) | A snapshot built with Packer | Reboot the stopped server into the provider's rescue system and mount its disk there | The provider's cloud firewall |
-| Ephemeral EC2 instances on AWS | An AMI built with Packer | Detach the stopped instance's root volume and attach it to a checker instance | Security groups |
-| Firecracker microVMs on a KVM host we run | A rootfs image | Copy the disk and attach it read-only to a checker microVM | Host rules on each tap device |
+### 2.9 Billing and emails
 
-The choice follows the shared Kiban platform decision, still open (section 11). The first two are
-billed per hour and cost cents per exam, with no host to patch; the third starts in under a second
-and can freeze a VM, but is a dedicated server to run. Whichever wins, the local backend in compose
-runs the same runner code with QEMU for unit and integration tests, and an end-to-end exam run on
-the real backend (escape attempts included: a planted symlink, a removed firewall rule, a job left
-running in pause) is a gate before `pre`.
+- **Supporter:** Checkout (EUR 9 a month or EUR 90 a year, founding price kept for life by staying
+  on the founding Stripe price while subscribed), then E5. Cancel in the Customer Portal; E6 says
+  what stays. Packs are one-off Checkout sessions (10 h for EUR 3, 25 h for EUR 6, valid 12 months).
+  Webhooks are idempotent by Stripe event id and are the only writer of billing tables.
+- **Emails:** E1 welcome (names the path), E2 role passed, E3 not yet, E4 hours low, E5 supporter
+  welcome, E6 supporter ends, E7 weekly summary (Sundays), E8 account deleted (the last email,
+  sent once). Product news is off by default. No streak or "you have not practised" email.
+  `email_log` guarantees once-only kinds; bounces suppress an address.
 
-## 8. `dojo mcp` and AGENTS.md
+### 2.10 Phone and offline
 
-`dojo mcp` is an MCP server over stdio, started by the learner's AI tool. It is read-only and
-local:
+W1 install sheet, W2 notification ask, W3 push content, W4 offline page, W5 Today on the phone. The
+service worker caches the app shell, the current ticket and its opened written hints. Writes made
+offline are not queued by the web; the CLI keeps working against the local lab and queues its own
+events. The exam and the browser terminal are desktop only.
 
-| Tool | Returns |
-|---|---|
-| `current_kata` | Ticket, fixed-means, belt |
-| `last_check` | Output of the last `dojo check` |
-| `hints_opened` | Hints the learner already opened (never the unopened ones) |
-| `docs` | The man pages and lesson links the kata names |
+### 2.11 System states
 
-The server's `instructions` and the `AGENTS.md` the CLI writes into the learner's repo and lab
-(plus a `CLAUDE.md` with `@AGENTS.md`, `.github/copilot-instructions.md` and a Cursor rule) say the
-same thing: ask what they tried, explain, point to the docs, never write the fix. No written
-solution ships to the learner's machine. The kata's `setup.sh` and `check.sh` do (the CLI needs them
-to break and verify the lab), so a determined learner can read how the check works. That is fine
-for practice; it is why belts come only from the exam. `dojo mcp` does not run while the learner
-has an exam open, which is a courtesy, not a control.
+Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves and syncs later.
+500 (X2): request id shown. 404 (X1). Signed-in pages show a banner when the API is unreachable.
 
-## 9. Environments, delivery, operations
+## 3. Data and auth
 
-| Environment | What | How |
+### 3.1 Sign-in
+
+- **Web:** OAuth authorization-code flow run by the API (`/v1/auth/github/start` and
+  `/callback`), with PKCE and a `state` bound to the browser by a short-lived cookie. Scopes:
+  `read:user user:email` (the email is needed for E1 to E8; GitHub emails can be private, and
+  `/user/emails` needs `user:email`). The callback upserts the learner by numeric `github_id`,
+  records age and terms on first sign-in, revokes the GitHub token it received
+  (`DELETE /applications/{client_id}/token`, never `.../grant`), and sets a session cookie: a
+  random 256-bit id stored hashed, `HttpOnly`, `Secure`, `SameSite=Lax`, 30-day sliding expiry.
+- **CLI:** `dojo login` uses the GitHub device flow with our client id and sends the resulting
+  token once to `POST /v1/auth/cli`. The API accepts it only if GitHub's check-token endpoint
+  (`POST /applications/{client_id}/token`, with our client secret) says it was issued to our app,
+  reads id, login and email, revokes that token, and only then returns its own CLI token. If the
+  revoke fails the login fails and is retried: no GitHub token is ever stored. CLI tokens are
+  random, stored hashed with device name, OS and CLI version, listed and revocable in S2.
+- **No token to the learner's GitHub.** Their practice repo is public and is read without auth.
+- **CSRF:** every state-changing request needs a JSON body and a custom header; the site and the
+  API share one origin, so no CORS is allowed.
+- **Untrusted CLI input:** event payloads are limited (64 KB per event, 1 MB per batch, check
+  output 16 KB) and always rendered escaped.
+- **Username:** unique, lowercased, 3 to 30 characters `[a-z0-9-]`, reserved list; defaults
+  to the GitHub login when free. Only shown to the learner and used in the app; it carries no
+  public URL, so a change needs no redirect.
+- **Age:** a self-declared confirmation of 14 or older at first sign-in. No other check.
+- **Exam SSH access:** the learner's public key is registered for one machine; no lookup by GitHub
+  username, so a renamed login cannot be authorised by mistake.
+- **Operators:** one operator role (`learners.is_operator`, set only by `dojo-admin`). It opens the
+  review queue (`/review`, section 2.7), which is the only operator screen in v1. Other operator
+  tasks (restore an account from backup, reset an exam, set a flag) are `cmd/dojo-admin` commands
+  run with database access. Every override and appeal decision records who made it.
+
+### 3.2 Who is trusted with what
+
+Local checks run on the learner's machine, so a ticket pass is self-reported. That is fine:
+tickets are practice. Only the role exam is authoritative, and it runs on our machines.
+
+| Event | Source | Trusted for |
 |---|---|---|
-| local | Everything in docker compose: API, Postgres, Mailpit, fake OAuth, runner with a local backend; site dev server | `make dev` |
-| `pre` | Site, API and database of its own; real GitHub OAuth app; email in sandbox; exams on the exam backend | Deploy on merge to `main` |
-| `pro` | Site, API and database of its own; exams on the exam backend | Deploy on a release tag |
+| Onboarding steps, doctor results | CLI | Showing progress only |
+| Ticket started, check run (pass or fail and output), written hint opened | CLI, web | Today, path, role progress |
+| Hosted lab check | CLI over the gateway | Same as local: self-reported |
+| Quiz answers | Web | Quizzes |
+| Writing task, story reply, reviews | Web and Bedrock | Feedback only |
+| Exam items and result | Machine checks on the runner, the rubric reviewer, and the operator's confirmation | Role passes, track record "Verified" |
+| Stripe events | Stripe (signed) | Plans and hours |
 
-`pre` and `pro` use the same exam backend in v1, with separate runner credentials and separate
-exam networks.
+The CLI sends events to `POST /v1/events` (batched, idempotent by a client-generated id) after each
+command; offline it queues them in `DOJO_HOME`. The API stores them, updates `ticket_progress`, and
+pushes the change to any open page over SSE ("mirrored from your laptop" is the last check and lab
+state the CLI reported, not a live stream).
 
-- Site: static build to a CDN. API: one container image on GHCR, one small instance, behind TLS.
-  Postgres managed, daily backups, 30-day retention.
-- Workflows follow the repo rules (`Web: Tests`, `Web: Build`, `API: Tests`, required checks never
-  path-filtered).
-- Logs as JSON with a request id that the 500 page (X2) shows. Metrics: request rate and errors,
-  exam machines running, exam start latency, events ingested.
-- Maintenance (X3): a flag the API serves; the site shows X3 and the CLI keeps working on local
-  labs.
+### 3.3 Tables
 
-## 10. Accessibility carried into the build
+Every table also has `org_id`, `created_at`, `updated_at`. Ids are UUIDv7. `learner_id` references
+`learners(id)` and cascades on delete unless noted.
 
-From the accessibility review of the canvas, things a mockup cannot show:
+| Table | Key columns | Notes |
+|---|---|---|
+| `orgs` | `slug`, `name` | One row, `public`. |
+| `learners` | `github_id` (unique), `github_login`, `username` (unique), `email`, `language` (en, es: explanations), `extra_time`, `hosted_default`, `age_confirmed_at`, `terms_accepted_at`, `usage_stats` (bool), `analytics_consent` (null, true, false), `chosen_path_id`, `record_shared` (default false), `record_token_hash` (null when not shared), `is_operator` (default false), `deleted_at` | `extra_time` applies to every exam. `record_shared` is the opt-in for the share link; the token is shown once, stored hashed, and regenerating replaces the hash. |
+| `sessions`, `cli_tokens` | `learner_id`, `token_hash`, `last_used_at`, `revoked_at`; tokens add `device_name`, `os`, `cli_version`, `ssh_public_key` | Hashes only. |
+| `paths`, `roles`, `path_roles` | `slug`, `title`, `status` (available, planned); roles add `kind` (foundations, role), `has_exam`, `advanced`; join has `position` | Content, loaded at deploy. v1 data: one available path. |
+| `catalog_items` | `id` (for example `support-l1/perms-03`), `role_id` (null for practice), `kind` (ticket, writing, quiz, story, feedback, practice), `position`, `title`, `est_minutes`, `tags`, `awards_mark`, `catalog_version`, `bundle_key` | Loaded from the catalog at deploy; the API never parses YAML per request. |
+| `ticket_progress` | `learner_id`, `item_id`, `state` (started, passed), `lab` (local, hosted), `check_count`, `written_hints_opened` (int array), `last_check_at`, `last_check_pass`, `last_check_total`, `last_check_output`, `first_passed_at`, `passed_seconds`, `passed_commit` | One row per learner and item. Revisits never change `first_passed_at`. |
+| `events` | `learner_id`, `client_id` (unique per learner), `type`, `payload` (jsonb), `at` | Append-only audit behind `ticket_progress`. |
+| `quiz_answers`, `writing_drafts`, `story_choices` | learner, item, answers or `body`, `review` (jsonb), `submitted_at` | Feedback records. |
+| `belt_marks`, `belt_awards` | mark `slug`, `belt`, `title`; award `learner_id`, `mark_id`, `source_ref`, `awarded_at` | Maturity, from writing, simulated feedback rounds and exam artifacts. The white belt has four marks; none unlocks or blocks a role. The fourth, a feedback round, is a simulated one: Carmen or a team lead sends feedback in a `feedback` item (drawn like a story moment, L4) and the learner replies, reviewed by rubric. No peer is involved. |
+| `exam_defs`, `exam_items` | def: role, `version`, `duration_s` (10800), `pause_s` (900), `pass_items` (4), `parts` (the four parts); item `code` (fixes, reply, brief, update, handoff), `kind` (machine, rubric), `part`, `title`, `rubric` | Content. The five items are data. |
+| `exam_attempts` | `learner_id`, `role_id`, `def_version`, `state` (preflight, preparing, running, paused, submitted, grade_pending, published, appealed, voided), `test_out`, `started_at`, `deadline`, `paused_at`, `pause_used`, `time_factor`, `machine_id`, `submitted_at`, `provisional_result`, `grade_status` (pending, published), `result` (passed, not_yet, null), `items_passed`, `published_at`, `retry_after` | Partial unique index: one open attempt per learner (`state IN (preflight, preparing, running, paused, submitted, grade_pending)`), so an appeal or a voided row never blocks a retry. `result` is set once at publication; the only later changes are an overturn through `exam_appeals` and voiding (an overturn of the learner's earlier attempt), both enforced by a trigger. Unique `(id, learner_id, role_id, result)`. |
+| `exam_item_results` | `attempt_id`, `item_code`, `passed`, `rubric_result` (jsonb: booleans and evidence), `learner_summary`, `internal_output`, `overridden_by`, `override_note` | `internal_output` and `rubric_result` are for us; the learner sees `learner_summary`. An override wins over the scored value. |
+| `exam_artifacts` | `attempt_id`, `item_code`, `body`, `saved_at` | The learner's replies, questions, update and handoff. |
+| `exam_appeals` | `attempt_id` (unique: one per attempt), `reason`, `state` (open, upheld, overturned), `resolved_by`, `resolution_note`, `resolved_at` | A person decides. |
+| `exam_defence` | `attempt_id`, `question`, `answer`, `review` | Three rows; feedback only, never scored. |
+| `role_passes` | `learner_id`, `role_id`, `attempt_id`, `exam_result` | Foreign key `(attempt_id, learner_id, role_id, exam_result)` to `exam_attempts`, with `exam_result = 'passed'` and every column not null, so a pass needs a published passed attempt by the same learner for the same role. Foundations passes have no attempt and live in `ticket_progress` rules. |
+| `machines` | `learner_id` (null while warm), `kind` (lab, exam), `item_id` or `attempt_id`, `state` (queued, warm, preparing, ready, running, paused, stopping, checking, destroyed, failed), `queued_at`, `instance_id`, `private_ip`, `ready_at`, `ended_at`, `last_activity_at` | The runner reports; the API writes. A start over a ceiling is a `queued` row; the position shown on H1 and by `dojo start` is its rank by `queued_at` among queued lab rows. |
+| `hosted_sessions` | `learner_id`, `machine_id`, `started_at`, `ended_at`, `seconds`, `counted_as` (allowance, pack, exam), `pack_id` | Source of the monthly quota (calendar month, UTC). |
+| `subscriptions`, `hour_packs`, `billing_customers`, `stripe_events` | customer id; subscription `price_kind` (founding, standard), `interval`, `status`, `current_period_end`, `cancel_at`; pack `seconds_total`, `seconds_left`, `expires_at`, `payment_ref`; event `id` unique | Written only by the webhook handler. |
+| `ai_hints` | `learner_id`, `item_id`, `seq`, `check_event_id`, `tokens_in`, `tokens_out`, `model`, `body`, `rejected_reason` | Counts per ticket and per day; drives the spend cap. |
+| `inbox_items`, `push_subscriptions`, `notification_prefs`, `email_log`, `email_suppressions` | kind, ref, `read_at`; endpoint and keys; per-kind toggles and quiet hours; kind and `sent_at`; address and reason | Story push max one a day, quiet 22:00 to 08:00. |
+| `telemetry_events` | `learner_id` (nullable), `command`, `result`, `duration_ms`, `cli_version`, `os`, `at` | CLI usage stats, deleted after 12 months by a daily job. |
+| `ticket_reports` | `learner_id`, `item_id`, `kind` (broken ticket, setup help), `cli_version`, `last_check_output`, `message` | Forwarded by email to us. |
+| `path_waitlist` | `learner_id`, `path_id` (unique together) | The "Tell me when" list for planned paths. |
+| `record_items` | `learner_id`, `ref` (ticket or practice item), `shown` | What the learner chose to show on a shared record. |
+| `system_flags` | `key`, `value` | `maintenance`, `ai_enabled`, `ai_reviews_enabled`, `grade_review_required`, `min_cli_version`, `max_concurrent_machines`, `max_free_lab_machines`, `supporter_soft_cap_h` (60), `supporter_hard_cap_h` (100). No org. |
+| `catalog_secrets` | `item_id`, `hint_guard` (patterns), `catalog_version` | API only: no endpoint returns it, never in a bundle, never readable by a learner or a CLI. Loaded at deploy from the private catalog repo (section 1.6). |
+| `teardown_jobs` | `resources` (machine, volume and snapshot ids), `attempts`, `done_at` | No learner id. Also used at the normal end of an exam. |
+| `exam_tombstones` | `github_id`, `role_id`, `retry_after` | Kept after a delete so deleting does not skip the retry wait; deleted at `retry_after`. No name, email or results. |
+
+### 3.4 Who reads and writes what
+
+| Actor | Reads | Writes |
+|---|---|---|
+| Learner (session) | Own rows only, plus the public catalog | Account settings, quiz, writing, story, exam artifacts, one appeal per attempt, report, push subscription, waitlist, record sharing |
+| CLI (token) | Own progress, ticket bundles, quota | Events, check results, telemetry, hint requests, exam commands |
+| Stripe webhook | none | Billing tables |
+| SES bounce (SNS) | none | `email_suppressions` |
+| Runner (mTLS, API only) | its own EC2 resources | none: the API writes `machines` from its replies |
+| Public | Pages, and a track record only through its unguessable share token while `record_shared` is true | none |
+| Operator | The review queue (answers, rubric evidence, machine results, appeals) and, through `dojo-admin`, everything | Confirm or override grades, resolve appeals, flags, restores |
+
+No learner can read another's rows. Exam checks, rubrics and `internal_output` are never sent to a
+learner or a CLI.
+
+### 3.5 Deleting an account (S1)
+
+In one transaction: end any open exam as `not_yet`, write the tombstone if a retry wait is
+running, delete every other learner row, revoke every token, and write a `teardown_jobs` row that
+lists every resource the attempt used, which the runner retries until all are destroyed. Stripe
+keeps invoices as the law requires; backups keep data for 30 days; E8 is sent once. A restore on
+request within 30 days is a manual backup restore, not a soft delete.
+
+### 3.6 API groups
+
+`/v1/auth/*`, `/v1/me` and prefs, `/v1/path` and `/v1/catalog`, `/v1/events`, `/v1/stream` (SSE),
+`/v1/tickets/:id/*` (start, progress, hints), `/v1/hints/ai`, `/v1/quiz`, `/v1/writing`,
+`/v1/labs` (hosted start, stop, terminal ticket), `/v1/exams/*`, `/v1/billing/*`, `/v1/inbox`,
+`/v1/push`, `/v1/reports`, `/v1/telemetry`, `/v1/webhooks/{stripe,ses}`, `/v1/health`.
+
+## 4. Accessibility carried into the build
 
 - Dialogs (palette, install sheet, danger zone) trap focus, restore it on close, close on Escape.
 - Tabs (phone tab bar, settings tabs, MCP config tabs) use roving tabindex and arrow keys.
 - The command palette is a combobox with `aria-activedescendant`.
-- Live regions for check results, quiz feedback and exam milestones; polite unless the exam is
-  about to end.
+- Live regions for check results, quiz feedback and exam milestones (30, 10 and 5 minutes); polite
+  unless the exam is about to end.
+- Status marks (pass, fail, warning) always carry text, never colour alone.
 - `prefers-reduced-motion` turns off celebration motion and carousel animation.
-- Viewport allows zoom; 44 px touch targets on phone; `lang` set per page (English UI, Spanish
-  where the learner chose it for context pages).
-- Extra time (1.5x) is a setting the learner turns on themselves, no proof asked.
+- Viewport allows zoom; 44 px touch targets on phone; `lang` per page.
+- Extra time (1.5x) is a setting the learner turns on, no proof asked.
+- **Exam timer and states** (a11y review of canvas v100, WCAG 2.2.1, 3.3.4): the clock is a
+  `<time>` element in a `role="timer"` region named "Time left in your shift" (not a live region,
+  so it is not read every second); extra time is shown ("Extra time on, 4:30"); paused and
+  "pause used" are text states; warnings at 30, 10 and 5 minutes go through a polite live region
+  and a text banner; autosave shows "Saved 10:42"; at expiry the page says what was graded; submit
+  has a confirm step listing parts done and not started; Leave says what happens to the clock and
+  the work; the learner can hide the clock and keep the warnings. The exam header is a `<header>`
+  with the strip as an ordered list and `aria-current="step"` on the active part.
+- **Browser terminal:** xterm.js screen-reader mode on, a named pane ("root@exam-7f3a hosted
+  machine"), a documented keyboard exit (Esc then Tab, shown in a hint line), a visible "Skip
+  terminal" link, labelled font-size controls, a "Copied" status, and it must work at 200% zoom
+  and with text spacing.
+- **Live regions:** provisioning step changes (H1), check results on L3, an AI hint arriving,
+  "Copied", offline banner. One pattern in the shared Status component.
+- **Focus (2.4.11, 3.2.6, 3.3.8):** the sticky exam header and phone tab bar must not cover the
+  focused element; the help route ("Report a broken ticket", Carmen) sits in the same place on
+  every page, and the exam has its own named help route; delete-account confirmation allows paste
+  and autofill; GitHub sign-in needs no cognitive test. Focus is managed after SPA route changes.
+- **Components:** switches show focus on the track and state in text; status icons carry
+  screen-reader text; headings are real `h2` and `h3`; selected chips and the billing toggle use
+  `aria-pressed`; inline links are underlined; the O0 path cards sit in a labelled radio group;
+  `lang="es"` on Spanish explanation passages; the headline gradient has a `forced-colors`
+  fallback (`CanvasText`, no clipped text); small text is 12 px or more and phone targets 44 px.
+- **Emails E1 to E8:** each has a plain-text part, 16 px body, underlined links and a real table
+  layout.
+- Carousels (P2, landing) have a button alternative; no horizontal scroll at 320 px or 200% zoom
+  except those.
+- The accessibility statement page (`/accessibility`) is linked from the footer. RD 1112/2018
+  applies if public FP centres deploy Dojo; the target is EN 301 549 with WCAG 2.2 AA, and the
+  paid plan and checkout may fall under the EAA.
 
-## 11. Open questions
+## 5. Delivery notes
 
-Decided 2026-11-19: the defence is feedback only (the belt follows the checks); extra time is
-self-declared in S1.
+Tickets and exam content are a parallel track to this build (authoring in `kibanbuild/dojo-katas`)
+and the critical path to the 2027-03-31 done-line: Foundations, about 12 Support L1 tickets, two
+quizzes, writing tasks and one exam definition with its checks. It is tracked in `docs/plan.md`,
+not designed here.
 
-1. **Exam backend and hosting:** waits on the shared Kiban platform (one cloud, or a few, for
-   every Kiban project). The three candidates are in section 7; the site, API and database follow
-   the same decision.
-2. **Running-system checks** for the yellow belt: how to check a booted snapshot without trusting
-   the learner's init.
-3. **Domain:** the canvas uses `[DOMAIN]`. The site and the API must share one registrable domain
-   (section 4), and both need it before `pre`.
-4. **Email provider** and **site CDN**: chosen in the PR that adds them, against the adapter.
-5. **Kata variants per learner** for practice katas: out of v1 (the CLI binary embeds the catalog,
-   as today). The API records `catalog_version` so they can come later without breaking progress.
-   Exam tickets vary per attempt from v1 (section 7).
+## 6. Where the canvas and the brief disagree, or the canvas disagrees with itself
 
-## 12. Build order
+"Wins" says which side stands. All rows were applied to the canvas in round 44 (v103) and its follow-up (v104, appeal boards and A1); the table stays as the record of what changed.
 
-Small PRs, one open at a time, each with its tests and docs:
+| Item | Canvas | Brief or decision (2026-11-20) | Wins |
+|---|---|---|---|
+| Blocked laptop (O3 blocked) | Offers a GitHub Codespaces lab | Hosted EC2 machine with browser terminal | Decision. Redraw O3. |
+| "Open source" copy (O1, footers, P1v2) | "Free to learn, open source" | Category fast-money; public copy never mentions licensing | Brief. Remove from the canvas. |
+| O4 command | `dojo setup git` (O4, S2) | Learner follows steps, `dojo doctor` verifies; no write access to GitHub | Decision. Remove the verb from O4 and S2. |
+| `dojo hint` | Terminal board says dropped | Brief lists `hint`; L3 uses it | Brief. Redraw the Terminal board. |
+| Revisit with "fresh variant" (L3 revisit) | `dojo start --again` promises a variant | Non-goal: per-learner variants | Brief. Revisit restarts the same ticket. |
+| Belt mark "Feedback round with a peer" (R4) | Peer feedback | No peer review | Decision: a simulated feedback round with Carmen or the team lead. Reword. |
+| Share link on the record (R5) | Public link | Opt-in share, not a public portfolio | Decision. Canvas shows the opt-in switch and chosen items. |
+| Paths on O0 and P3 | Four selectable paths | Only Systems and DevOps built | Decision. Three show "coming soon" with a waitlist. |
+| Systems L2 test-out card (R1) | Shown | Systems L2 is a non-goal | Brief. Remove it. |
+| Exam parts | L6 Not yet lists EX-1, EX-2, INC-7, UPD, HAND; E3 lists fixes, reply, brief, update, handoff | Four parts, five scored items, 4 of 5 | Decision, and E3's list. Fix L6 Not yet, L6 rules and R3. |
+| Retry date | L6 Not yet "24 Nov"; E3 "28 Nov" | One date, `retry_after`, 7 days after publication | Decision. One date everywhere. |
+| Grade pending, appeal | Not drawn | The operator confirms grades; one appeal per attempt | Decision. Add "Submitted, grade pending", the appeal, and E2 and E3 wording. The review queue is operator only and not on the canvas. |
+| Exam states | Clock `3:00:00`, no paused, warning, extra time, confirm or Leave states | a11y review P0-2 | a11y review. Draw them. |
+| Exam screens | L6Run is a single-incident view; R3/H2 is the work day | | R3/H2 is the run screen. |
+| Belt screen L8 | "Yellow belt tied on Support L1" | White belt, belt marks as maturity | Decision. Redraw L8. |
+| FAQ page | None on the Map; Q&A on P6 | Brief lists FAQ among public pages | FAQ stays in scope as a section on P2 How it works, with no page of its own. The brief keeps it. |
+| Docs link in public nav | Present | Not in the brief | Brief. Omit in v1. |
+| Story moments (L4), defend step | Done on the Map | Not named in the brief's scope | Both stay in v1 (decided 2026-11-20); the brief should name them. |
+| O0 and O3 nav | Signed-in nav before sign-in | | O0 is signed out and shows the public nav. |
+| Supporter price | | Pricing research says EUR 7 and 70; brief says EUR 9 and 90 | Brief. |
+| Accessibility statement | None | a11y review | Add a page and a footer link. |
 
-1. API skeleton: config, health, logging, migrations, compose stack, `API: Tests`.
-2. Sign-in: GitHub web flow, sessions, `dojo login` device flow, CLI tokens.
-3. Catalog sync and `GET /v1/path`; CLI events and `kata_progress`.
-4. Site skeleton: Astro, tokens from the identity board, public pages P1-P4, `Web: Tests`.
-5. Onboarding O1-O5 and Today L1 on real data.
-6. Kata page L3 with hints and the mirrored check panel; path L2; quizzes L11.
-7. `dojo mcp` and the AGENTS.md files.
-8. Exam runner with the local QEMU backend in compose, then the real backend and the gateway;
-   exam pages L6; awards L7/L8.
-9. Inbox, emails E1/E2, Web Push, settings S1-S4.
-10. PWA install, offline, system pages; then `pre`, then the first learners.
+## 7. Open questions
+
+Answered on 2026-11-20 and applied above: exam rubric scoring with operator confirmation
+and appeals; one exam rule; O4 without a setup verb; waitlist for the other paths; opt-in share
+link; simulated feedback mark; hint caps (20 a day, EUR 50 a month); free hosted session limits
+and unmetered exams; domain and accounts; PostHog; region rule; 12 month telemetry retention; `pro`
+only at launch.
+
+Still open:
+
+1. **Grade turnaround:** what time the learner is told to expect while the operator confirms each grade
+   (for example "within 48 hours"), and the volume at which `grade_review_required` is switched
+   off.
+2. **Appeal window:** 7 days after publication is proposed; confirm, and who reviews when the operator
+   is the one who confirmed the grade.
+3. **`kyoten.dev`:** not registered yet (ledger). Needed for the domain step in M0b; until then M0b
+   runs on the CloudFront default domain.
+4. **Tax before the first charge:** Stripe Tax, a merchant of record or a gestor, and the
+   self-employment timing (pricing research, section 7).
+5. **Legal text (LG1) and the GDPR review** for learners aged 14 to 17 whose check output goes to
+   Bedrock: Edith's review before the first charge.
+6. **Bedrock and SES in `eu-south-2`:** checked in M0b; the fallback is decided (section 1.1).
+
+Not blocking v1: running-system exam checks for later roles; per-learner variants; Teams; moving
+the web and API to a shared Kiban platform if that parked decision lands.
+
+## 8. Build order
+
+A milestone list for `docs/plan.md`. Each milestone is shippable and made of small PRs (one concern
+each, one open at a time, tests and docs in each). Everything is built and tested on the local
+stack (section 1.7); deploying to AWS is the target, not a prerequisite. Content authoring runs in
+parallel (section 5).
+
+- **M0a: Local hello world.** First `compose.yaml` (`docker compose up` brings up Caddy, the web
+  page, the API with `/v1/health`, Postgres and the migrations job; MinIO, Mailpit and the runner
+  skeleton can follow in later PRs), `make dev`, a first `test:integration` and CI (`Web: Tests`,
+  `API: Tests`). Needs no AWS account.
+- **M0b: Public "coming soon".** The AWS Organization with the app account and the machines
+  account, OpenTofu with `Infra: Plan`, GitHub OIDC, and S3 plus CloudFront serving a "coming soon"
+  Astro page on a public URL: the CloudFront default domain until `dojo.kyoten.dev` is bought.
+  When it is, the domain step adds DNS and an ACM certificate in `us-east-1` (CloudFront needs it
+  there). Checks Bedrock and SES availability in `eu-south-2`. The ECS API, RDS, deploy to `pre`
+  on merge and the CLI release to S3 with the installer follow as the next small PRs of this
+  milestone.
+- **M1: Sign-in.** IP rate limit on sign-in, the fake GitHub, GitHub web flow, sessions, `dojo login` device flow, CLI
+  tokens, `/v1/me`, age and terms, S1 and S2 minimal, CLI telemetry with its 12 month cleanup,
+  the consent banner and the analytics adapter.
+- **M2: Tickets on local labs, mirrored on the web.** Catalog sync and bundles, CLI verb changes
+  (`ssh`, `stop`, `status`, `check` events), `ticket_progress`, SSE, Today, Path, ticket page,
+  written hints, public pages P1 to P4 and LG1.
+- **M3: Onboarding.** O0 with the waitlist, O1 to O5, `dojo doctor` verifying the O4 steps and
+  reporting, AGENTS.md and `dojo mcp`, E1 over Mailpit and SES, first-run Today, the report form.
+- **M4: Between tickets.** Writing tasks, quizzes and the simulated feedback round with the AI
+  review adapter, practice catalogue, inbox, belt marks, settings S3 and S4, PWA W1 to W5.
+- **M5a: Runner and pool.** Packer AMI and the lab image, runner, mTLS to the API, `Backend`
+  with `ec2` and the container backend, warm pool, machine lifecycle, `hosted_sessions`, machine
+  ceilings and the queue, machine-start rate limits, H1. First real isolation test on EC2.
+- **M5b: Gateway and browser terminal.** SSH gateway, the browser terminal, `dojo ssh` and
+  `dojo check` on hosted labs, free hours, Supporter fair-use caps in the quota, `dojo status
+  --quota` and E4.
+- **M6a: Exam clock and results.** Exam definition and items, preflight, work-day screens and
+  states, server clock and sweeper, answer autosave, submit, defend, results with the grade
+  published by `dojo-admin` for now, role passes, E2 and E3, R4, track record R5 with the
+  token share link.
+- **M6b: Checker, rubric and review queue.** Spike first: prove the local compose checker design
+  (state on a named volume, read-only mount in a second container, systemd under Docker Desktop),
+  or scope the claim to "exercises the same runner code path"; and decide kernel mount against
+  userspace reading. Then the checker and disk reading, rubric scoring, grade pending, the review
+  queue and appeals, the exam spend alarm. End-to-end exam run with escape attempts.
+- **M7: AI hint button.** The hint endpoint on the Bedrock adapter from M4, `dojo hint`, caps (20
+  a day, EUR 50 a month), the budget alarm, the output guard with `catalog_secrets`.
+- **M8: Money.** Stripe Checkout and Portal, signed webhooks, Supporter, packs, P6, E5 and E6, plan
+  entitlements, in Stripe test mode until the tax decision and the GDPR review for 14 to 17 year
+  olds are done; live charges switch on only after both. Exams stay free and equal on every plan.
+- **M9: Launch.** Create `pro`, size the warm pool, domain and email, SES production access, legal
+  text, live Stripe keys, a11y and UX fixes, E7 and E8, the first school. Launch checklist (phase 6).
+
+M7 and M8 can swap; M5a and M5b must precede M6b.

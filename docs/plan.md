@@ -26,17 +26,17 @@ the order, the target dates and the status. Tracked on the kibanbuild GitHub Pro
 | # | Milestone | Target | Status |
 |---|---|---|---|
 | M0a | Local hello world: compose (Caddy, web, API `/v1/health`, Postgres, migrations), CI | 2026-11-29 | next |
-| M1 | Sign-in: GitHub web and device flow (fake GitHub locally), `/v1/me`, CLI telemetry, consent | 2026-12-13 | |
-| M2 | Tickets on local labs mirrored on the web: catalog, bundles, CLI verbs, SSE, Today, Path, ticket page with written hints, public pages | 2026-12-27 | |
+| M1 | Sign-in: GitHub web and device flow (fake GitHub locally), `/v1/me`, CLI telemetry, consent; operator service skeleton: DB roles, admin sign-in, audit (ADR 0002) | 2026-12-13 | |
+| M2 | Tickets on local labs mirrored on the web: catalog, bundles, CLI verbs, SSE, Today, Path, ticket page with written hints, public pages; operator A2 learner lookup | 2026-12-27 | |
 | M3 | Onboarding O0 to O5, `dojo doctor` checks, welcome email (Mailpit) | 2027-01-03 | |
 | M4 | Between tickets: writing tasks, quizzes, simulated feedback round, practice, inbox, belt marks, PWA | 2027-01-17 | |
 | M5a | Runner and pool on the local container backend, queue, H1 | 2027-01-24 | |
-| M5b | SSH gateway, browser terminal, hosted hours and quotas | 2027-01-31 | |
-| M6a | Exam clock, work-day screens and states, submit, results, role pass, track record | 2027-02-14 | |
-| M6b | Checker spike, outside-the-guest checks, rubric, grade pending, review queue, appeals | 2027-02-28 | |
+| M5b | SSH gateway, browser terminal, hosted hours and quotas; operator A3 system switches | 2027-01-31 | |
+| M6a | Exam clock, work-day screens and states, submit, results, role pass, track record; operator void and retry date | 2027-02-14 | |
+| M6b | Checker spike, outside-the-guest checks, rubric, grade pending, operator A1 review queue, appeals | 2027-02-28 | |
 | M7 | AI hint button on the local AI stand-in, caps and output guard | 2027-03-07 | |
-| M8 | Stripe in test mode (live keys after the tax decision and the GDPR review) | 2027-03-14 | |
-| M0b | AWS: Organization with two accounts, OpenTofu, OIDC, CloudFront, ECS, RDS, `pre`, CLI installer, EC2 backend and isolation test, Bedrock and SES region checks, spend alarms | 2027-03-21 | |
+| M8 | Stripe in test mode (live keys after the tax decision and the GDPR review); operator comps | 2027-03-14 | |
+| M0b | AWS: Organization with two accounts, OpenTofu, OIDC, CloudFront, ECS, RDS, `pre`, the private operator service, CLI installer, EC2 backend and isolation test, Bedrock and SES region checks, spend alarms | 2027-03-21 | |
 | M9 | Launch: `pro`, domain, SES production access, legal text, live Stripe, a11y and UX fixes, first school | 2027-03-28 | |
 
 ## Content track (in parallel)

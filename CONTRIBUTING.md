@@ -21,6 +21,9 @@ Thanks for helping. Katas, fixes and ideas are all welcome.
 The API (`cmd/dojo-api`, code in `internal/server/`) is a separate binary from the CLI. `compose.yaml`
 runs Postgres, a one-off `migrate` job (goose, SQL in `db/migrations/`) and the API; more pieces join it
 as milestones land. Needs Docker with Compose.
+The migrations create two `NOLOGIN` roles, `dojo_api` and `dojo_admin`; a one-off `db-roles` job then
+turns on login and sets their passwords from `DOJO_API_DB_PASSWORD` and `DOJO_ADMIN_DB_PASSWORD`. Every
+new table migration must grant to both roles explicitly.
 
 - `make test-integration` starts that stack as the isolated project `dojo-it` from a clean state, runs
   the tests tagged `integration`, and always removes the containers and volumes afterwards. It uses the

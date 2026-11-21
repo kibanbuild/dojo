@@ -52,7 +52,6 @@ func TestHealthRejectsPost(t *testing.T) {
 	}
 }
 
-// Runs last: it stops the test project's database and does not restart it.
 func TestHealthUnavailableWhenDatabaseStops(t *testing.T) {
 	url := apiURL(t)
 	project := os.Getenv("DOJO_COMPOSE_PROJECT")
@@ -65,11 +64,31 @@ func TestHealthUnavailableWhenDatabaseStops(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(ids)) == "" {
 		t.Fatalf("find db container: %v %q", err, ids)
 	}
-	if out, err := exec.Command("docker", "stop", strings.TrimSpace(string(ids))).CombinedOutput(); err != nil {
+	id := strings.TrimSpace(string(ids))
+	t.Cleanup(func() { restartDB(t, id) })
+	if out, err := exec.Command("docker", "stop", id).CombinedOutput(); err != nil {
 		t.Fatalf("stop db: %v %s", err, out)
 	}
 	code, body := do(t, http.MethodGet, url+"/v1/health")
 	if code != http.StatusServiceUnavailable || body != "{\"status\":\"unavailable\"}\n" {
 		t.Fatalf("got %d %q", code, body)
 	}
+}
+
+// restartDB starts the stopped container and waits until its health check passes.
+func restartDB(t *testing.T, id string) {
+	t.Helper()
+	if out, err := exec.Command("docker", "start", id).CombinedOutput(); err != nil {
+		t.Errorf("start db: %v %s", err, out)
+		return
+	}
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		out, _ := exec.Command("docker", "inspect", "-f", "{{.State.Health.Status}}", id).Output()
+		if strings.TrimSpace(string(out)) == "healthy" {
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	t.Errorf("db not healthy 60s after restart")
 }

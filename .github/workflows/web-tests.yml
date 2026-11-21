@@ -1,0 +1,100 @@
+name: 'Web: Tests'
+
+on:
+  push:
+    branches:
+      - 'main'
+  pull_request:
+    branches:
+      - 'main'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  web-tests:
+    if: github.repository == 'kibanbuild/dojo'
+    name: Web Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            release-assets.githubusercontent.com:443
+            objects.githubusercontent.com:443
+            raw.githubusercontent.com:443
+            nodejs.org:443
+            registry.npmjs.org:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            api.osv.dev:443
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # Our own diff, not a third-party action. The job always runs so the required check never hangs.
+      - name: Detect web changes
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "web=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # A failed diff must fail the step, not skip the checks.
+          files=$(git diff --name-only "$BASE_SHA"...HEAD)
+          if printf '%s\n' "$files" | grep -E '^(web/|caddy/|Dockerfile$|\.dockerignore$|\.github/workflows/web-tests\.yml$)' > /dev/null; then
+            echo "web=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "web=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node
+        if: steps.changes.outputs.web == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+
+      # Corepack installs the pnpm pinned (with its hash) in web/package.json.
+      - name: Install dependencies
+        if: steps.changes.outputs.web == 'true'
+        working-directory: web
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Build
+        if: steps.changes.outputs.web == 'true'
+        working-directory: web
+        env:
+          ASTRO_TELEMETRY_DISABLED: '1'
+        run: pnpm build
+
+      - name: Audit dependencies
+        if: steps.changes.outputs.web == 'true'
+        working-directory: web
+        run: pnpm audit --audit-level high
+
+      # OSV-Scanner fails on any finding, which is stricter than high or critical.
+      - name: Scan the lockfile with OSV-Scanner
+        if: steps.changes.outputs.web == 'true'
+        run: |
+          docker run --rm -v "$PWD/web:/src:ro" \
+            ghcr.io/google/osv-scanner:v2.6.0@sha256:afd838850ac1a0fcc15ff4a041dc9ba11123c3f0d2666217a5f0fcf9222b55fa \
+            scan source --lockfile=/src/pnpm-lock.yaml

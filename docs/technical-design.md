@@ -43,7 +43,7 @@ flowchart LR
   browser[Browser / PWA] -->|HTTPS| cf[CloudFront]
   cli -->|HTTPS, CLI token| cf
   cf -->|static| s3[(S3: site, app, installers)]
-  cf -->|/v1/*| api[API<br/>dojo-server, ECS]
+  cf -->|/v1/*| api[API<br/>dojo-api, ECS]
   api --> db[(Postgres, RDS)]
   api --> bedrock[Bedrock<br/>hint button, reviews]
   api --> stripe[Stripe]
@@ -65,7 +65,7 @@ Pieces, one repo (public now; it will likely become one private monorepo, sectio
 | Piece | Where | What it does |
 |---|---|---|
 | Site and app | `web/` | Public pages (static Astro) and the signed-in app (one React SPA). |
-| API | `cmd/dojo-server`, `internal/server/...` | Sign-in, progress, hints, billing, exams, emails. The only writer to the database. |
+| API | `cmd/dojo-api`, `internal/server/...` | Sign-in, progress, hints, billing, exams, emails. Writes the database as `dojo_api`; operator writes go through the operator service (section 3.7). |
 | Operator service | `cmd/dojo-admin`, `internal/admin/...` | Review queue, learner lookup, flags, every operator action audited. Private, never on the public origin (section 3.7, ADR 0002). |
 | Runner | `cmd/dojo-runner`, `internal/runner/...` | Starts, pools, checks and destroys machines; SSH gateway; browser terminal. Runs in the machines account. |
 | CLI | `cmd/dojo` (exists) | Labs, checks, hints, `dojo login`, `dojo exam`, `dojo mcp`. |
@@ -94,8 +94,8 @@ Each row says why for this project. Nothing is here because another Kiban projec
 | Email | Amazon SES over SMTP, from `carmen@` and `hello@` the domain | Same cloud, cents per thousand. SMTP gives one code path in production and in compose (Mailpit speaks it). Bounces and complaints come back through SNS to an API endpoint. Needs SES production access before launch. |
 | Push | Web Push with VAPID keys sent by the API | No third-party push service. |
 | AI hint button and reviews | Amazon Bedrock, a Haiku-class Claude model, called through an adapter | All-in on AWS (decided 2026-11-20), pays per token, and the provider does not train on inputs (verify in AWS service terms before launch). Cost estimate in the pricing research: about EUR 0.04 per learner a month. Exact model id and region verified in M7. |
-| Web analytics | PostHog Cloud EU, loaded only after consent | Confirmed 2026-11-20: EU hosting, consent first. |
-| CLI telemetry | Our own `POST /v1/telemetry`, a table in our database, kept 12 months | The CLI must not talk to a third party. Opt-out with `dojo telemetry off`; events carry command names, results and timings, never files or output. A daily job deletes rows older than 12 months. |
+| Web analytics | PostHog Cloud EU, loaded only after consent | Confirmed 2026-11-20: EU hosting, consent first. A signed-out visitor's choice lives in a first-party cookie and fills `learners.analytics_consent` at sign-in only while it is null; a choice already on the account wins. |
+| CLI telemetry | Our own `POST /v1/telemetry`, a table in our database, kept 12 months | The CLI must not talk to a third party. Opt-out with `dojo telemetry off`; events carry command names, results and timings, never files or output. Anonymous events are accepted, rate limited. The nightly job deletes rows older than 12 months (`prune_telemetry()`, section 3.3). |
 | Infrastructure as code | OpenTofu in `infra/`, state in S3, GitHub OIDC for CI | Portable HCL with no long-lived AWS keys. |
 | Domain and accounts | `dojo.kyoten.dev`, kept a config value (`PUBLIC_ORIGIN`); an AWS Organization with an app account and a machines account, created in M0b | Decided 2026-11-20. Dojo may get its own domain later, so no code, cookie name or email template hardcodes the host. `kyoten.dev` is not registered yet (ledger): NEEDS-DECISION to buy it; until then M0b runs on the CloudFront default domain. |
 | Environments | `pre` from M0b, `pro` created only at launch | Halves fixed cost until there are learners (the research estimates about USD 55 to 60 per environment). `pre` and `pro` are separate stacks (VPC, database, ECS) in the app account; the machines account holds the machine networks of both. Names are `pre` and `pro`, never "prod". |
@@ -268,7 +268,7 @@ configuration and the adapter implementation chosen, never in the code that call
 | Email (E1 to E8) | SES over SMTP | Mailpit (SMTP in, web inbox to read) | Deliverability, DKIM, SNS bounce delivery (tests post a signed bounce payload to the endpoint) |
 | Payments | Stripe | `stripe-mock` (Stripe's own mock API) for Checkout and Portal calls. Webhooks are sent by a small test helper that signs them with a local signing secret, so the handler verifies signatures exactly as in production. The Stripe CLI forwarder is not used: it needs a Stripe account and the network | Real Stripe behaviour, Tax, 3-D Secure |
 | AI hints and reviews | Bedrock | The same adapter pointed at a deterministic stand-in (fixed replies keyed on the ticket and the hint number, used by every test). An optional compose profile points it at Ollama with a small local model to try real wording | Real model quality, quotas, Bedrock spend |
-| Web analytics | PostHog Cloud EU | An analytics adapter with a local sink (a log line and a table), so nothing leaves the machine | PostHog itself |
+| Web analytics | PostHog Cloud EU | A browser-side analytics adapter (PostHog runs in the browser) whose local sink logs each event to the browser console, so nothing leaves the machine | PostHog itself |
 | CLI telemetry | Our endpoint | The same endpoint and table | none |
 | Sign-in | GitHub OAuth App (web flow, device flow, check-token and revoke endpoints) | A small fake GitHub in the repo that implements those endpoints (a generic OIDC stand-in such as dex does not implement GitHub's device flow or token check). The API reads the GitHub base URL from config | GitHub's real consent screen, rate limits |
 | Hosted machines | EC2 in the machines account | The runner with a container backend: each machine is a systemd-capable container on an internal Docker network with no route out, started through the Docker socket (a development-only privilege, never in `pre` or `pro`). The warm pool, assignment, SSH gateway, browser-terminal WebSocket, pause and metering all run. The check flow is scoped to "exercises the same runner code path": a container rootfs is not a detachable volume, so the local machine keeps the state to be checked on a named Docker volume (not its rootfs), and the checker is a second container that mounts that volume read-only. systemd inside Docker Desktop is fragile; the M6b spike proves the local design (or the claim stays at this scope) | Real isolation (security groups, IMDS, no instance role), EBS detach and attach, kernel-mount attacks, real start times. The EC2 exam with escape attempts is the gate for this |
@@ -571,9 +571,27 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   `/callback`), with PKCE and a `state` bound to the browser by a short-lived cookie. Scopes:
   `read:user user:email` (the email is needed for E1 to E8; GitHub emails can be private, and
   `/user/emails` needs `user:email`). The callback upserts the learner by numeric `github_id`,
-  records age and terms on first sign-in, revokes the GitHub token it received
-  (`DELETE /applications/{client_id}/token`, never `.../grant`), and sets a session cookie: a
-  random 256-bit id stored hashed, `HttpOnly`, `Secure`, `SameSite=Lax`, 30-day sliding expiry.
+  revokes the GitHub token it received (`DELETE /applications/{client_id}/token`, never
+  `.../grant`), and sets the session cookie `dojo_session`: a random 256-bit id stored hashed,
+  `HttpOnly`, `SameSite=Lax`, 30-day sliding expiry, and `Secure` whenever `PUBLIC_ORIGIN` is
+  `https` (Safari drops `Secure` cookies on `http://localhost`, so the local stack goes without).
+  In `pre` and `pro` the API refuses to start unless `PUBLIC_ORIGIN` is `https`, so a wrong origin
+  can never ship cookies without `Secure`.
+  GitHub may return no usable email; `learners.email` is then empty until the learner adds one.
+- **Age and terms:** O1 asks for both before "Continue with GitHub". `start` takes them in a
+  POST body (never query parameters, so a link from elsewhere cannot tick them) and carries them in
+  the short-lived state cookie, which is signed by the API and bound to the OAuth `state`, as O0
+  carries the path. The callback records `age_confirmed_at`, `terms_accepted_at` and the terms
+  version from the server's own clock and config; the cookie only says the boxes were ticked.
+  They are needed only to create a learner:
+  when an unknown GitHub account comes back without them (for example from a sign-in started on
+  P6), the callback stores nothing and sends the browser back to O1 to confirm. So no GitHub data
+  is kept before the 14-or-older confirmation, and no session exists for a half-created account.
+  A returning learner signs in without ticking them again.
+- **Rate limit:** every `/v1/auth/*` route, and anonymous `POST /v1/telemetry`, is limited per
+  client IP. The client IP is the address `TRUSTED_PROXY_HOPS` entries from the right of
+  `X-Forwarded-For` (1 locally, behind Caddy; 2 in AWS, behind CloudFront and the ALB), or the
+  connection address when the header is shorter; the header is never trusted further.
 - **CLI:** `dojo login` uses the GitHub device flow with our client id and sends the resulting
   token once to `POST /v1/auth/cli`. The API accepts it only if GitHub's check-token endpoint
   (`POST /applications/{client_id}/token`, with our client secret) says it was issued to our app,
@@ -581,8 +599,11 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   revoke fails the login fails and is retried: no GitHub token is ever stored. CLI tokens are
   random, stored hashed with device name, OS and CLI version, listed and revocable in S2.
 - **No token to the learner's GitHub.** Their practice repo is public and is read without auth.
-- **CSRF:** every state-changing request needs a JSON body and a custom header; the site and the
-  API share one origin, so no CORS is allowed.
+- **CSRF:** every state-changing request authenticated by the session cookie needs a JSON body and
+  a custom header; the site and the API share one origin, so no CORS is allowed. CLI requests carry
+  their token in the `Authorization` header, which a browser never adds by itself, so they are
+  exempt. A request is authenticated by one credential only: one with a bearer token ignores any
+  session cookie, so the exemption never covers a cookie-authenticated request.
 - **Untrusted CLI input:** event payloads are limited (64 KB per event, 1 MB per batch, check
   output 16 KB) and always rendered escaped.
 - **Username:** unique, lowercased, 3 to 30 characters `[a-z0-9-]`, reserved list; defaults
@@ -619,12 +640,14 @@ state the CLI reported, not a live stream).
 ### 3.3 Tables
 
 Every table also has `org_id`, `created_at`, `updated_at`. Ids are UUIDv7. `learner_id` references
-`learners(id)` and cascades on delete unless noted.
+`learners(id)` and cascades on delete unless noted. Columns arrive with the milestone that first
+reads or writes them (M1 creates `learners` with the sign-in, settings and consent columns only);
+each migration states the grants for `dojo_api` and `dojo_admin` (section 3.7).
 
 | Table | Key columns | Notes |
 |---|---|---|
 | `orgs` | `slug`, `name` | One row, `public`. |
-| `learners` | `github_id` (unique), `github_login`, `username` (unique), `email`, `language` (en, es: explanations), `extra_time`, `hosted_default`, `age_confirmed_at`, `terms_accepted_at`, `usage_stats` (bool), `analytics_consent` (null, true, false), `chosen_path_id`, `record_shared` (default false), `record_token_hash` (null when not shared), `suspended_at`, `deleted_at` | `extra_time` applies to every exam. `record_shared` is the opt-in for the share link; the token is shown once, stored hashed, and regenerating replaces the hash. |
+| `learners` | `github_id` (unique), `github_login`, `username` (unique), `email`, `language` (en, es: explanations), `extra_time`, `hosted_default`, `age_confirmed_at`, `terms_accepted_at`, `usage_stats` (bool), `analytics_consent` (null, true, false), `chosen_path_id`, `record_shared` (default false), `record_token_hash` (null when not shared), `suspended_at` | `extra_time` applies to every exam. `record_shared` is the opt-in for the share link; the token is shown once, stored hashed, and regenerating replaces the hash. |
 | `sessions`, `cli_tokens` | `learner_id`, `token_hash`, `last_used_at`, `revoked_at`; tokens add `device_name`, `os`, `cli_version`, `ssh_public_key` | Hashes only. |
 | `paths`, `roles`, `path_roles` | `slug`, `title`, `status` (available, planned); roles add `kind` (foundations, role), `has_exam`, `advanced`; join has `position` | Content, loaded at deploy. v1 data: one available path. |
 | `catalog_items` | `id` (for example `support-l1/perms-03`), `role_id` (null for practice), `kind` (ticket, writing, quiz, story, feedback, practice), `position`, `title`, `est_minutes`, `tags`, `awards_mark`, `catalog_version`, `bundle_key` | Loaded from the catalog at deploy; the API never parses YAML per request. |
@@ -644,7 +667,7 @@ Every table also has `org_id`, `created_at`, `updated_at`. Ids are UUIDv7. `lear
 | `subscriptions`, `hour_packs`, `billing_customers`, `stripe_events` | customer id; subscription `price_kind` (founding, standard), `interval`, `status`, `current_period_end`, `cancel_at`; pack `seconds_total`, `seconds_left`, `expires_at`, `payment_ref`; event `id` unique | Written only by the webhook handler. |
 | `ai_hints` | `learner_id`, `item_id`, `seq`, `check_event_id`, `tokens_in`, `tokens_out`, `model`, `body`, `rejected_reason` | Counts per ticket and per day; drives the spend cap. |
 | `inbox_items`, `push_subscriptions`, `notification_prefs`, `email_log`, `email_suppressions` | kind, ref, `read_at`; endpoint and keys; per-kind toggles and quiet hours; kind and `sent_at`; address and reason | Story push max one a day, quiet 22:00 to 08:00. |
-| `telemetry_events` | `learner_id` (nullable), `command`, `result`, `duration_ms`, `cli_version`, `os`, `at` | CLI usage stats, deleted after 12 months by a daily job. |
+| `telemetry_events` | `learner_id` (nullable), `command`, `result`, `duration_ms`, `cli_version`, `os`, `at` | CLI usage stats. Accepted without a token (`learner_id` null, rate limited) so the CLI can report before `dojo login`, but the CLI sends nothing until it has shown its usage-stats notice once (on first run) with `dojo telemetry off`. The API drops events sent with a token whose learner has `usage_stats` off. `dojo telemetry off` is the local switch; when logged in it also sets `learners.usage_stats`, which the CLI reads at login. Deleted after 12 months by `prune_telemetry()`, run by the nightly job with the migration role, so `dojo_api` has no `DELETE`. |
 | `ticket_reports` | `learner_id`, `item_id`, `kind` (broken ticket, setup help), `cli_version`, `last_check_output`, `message` | Forwarded by email to us. |
 | `path_waitlist` | `learner_id`, `path_id` (unique together) | The "Tell me when" list for planned paths. |
 | `record_items` | `learner_id`, `ref` (ticket or practice item), `shown` | What the learner chose to show on a shared record. |
@@ -700,7 +723,7 @@ pass, a plan, the pass gate. It gets its own binary, database role and network p
 
 - **Binary.** `cmd/dojo-admin`, same repo, reusing `internal/server/service` for the domain logic
   (so a GDPR delete runs the same code as S1). Handlers and server-rendered HTML templates live in
-  `internal/admin`, which `cmd/dojo-server` never imports; a build test fails if it does. No admin
+  `internal/admin`, which `cmd/dojo-api` never imports; a build test fails if it does. No admin
   screen is in the public SPA bundle.
 - **Network.** `pre` and `pro`: an ECS service in a private subnet, no load balancer, not a
   CloudFront origin, desired count 0, `enableExecuteCommand` on. The operator raises the count to
@@ -718,10 +741,14 @@ pass, a plan, the pass gate. It gets its own binary, database role and network p
 - **Sign-in.** A GitHub OAuth App of its own (callback on `http://127.0.0.1:8090`; OAuth Apps
   accept a loopback callback), so the public app's credentials can never mint an admin session.
   The OAuth `state` is kept server-side, keyed by a short-lived pre-session cookie. The GitHub id
-  must be in `operators` (not revoked) and the account must have 2FA. M1 verifies which signal
-  GitHub exposes for that (`two_factor_authentication` on `GET /user`, or membership of an org that
-  enforces 2FA) before relying on it; until verified, sign-in fails closed. The GitHub token is
-  revoked after sign-in, as in the public flow.
+  must be in `operators` (not revoked) and the account must have 2FA. The admin app asks for
+  `read:user`, which makes `GET /user` return the private profile with the boolean
+  `two_factor_authentication` (GitHub REST docs, checked 2026-11-21). Sign-in goes on only when the
+  token's scopes include `read:user` or `user` and that field is exactly `true`; missing, `null` or
+  `false` refuses. GitHub's 2FA mandate covers only selected accounts, so the check is not moot;
+  GraphQL has no equivalent field. One live probe against a real OAuth App confirms the field
+  before the operator service first runs in `pre` (M0b). The GitHub token is revoked after
+  sign-in, as in the public flow.
 - **Sessions.** `admin_sessions`: random 256-bit id stored hashed, one hour from sign-in with no
   sliding. The cookie is named `dojo_admin_session`, has no `Domain` attribute, is `HttpOnly` and
   `SameSite=Lax`. It cannot be `Secure`: the service is reached over plain HTTP inside the tunnel.
@@ -732,7 +759,12 @@ pass, a plan, the pass gate. It gets its own binary, database role and network p
   screens are plain HTML forms, so every state-changing form carries a per-session CSRF token
   checked on submit, on top of `SameSite=Lax`.
 - **Database roles.** The migration role owns every table. Grants are column-level for both
-  `INSERT` and `UPDATE`, so a column that is not granted keeps its default on insert.
+  `INSERT` and `UPDATE`, so a column that is not granted keeps its default on insert. Migrations
+  create `dojo_api` and `dojo_admin` as `NOLOGIN` roles and never hold a password; a one-off
+  `db-roles` job run after the migrations turns on login and sets each password from the
+  environment, passed as a psql variable so it never shows in process arguments, and with
+  statement logging off for that session (locally the fixed values in `.env.example`; in AWS,
+  from Secrets Manager or RDS IAM authentication, settled in M0b).
   - `dojo_api` has no grant on `operators`, `admin_sessions` or `admin_audit`; select only on
     `comp_grants` and `system_flags`; on `email_outbox` it may insert (its own E1 to E8) and select;
     the sender marks a row sent only through `mark_email_sent`. It may not insert or update the
@@ -775,7 +807,8 @@ pass, a plan, the pass gate. It gets its own binary, database role and network p
       and nothing else.
     - `prune_admin_audit()`: deletes audit rows past the retention period. Granted to no service
       role; run by a nightly scheduled task with the migration role (the same scheduler that
-      scales the operator service to 0), and by a compose job locally.
+      scales the operator service to 0), and by a compose job locally. `prune_telemetry()`
+      (section 3.3) runs in the same job.
   - `dojo_admin` may, beyond selecting what the screens show: execute `admin_publish_attempt`, `resolve_appeal`, `void_attempt` and
     `delete_learner`; set the override columns of `exam_item_results` (`override_passed`,
     `overridden_by`, `override_note`); insert `comp_grants` and set their `revoked_at` and
@@ -938,13 +971,14 @@ parallel (section 5).
   When it is, the domain step adds DNS and an ACM certificate in `us-east-1` (CloudFront needs it
   there). Checks Bedrock and SES availability in `eu-south-2`. The ECS API, RDS, deploy to `pre`
   on merge, the operator service (private subnet, count 0, SSM port-forward only, nightly scale
-  to 0) and the CLI release to S3 with the installer follow as the next small PRs of this
+  to 0, and one live probe of GitHub's `two_factor_authentication` field with the real admin OAuth
+  App before it first runs) and the CLI release to S3 with the installer follow as the next small PRs of this
   milestone.
 - **M1: Sign-in.** IP rate limit on sign-in, the fake GitHub, GitHub web flow, sessions, `dojo login` device flow, CLI
   tokens, `/v1/me`, age and terms, S1 and S2 minimal, CLI telemetry with its 12 month cleanup,
   the consent banner and the analytics adapter. The operator service skeleton (section 3.7): the
-  `dojo_api` and `dojo_admin` roles with their grants test, `operators`, admin sign-in with the 2FA
-  check verified, admin sessions, the audit table with `prune_admin_audit()` and its job,
+  `dojo_api` and `dojo_admin` roles with their grants test, `operators`, admin sign-in with the
+  fail-closed 2FA check (the fake GitHub returns the field and the `X-OAuth-Scopes` header), admin sessions, the audit table with `prune_admin_audit()` and its job,
   `dojo-admin bootstrap`, the 404 edge test, `delete_learner` (S1) with the `email_outbox` table it queues E8 into
   (an E8 row and its address wait unsent until the template lands in M9; there are no learners
   before launch). Its tombstone and teardown steps are added with the exam tables in M6a. `mark_email_sent` lands with

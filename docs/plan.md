@@ -32,8 +32,8 @@ the order, the target dates and the status. Tracked on the kibanbuild GitHub Pro
 | M4 | Between tickets: writing tasks, quizzes, simulated feedback round, practice, inbox, belt marks, PWA | 2027-01-17 | |
 | M5a | Runner and pool on the local container backend, queue, H1 | 2027-01-24 | |
 | M5b | SSH gateway, browser terminal, hosted hours and quotas; operator A3 system switches | 2027-01-31 | |
-| M6a | Exam clock, work-day screens and states, submit, results, role pass, track record; operator void and retry date | 2027-02-14 | |
-| M6b | Checker spike, outside-the-guest checks, rubric, grade pending, operator A1 review queue, appeals | 2027-02-28 | |
+| M6a | Exam clock, work-day screens and states, submit, results, role pass, track record; operator void | 2027-02-14 | |
+| M6b | Checker spike, outside-the-guest checks, rubric, passes pending review, operator A1 review queue, appeals | 2027-02-28 | |
 | M7 | AI hint button on the local AI stand-in, caps and output guard | 2027-03-07 | |
 | M8 | Stripe in test mode (live keys after the tax decision and the GDPR review); operator comps | 2027-03-14 | |
 | M0b | AWS: Organization with two accounts, OpenTofu, OIDC, CloudFront, ECS, RDS, `pre`, the private operator service, CLI installer, EC2 backend and isolation test, Bedrock and SES region checks, spend alarms | 2027-03-21 | |

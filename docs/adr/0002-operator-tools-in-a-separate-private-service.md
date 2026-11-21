@@ -6,10 +6,10 @@ commands run with database access" of the first technical design.
 
 ## Context
 
-Operators confirm exam grades, resolve appeals, look up a learner, comp hours or Supporter, void
-or clear an exam attempt's retry date, suspend or delete an account, and switch `system_flags`. Each of these
+Operators confirm exam passes, resolve appeals, look up a learner, comp hours or Supporter, void
+an exam attempt, suspend or delete an account, and switch `system_flags`. Each of these
 changes something a learner or an attacker would want changed: a role pass, a plan, a cap, the
-grade gate that stands between the rubric reviewer and prompt injection.
+pass gate that stands between the rubric reviewer and prompt injection.
 
 The first design put the review queue in the public SPA behind `learners.is_operator`, and every
 other task in a command-line tool with database access. That leaves three weaknesses:
@@ -17,7 +17,7 @@ other task in a command-line tool with database access. That leaves three weakne
 - Operator code ships in the public API binary and its routes are reachable from the internet. A
   single authorization bug, or a stolen operator session, is enough.
 - The public API's database user can do everything an operator can. Any SQL injection or logic
-  bug in the API can set `is_operator`, publish a grade, or switch off `grade_review_required`.
+  bug in the API can set `is_operator`, publish a grade, or switch off the review of passes.
 - A command-line tool with direct database access leaves no record of who did what and why.
 
 ## Decision
@@ -30,7 +30,7 @@ other task in a command-line tool with database access. That leaves three weakne
    log, comp grants, grade overrides, appeal decisions, role passes, the publication columns of an
    exam attempt or `system_flags`, and a trigger stops it moving an attempt into `published` or
    `voided`. Those writes happen only inside `SECURITY DEFINER` functions. `dojo_api` may call
-   four of them: one publishes a grade and refuses while `grade_review_required` is on, one
+   four of them: one publishes a grade and refuses a pass while `pass_review_required` is on, one
    trips the monthly AI spend cap, one deletes an account (the S1 path), one marks a queued email
    sent. This is the
    real gain: a compromised public API cannot promote itself, write a role pass or move a grade

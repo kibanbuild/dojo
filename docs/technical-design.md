@@ -201,7 +201,7 @@ One adapter, one endpoint family, two uses.
 - **Review (writing tasks, story tone, simulated feedback rounds):** the same adapter returns a
   rubric review as strict JSON (a list of named boolean criteria with a quoted line as evidence).
   Feedback only: it never decides a role. The exam is the exception, section 2.7, where the same
-  booleans feed the pass rule and a person confirms each grade while volume is low.
+  booleans feed the pass rule and a person checks each pass while volume is low.
 - **Privacy:** terminal output of learners aged 14 to 17 goes to a processor. Legal review is open
   (section 7).
 
@@ -294,7 +294,7 @@ public (P1-P4, P6, LG1) -> O0 pick path -> O1 sign in -> O2 install -> O3 doctor
   -> O5 first ticket -> Today (L1) <-> Path (R1) <-> Practice (R6)
 Today -> Ticket (L3) -> writing task (L9) / quiz (L11) / story moment (L4) -> next ticket
 Path -> all tickets of the role done -> L6 rules + preflight -> H1 preparing -> R3/H2 work day
-  -> submit -> defend (feedback) and grade pending -> result: R4 role passed -> R5 record
+  -> submit -> defend (feedback) -> result (a pass waits for a person first): R4 role passed -> R5 record
      or L6 not yet -> practise -> retry (an appeal is possible once, after the result)
 ```
 
@@ -337,14 +337,14 @@ error cases the page must draw. Status is the Map's.
 | H1 Preparing your machine | `/exam/:role/machine`, also shown for hosted labs | none (waits) | Four steps with real progress from the runner, CLI mirror. Error: no capacity or start failed, retry; the clock has not started. |
 | R3/H2 The work day | `/exam/:role/day` | Submit the exam (after a confirm step) | Queue of four parts, answer boxes that autosave ("Saved 10:42"), browser terminal or `dojo exam`. Clock states: extra time applied, paused, warnings, clock hidden (section 2.7). Phone: "open this on a computer", the clock has not started. |
 | L6 Defend | `/exam/:role/defend` | Send answers | Three questions, 30 minutes, draft saved, skip allowed. Feedback only, never scored. |
-| L6 Submitted, grade pending | `/exam/:role/result` | none (waits) | Canvas v103 L6 Submitted. "Submitted. Your grade is being checked and you will get an email." Shows the submitted time and the one-appeal rule. `dojo status` shows the same. |
+| L6 Submitted, checking a pass | `/exam/:role/result` | none (waits) | Canvas v109 L6 Submitted. While scoring and defend run it says "Submitted. Checking your work."; once defend closes, a Not yet goes straight to L6 Not yet, and a pass waiting for review shows "Submitted. Checking your pass." (telling the learner it scored as a pass before E2 is deliberate: the wait already says so). Shows the submitted time and the one-appeal rule. `dojo status` shows the same. |
 | L6 Not yet / R4 Role passed | `/exam/:role/result`, `/roles/:role/passed` | Practise (not yet); See your track record (passed); Appeal | Not yet shows the five scored items, what did not hold and one retry date. Appeal is offered once per attempt, with a reason box (canvas v104 L6 Appeal and L6 Appeal decided, section 2.7). |
 | R5 Track record | `/record` | Share (opt-in switch, copy link, regenerate or revoke) | Empty before the first role. Private by default; the learner turns sharing on and chooses which practice items show. Foundations and Support L1 entries read "Verified by Dojo" only when the pass is server-side (exam); tickets and practice read "Practice". |
 | Public record | `/r/:token` | none | Only when the learner opted in; the token is long, random and unguessable, and the learner can revoke it or regenerate it (the old link then dies). Shows verified work and the items they chose, nothing else, `noindex`, not listed. There is no per-name record URL and no username namespace. This is not a public portfolio. |
 | L7 / L8 Belt mark, belt | `/celebrate/:id` | Next ticket | Shown once, then in the inbox. L8 only when the four white marks are done. |
-| A1 Review queue | `dojo-admin` `/review` (never on the public origin) | Confirm a grade; Override a part with a note; Resolve an appeal | Operator only, served by the operator service (section 3.7); canvas v104 A1 (desktop only). Section 2.7. |
-| A2 Learner lookup | `dojo-admin` `/learners` | Comp hours or Supporter; void an attempt; set or clear its `retry_after`; rename; suspend; delete (GDPR) | Operator only, section 3.7. Not on the canvas yet. |
-| A3 System switches | `dojo-admin` `/flags` | Change a flag (confirm and reason) | Operator only, section 3.7. Not on the canvas yet. |
+| A1 Review queue | `dojo-admin` `/review` (never on the public origin) | Confirm a pass; Override a part with a note; Resolve an appeal | Operator only, served by the operator service (section 3.7); canvas v108 A1 (desktop only). Section 2.7. |
+| A2 Learner lookup | `dojo-admin` `/learners` | Give hours or Supporter, take a gift back; void an attempt; suspend; delete (GDPR) | Operator only, section 3.7; canvas v108 A2 and the delete confirm (desktop only). |
+| A3 System switches | `dojo-admin` `/flags` | Change a flag (confirm and reason) | Operator only, section 3.7; canvas v108 A3 and the switch confirm (desktop only). |
 | Accessibility statement | `/accessibility` | none | New, from the a11y review; linked from the footer. |
 | S1 Account | `/settings/account` | Save; Switch path; Test out; Delete account | Username, language of explanations, path, plan, hour packs, extra time, usage stats, danger zone. |
 | S2 Machines | `/settings/machines` | Revoke a CLI token | Lists CLI devices (OS, version, last seen) and the SSH key. |
@@ -444,8 +444,9 @@ stateDiagram-v2
   running --> paused: Pause (once, max 15 min)
   paused --> running: Resume or 15 min
   running --> submitted: Submit or deadline
-  submitted --> grade_pending: machine checks and rubric scored by code
-  grade_pending --> published: operator confirms
+  submitted --> published: scored and defend closed, Not yet (or a pass with review off)
+  submitted --> grade_pending: scored and defend closed, pass while review is on
+  grade_pending --> published: operator confirms the pass
   published --> appealed: one appeal
   appealed --> published: human review resolves it
   preflight --> voided: overturn of the earlier attempt
@@ -472,7 +473,8 @@ stateDiagram-v2
   marked `advanced` need Supporter (a seam for later roles, nothing in v1).
 - **Clock on the server.** `deadline = started_at + 3h x time_factor`; resume moves it by the time
   actually paused. A sweeper (one task at a time, Postgres advisory lock) runs every 15 seconds:
-  it resumes pauses past 15 minutes, never ends a paused exam, and submits at the deadline.
+  it resumes pauses past 15 minutes, never ends a paused exam, submits at the deadline and sets
+  `defend_closed_at` once defend has been open 30 minutes.
   Whatever is autosaved at the deadline is what is graded, and the page says so.
 - **Exam screen states** (all components of the on-call header): extra time applied ("Extra time
   on, 4:30"), running, paused with "Pause used" and a Resume button, warnings at 30, 10 and 5
@@ -489,21 +491,24 @@ stateDiagram-v2
   if every fix holds. Items 2 to 5 are scored by the Bedrock reviewer, which returns booleans
   against a fixed rubric per item with a quoted line as evidence; an item passes when its required
   booleans are true, computed by code, not by the model. The reviewer reads the learner's free
-  text, so prompt injection could try to flip the booleans; the operator confirm gate (below)
-  covers it. `grade_review_required` is not switched off until a prompt-injection eval set
+  text, so prompt injection could try to flip the booleans; the operator check on every pass (below)
+  covers it. `pass_review_required` is not switched off until a prompt-injection eval set
   passes against the rubric reviewer. The result so far is stored as
   `provisional_result`. The learner sees a one-line `learner_summary` per item and never check
   output or the rubric.
-- **Grade review (while volume is low).** the operator confirms every grade before it is published, so
-  results are delayed. A submitted attempt sits in `grade_pending` and appears in the review queue
-  (A1 in the operator service, section 3.7): oldest first, showing the learner's answers, each rubric boolean with
-  its evidence, the machine results and the learner summary. The operator confirms, or overrides an
-  item with a note; the override is recorded and wins. Publishing sets `result`, `retry_after`
-  (publication plus 7 days) and `published_at`, writes the role pass on a pass and sends E2 or E3.
-  The requirement is a flag (`system_flags.grade_review_required`) so it can be switched off when
-  volume justifies it; with it off, publication is automatic when scoring ends. While pending the
-  learner sees "Submitted, grade pending" on L6 and in `dojo status`, and gets no result email
-  until publication. The target turnaround shown to the learner is NEEDS-DECISION.
+- **Pass review (while volume is low).** Decided 2026-11-21: only a pass waits for a person.
+  Prompt injection only helps a learner pass, so a scored Not yet is published as soon as scoring
+  ends (E3 at once) and the learner can still appeal it. A scored pass sits in `grade_pending` and
+  appears in the review queue (A1 in the operator service, section 3.7): oldest first, showing the
+  learner's answers, each rubric boolean with its evidence, the machine results and the learner
+  summary. The operator confirms, or overrides an item with a note; the override is recorded and
+  wins, so a pass can become a Not yet. Publishing sets `result`, `retry_after` (publication plus
+  7 days) and `published_at`, writes the role pass on a pass and sends E2 or E3. The requirement is
+  a flag (`system_flags.pass_review_required`) so it can be switched off when volume justifies it;
+  with it off, a pass is published automatically too. While a pass waits the learner sees
+  "Submitted. Checking your pass." on L6 and in `dojo status`, and gets no result email until
+  publication. The target turnaround shown to the learner is NEEDS-DECISION (the canvas says
+  "usually within one working day").
 - **Appeal.** After publication the learner can appeal once per attempt, with a short reason, within
   7 days. A person reads the answers and the grade, and either upholds it or overturns an item;
   an overturn can turn a not yet into a pass (then the role pass is written, `retry_after` is
@@ -512,8 +517,8 @@ stateDiagram-v2
   who made it are stored in `exam_appeals`. Appeals appear in the same review queue.
 - **Defend.** After submit the learner answers three "why" questions written from a text diff of
   their changes against the broken baseline (read, never run), within 30 minutes, skippable. It is
-  feedback only and is never scored. It happens while the grade is pending, so it costs no waiting
-  time. It stays in v1.
+  feedback only and is never scored. It runs while scoring finishes, and publication waits until
+  defend closes (answered, skipped or 30 minutes), so a Not yet never lands in the middle of it. It stays in v1.
 - **One retry date.** `retry_after` is the only date, set at publication; L6 Not yet, E3 and
   `dojo status` all show it.
 - **After scoring:** the machine and the checker are destroyed; the root volume is kept as
@@ -603,7 +608,7 @@ tickets are practice. Only the role exam is authoritative, and it runs on our ma
 | Hosted lab check | CLI over the gateway | Same as local: self-reported |
 | Quiz answers | Web | Quizzes |
 | Writing task, story reply, reviews | Web and Bedrock | Feedback only |
-| Exam items and result | Machine checks on the runner, the rubric reviewer, and the operator's confirmation | Role passes, track record "Verified" |
+| Exam items and result | Machine checks on the runner, the rubric reviewer, and the operator's confirmation of a pass | Role passes, track record "Verified" |
 | Stripe events | Stripe (signed) | Plans and hours |
 
 The CLI sends events to `POST /v1/events` (batched, idempotent by a client-generated id) after each
@@ -628,7 +633,7 @@ Every table also has `org_id`, `created_at`, `updated_at`. Ids are UUIDv7. `lear
 | `quiz_answers`, `writing_drafts`, `story_choices` | learner, item, answers or `body`, `review` (jsonb), `submitted_at` | Feedback records. |
 | `belt_marks`, `belt_awards` | mark `slug`, `belt`, `title`; award `learner_id`, `mark_id`, `source_ref`, `awarded_at` | Maturity, from writing, simulated feedback rounds and exam artifacts. The white belt has four marks; none unlocks or blocks a role. The fourth, a feedback round, is a simulated one: Carmen or a team lead sends feedback in a `feedback` item (drawn like a story moment, L4) and the learner replies, reviewed by rubric. No peer is involved. |
 | `exam_defs`, `exam_items` | def: role, `version`, `duration_s` (10800), `pause_s` (900), `pass_items` (4), `parts` (the four parts); item `code` (fixes, reply, brief, update, handoff), `kind` (machine, rubric), `part`, `title`, `rubric` | Content. The five items are data. |
-| `exam_attempts` | `learner_id`, `role_id`, `def_version`, `state` (preflight, preparing, running, paused, submitted, grade_pending, published, appealed, voided), `test_out`, `started_at`, `deadline`, `paused_at`, `pause_used`, `time_factor`, `machine_id`, `submitted_at`, `provisional_result`, `grade_status` (pending, published), `result` (passed, not_yet, null), `items_passed`, `published_at`, `retry_after`; `grade_status` defaults to `pending`, the publication columns to null | Partial unique index: one open attempt per learner (`state IN (preflight, preparing, running, paused, submitted, grade_pending)`), so an appeal or a voided row never blocks a retry. `result` is set once at publication; the only later changes are an overturn through `exam_appeals` and voiding (an overturn of the learner's earlier attempt), both enforced by a trigger. Unique `(id, learner_id, role_id, result)`. |
+| `exam_attempts` | `learner_id`, `role_id`, `def_version`, `state` (preflight, preparing, running, paused, submitted, grade_pending, published, appealed, voided), `test_out`, `started_at`, `deadline`, `paused_at`, `pause_used`, `time_factor`, `machine_id`, `submitted_at`, `defend_closed_at` (set by the API when defend is answered or skipped, or by the sweeper at 30 minutes), `provisional_result`, `grade_status` (pending, published), `result` (passed, not_yet, null), `items_passed`, `published_at`, `retry_after`; `grade_status` defaults to `pending`, the publication columns to null | Partial unique index: one open attempt per learner (`state IN (preflight, preparing, running, paused, submitted, grade_pending)`), so an appeal or a voided row never blocks a retry. `result` is set once at publication; the only later changes are an overturn through `exam_appeals` and voiding (an overturn of the learner's earlier attempt), both enforced by a trigger. Unique `(id, learner_id, role_id, result)`. |
 | `exam_item_results` | `attempt_id`, `item_code`, `passed`, `rubric_result` (jsonb: booleans and evidence), `learner_summary`, `internal_output`, `override_passed` (null unless overridden), `overridden_by`, `override_note` | `internal_output` and `rubric_result` are for us; the learner sees `learner_summary`. An override wins over the scored value. |
 | `exam_artifacts` | `attempt_id`, `item_code`, `body`, `saved_at` | The learner's replies, questions, update and handoff. |
 | `exam_appeals` | `attempt_id` (unique: one per attempt), `reason`, `state` (open, upheld, overturned), `resolved_by`, `resolution_note`, `resolved_at` | A person decides. |
@@ -643,7 +648,7 @@ Every table also has `org_id`, `created_at`, `updated_at`. Ids are UUIDv7. `lear
 | `ticket_reports` | `learner_id`, `item_id`, `kind` (broken ticket, setup help), `cli_version`, `last_check_output`, `message` | Forwarded by email to us. |
 | `path_waitlist` | `learner_id`, `path_id` (unique together) | The "Tell me when" list for planned paths. |
 | `record_items` | `learner_id`, `ref` (ticket or practice item), `shown` | What the learner chose to show on a shared record. |
-| `system_flags` | `key`, `value` | `maintenance`, `ai_enabled`, `ai_reviews_enabled`, `grade_review_required`, `min_cli_version`, `max_concurrent_machines`, `max_free_lab_machines`, `supporter_soft_cap_h` (60), `supporter_hard_cap_h` (100), `ai_cap_month`. No org. Seeded by migrations (`grade_review_required` seeded on); changed only from A3 (M5b on) or `trip_ai_cap()`. |
+| `system_flags` | `key`, `value` | `maintenance`, `ai_enabled`, `ai_reviews_enabled`, `pass_review_required`, `min_cli_version`, `max_concurrent_machines`, `max_free_lab_machines`, `supporter_soft_cap_h` (60), `supporter_hard_cap_h` (100), `ai_cap_month`. No org. Seeded by migrations (`pass_review_required` seeded on); changed only from A3 (M5b on) or `trip_ai_cap()`. |
 | `catalog_secrets` | `item_id`, `hint_guard` (patterns), `catalog_version` | API only: no endpoint returns it, never in a bundle, never readable by a learner or a CLI. Loaded at deploy from the private catalog repo (section 1.6). |
 | `teardown_jobs` | `resources` (machine, volume and snapshot ids), `attempts`, `done_at` | No learner id. Also used at the normal end of an exam. |
 | `operators` | `github_id` (unique), `github_login`, `added_by`, `added_at`, `revoked_at` | Operator service only; `dojo_api` has no grant. The first row is written by `dojo-admin bootstrap` with the migration role. |
@@ -663,7 +668,7 @@ Every table also has `org_id`, `created_at`, `updated_at`. Ids are UUIDv7. `lear
 | SES bounce (SNS) | none | `email_suppressions` |
 | Runner (mTLS, API only) | its own EC2 resources | none: the API writes `machines` from its replies |
 | Public | Pages, and a track record only through its unguessable share token while `record_shared` is true | none |
-| Operator (operator service, `dojo_admin` role) | Everything a screen in section 3.7 needs | Grade confirmations and overrides, appeal decisions, comp grants, attempt void, `retry_after`, rename, suspend, delete, `system_flags`, the operator list; always with an `admin_audit` row |
+| Operator (operator service, `dojo_admin` role) | Everything a screen in section 3.7 needs | Pass confirmations and overrides, appeal decisions, comp grants, attempt void, suspend, delete, `system_flags`, the operator list; always with an `admin_audit` row |
 
 No learner can read another's rows. Exam checks, rubrics and `internal_output` are never sent to a
 learner or a CLI.
@@ -691,7 +696,7 @@ edge integration test checks it against Caddy.
 ### 3.7 Operator service
 
 Decided 2026-11-21, ADR 0002. Operator work is the highest-value target in the product: a role
-pass, a plan, the grade gate. It gets its own binary, database role and network path.
+pass, a plan, the pass gate. It gets its own binary, database role and network path.
 
 - **Binary.** `cmd/dojo-admin`, same repo, reusing `internal/server/service` for the domain logic
   (so a GDPR delete runs the same code as S1). Handlers and server-rendered HTML templates live in
@@ -750,8 +755,12 @@ pass, a plan, the grade gate. It gets its own binary, database role and network 
       from `exam_item_results`, then sets `items_passed`, `result`, `grade_status`, `state`
       (`published`), `published_at` and `retry_after`, writes the role pass on a pass and queues E2
       or E3. Scoring writes only `provisional_result` (jsonb: each item and the count) and the item
-      rows. Granted to `dojo_api`; it refuses while `grade_review_required` is on.
-    - `admin_publish_attempt(attempt_id)`, `dojo_admin` only: the same, regardless of the flag.
+      rows. Granted to `dojo_api`; it refuses unless the attempt is `submitted`, `defend_closed_at` is set
+      and all five item rows are present, publishes a Not yet, and refuses a pass while
+      `pass_review_required` is on (the API then moves the attempt to `grade_pending`).
+    - `admin_publish_attempt(attempt_id)`, `dojo_admin` only: the same recompute and writes for an
+      attempt in `grade_pending` (a pass waiting for review), regardless of the flag; it accepts no
+      other state.
     - `resolve_appeal(appeal_id, decision, note)`, `dojo_admin` only: upheld puts the attempt back
       to `published`; overturned recomputes as above, writes the role pass, clears `retry_after`,
       voids an open or later attempt of the same role as `void_attempt` does and queues the
@@ -759,7 +768,6 @@ pass, a plan, the grade gate. It gets its own binary, database role and network 
     - `void_attempt(attempt_id, reason)`, `dojo_admin` only: drops the result and the
       `retry_after`, deletes the attempt's role pass if it has one, and queues the machine's
       teardown.
-    - `set_retry_after(attempt_id, at)`, `dojo_admin` only: sets or clears the retry date.
     - `delete_learner(learner_id)`: the S1 transaction (section 3.5), called by `dojo_api` for the
       signed-in learner and by `dojo_admin` from A2.
     - `mark_email_sent(id)`, `dojo_api` only: as described for `email_outbox` (section 3.3).
@@ -768,10 +776,10 @@ pass, a plan, the grade gate. It gets its own binary, database role and network 
     - `prune_admin_audit()`: deletes audit rows past the retention period. Granted to no service
       role; run by a nightly scheduled task with the migration role (the same scheduler that
       scales the operator service to 0), and by a compose job locally.
-  - `dojo_admin` may, beyond selecting what the screens show: execute `admin_publish_attempt`, `resolve_appeal`, `void_attempt`, `set_retry_after` and
+  - `dojo_admin` may, beyond selecting what the screens show: execute `admin_publish_attempt`, `resolve_appeal`, `void_attempt` and
     `delete_learner`; set the override columns of `exam_item_results` (`override_passed`,
     `overridden_by`, `override_note`); insert `comp_grants` and set their `revoked_at` and
-    `revoked_by`; update `learners.username` and `learners.suspended_at`; insert `email_outbox`;
+    `revoked_by`; update `learners.suspended_at`; insert `email_outbox`;
     update `system_flags`; insert and update `operators` and `admin_sessions`; insert and select
     `admin_audit`. Nothing else.
   - What this does not stop: a compromised `dojo_api` can still write billing tables (Stripe
@@ -779,8 +787,10 @@ pass, a plan, the grade gate. It gets its own binary, database role and network 
     practice tickets passed (practice is self-reported anyway, section 3.2). It can also call
     `delete_learner` for any learner, as the S1 path needs it: that is a loss of availability,
     restored from backup, not an escalation. Likewise `mark_email_sent` on any outbox row could
-    suppress a mail. It cannot create an
-    operator, publish or override a grade while review is on, decide an appeal, write a role pass,
+    suppress a mail, and through `exam_item_results` and `publish_attempt` it could turn a
+    submitted attempt into a published Not yet (or set `defend_closed_at` early so it does not wait
+    for defend): the attempt is spent, a 7-day retry wait starts and E3 goes out. That is griefing, undone by an appeal or a void, not an escalation. It cannot create an
+    operator, publish a pass or override a grade while review is on, decide an appeal, write a role pass,
     comp anyone or change a flag beyond tripping the AI cap.
   - An integration test connects to Postgres as `dojo_api` and asserts each refused write is
     refused, including inserting a published attempt and a decided appeal. Every new table's
@@ -789,12 +799,15 @@ pass, a plan, the grade gate. It gets its own binary, database role and network 
   Destructive actions (void, delete, suspend, revoke an operator, any flag) show what will change
   and need a written reason before the confirm button works.
 - **Screens in v1:**
-  - A1 review queue (section 2.7): confirm, override with a note, resolve an appeal.
+  - A1 review queue (section 2.7): passes to confirm and appeals. Confirm a pass, override an
+    item with a note, resolve an appeal.
   - A2 learner lookup by username, GitHub login or email: plan, comps, hosted hours, progress,
-    exam attempts, last doctor report. Actions: comp hours or Supporter (`comp_grants`), void an
-    attempt, set or clear its `retry_after` (clearing it lets the learner start again, for example
-    after a machine failure), rename, suspend (the API refuses that learner's sessions
-    and CLI tokens), delete (the S1 path, section 3.5).
+    exam attempts, last doctor report. Actions: give hours or Supporter and take them back
+    (`comp_grants`), void an attempt (it drops the result and the retry date, so the learner can
+    start again at once, for example after a machine failure), suspend (the API refuses that
+    learner's sessions and CLI tokens), delete (the S1 path, section 3.5). No rename: the learner
+    renames in S1, and an abusive name is a suspend. No separate retry-date edit: voiding covers
+    the case it was for.
   - A3 system switches: every `system_flags` key, its current value and the last change from the
     audit. Before A3 lands (M5b) the flags keep their migration seed values; there are no learners
     before launch.
@@ -871,7 +884,7 @@ not designed here.
 | Systems L2 test-out card (R1) | Shown | Systems L2 is a non-goal | Brief. Remove it. |
 | Exam parts | L6 Not yet lists EX-1, EX-2, INC-7, UPD, HAND; E3 lists fixes, reply, brief, update, handoff | Four parts, five scored items, 4 of 5 | Decision, and E3's list. Fix L6 Not yet, L6 rules and R3. |
 | Retry date | L6 Not yet "24 Nov"; E3 "28 Nov" | One date, `retry_after`, 7 days after publication | Decision. One date everywhere. |
-| Grade pending, appeal | Not drawn | The operator confirms grades; one appeal per attempt | Decision. Add "Submitted, grade pending", the appeal, and E2 and E3 wording. The review queue is operator only and not on the canvas. |
+| Grade pending, appeal | Not drawn | A person checks each pass; one appeal per attempt | Decision. Add "Submitted. Checking your pass.", the appeal, and E2 and E3 wording. The review queue is operator only and not on the canvas. |
 | Exam states | Clock `3:00:00`, no paused, warning, extra time, confirm or Leave states | a11y review P0-2 | a11y review. Draw them. |
 | Exam screens | L6Run is a single-incident view; R3/H2 is the work day | | R3/H2 is the run screen. |
 | Belt screen L8 | "Yellow belt tied on Support L1" | White belt, belt marks as maturity | Decision. Redraw L8. |
@@ -884,7 +897,7 @@ not designed here.
 
 ## 7. Open questions
 
-Answered on 2026-11-20 and applied above: exam rubric scoring with operator confirmation
+Answered on 2026-11-20 and applied above: exam rubric scoring with operator confirmation of passes
 and appeals; one exam rule; O4 without a setup verb; waitlist for the other paths; opt-in share
 link; simulated feedback mark; hint caps (20 a day, EUR 50 a month); free hosted session limits
 and unmetered exams; domain and accounts; PostHog; region rule; 12 month telemetry retention; `pro`
@@ -892,9 +905,9 @@ only at launch.
 
 Still open:
 
-1. **Grade turnaround:** what time the learner is told to expect while the operator confirms each grade
-   (for example "within 48 hours"), and the volume at which `grade_review_required` is switched
-   off.
+1. **Pass turnaround:** what time the learner is told to expect while the operator checks a pass
+   (the canvas says "usually within one working day"), and the volume at which
+   `pass_review_required` is switched off.
 2. **Appeal window:** 7 days after publication is proposed; confirm, and who reviews when the operator
    is the one who confirmed the grade.
 3. **`kyoten.dev`:** not registered yet (ledger). Needed for the domain step in M0b; until then M0b
@@ -935,13 +948,13 @@ parallel (section 5).
   `dojo-admin bootstrap`, the 404 edge test, `delete_learner` (S1) with the `email_outbox` table it queues E8 into
   (an E8 row and its address wait unsent until the template lands in M9; there are no learners
   before launch). Its tombstone and teardown steps are added with the exam tables in M6a. `mark_email_sent` lands with
-  the first email in M3; `publish_attempt`, `admin_publish_attempt`, `void_attempt`,
-  `set_retry_after` and the attempt triggers land with the exam tables in M6a, `resolve_appeal` in M6b, `trip_ai_cap()` in
+  the first email in M3; `publish_attempt`, `admin_publish_attempt`, `void_attempt`
+  and the attempt triggers land with the exam tables in M6a, `resolve_appeal` in M6b, `trip_ai_cap()` in
   M7.
 - **M2: Tickets on local labs, mirrored on the web.** Catalog sync and bundles, CLI verb changes
   (`ssh`, `stop`, `status`, `check` events), `ticket_progress`, SSE, Today, Path, ticket page,
-  written hints, public pages P1 to P4 and LG1. Operator A2 learner lookup with rename, suspend
-  and delete (the E8 row is queued now and sent once its template lands in M9; void and `retry_after` come with the exam tables in M6a, comps with M8's
+  written hints, public pages P1 to P4 and LG1. Operator A2 learner lookup with suspend
+  and delete (the E8 row is queued now and sent once its template lands in M9; void comes with the exam tables in M6a, comps with M8's
   entitlements).
 - **M3: Onboarding.** O0 with the waitlist, O1 to O5, `dojo doctor` verifying the O4 steps and
   reporting, AGENTS.md and `dojo mcp`, E1 over Mailpit and SES, first-run Today, the report form.
@@ -955,13 +968,13 @@ parallel (section 5).
   --quota` and E4. Operator A3 system switches (the machine ceilings and caps start here).
 - **M6a: Exam clock and results.** Exam definition and items, preflight, work-day screens and
   states, server clock and sweeper, answer autosave, submit, defend, results published
-  automatically through `publish_attempt` (the local compose seed turns `grade_review_required`
-  off until M6b; migrations seed it on for `pre` and `pro`), operator A2 void and `retry_after`, role passes, E2 and E3, R4, track record R5 with the
+  automatically through `publish_attempt` (the local compose seed turns `pass_review_required`
+  off until M6b; migrations seed it on for `pre` and `pro`), operator A2 void, role passes, E2 and E3, R4, track record R5 with the
   token share link.
 - **M6b: Checker, rubric and review queue.** Spike first: prove the local compose checker design
   (state on a named volume, read-only mount in a second container, systemd under Docker Desktop),
   or scope the claim to "exercises the same runner code path"; and decide kernel mount against
-  userspace reading. Then the checker and disk reading, rubric scoring, grade pending with `grade_review_required` on, the
+  userspace reading. Then the checker and disk reading, rubric scoring, passes pending with `pass_review_required` on, the
   review queue (A1), appeals and `resolve_appeal`, the exam spend alarm. End-to-end exam run with escape attempts.
 - **M7: AI hint button.** The hint endpoint on the Bedrock adapter from M4, `dojo hint`, caps (20
   a day, EUR 50 a month), the budget alarm, the output guard with `catalog_secrets`.

@@ -50,3 +50,12 @@ func TestEdgeUnknownPathIsNotFound(t *testing.T) {
 		t.Fatalf("got %d, want 404", code)
 	}
 }
+
+// The operator service is never on the public origin: these must be a real 404, not the site.
+func TestEdgeOperatorPathsAreNotFound(t *testing.T) {
+	for _, p := range []string{"/admin", "/admin/", "/admin/learners", "/ADMIN", "/Admin/x", "/admin.html", "/administrator", "//admin", "/review", "/review/", "/review/queue"} {
+		if code, body := do(t, http.MethodGet, edgeURL(t)+p); code != http.StatusNotFound || body != "" {
+			t.Errorf("%s: got %d %q, want an empty 404", p, code, body)
+		}
+	}
+}

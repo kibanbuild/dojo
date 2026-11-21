@@ -4,6 +4,12 @@
 }
 
 :8080 {
+	# Operator paths never reach the site or its SPA fallback (design 3.6, ADR 0002).
+	@operator path /admin* /review /review/*
+	handle @operator {
+		respond 404
+	}
+
 	handle /v1/* {
 		reverse_proxy api:8080
 	}

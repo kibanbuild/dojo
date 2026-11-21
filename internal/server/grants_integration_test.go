@@ -57,6 +57,33 @@ var grantCases = []struct {
 	{"dojo_admin", "SELECT count(*) FROM orgs", true},
 	{"dojo_admin", "CREATE TABLE should_fail (id int)", false},
 	{"dojo_admin", "INSERT INTO orgs (slug, name) VALUES ('x', 'X')", false},
+
+	// learners and sessions. WHERE false: privileges are checked, no row is touched.
+	{"dojo_api", "SELECT token_hash FROM sessions", true},
+	{"dojo_api", "INSERT INTO learners (org_id, github_id, github_login, username, language, age_confirmed_at, terms_accepted_at, usage_stats) SELECT id, 1, 'a', 'abc', 'en', now(), now(), true FROM orgs WHERE false", true},
+	{"dojo_api", "UPDATE learners SET language = 'es', usage_stats = false, analytics_consent = true, email = 'a@b.c', username = 'abcd', github_login = 'x' WHERE false", true},
+	{"dojo_api", "INSERT INTO sessions (org_id, learner_id, token_hash) SELECT org_id, id, '\\x00'::bytea FROM learners WHERE false", true},
+	{"dojo_api", "UPDATE sessions SET last_used_at = now(), revoked_at = now(), updated_at = now() WHERE false", true},
+	{"dojo_api", "UPDATE learners SET suspended_at = now() WHERE false", false},
+	{"dojo_api", "UPDATE learners SET github_id = 2 WHERE false", false},
+	{"dojo_api", "UPDATE learners SET org_id = org_id WHERE false", false},
+	{"dojo_api", "UPDATE learners SET age_confirmed_at = now() WHERE false", false},
+	{"dojo_api", "UPDATE learners SET terms_accepted_at = now() WHERE false", false},
+	{"dojo_api", "INSERT INTO learners (org_id, github_id, github_login, username, age_confirmed_at, terms_accepted_at, suspended_at) SELECT id, 1, 'a', 'abc', now(), now(), now() FROM orgs WHERE false", false},
+	{"dojo_api", "DELETE FROM learners WHERE false", false},
+	{"dojo_api", "DELETE FROM sessions WHERE false", false},
+	{"dojo_api", "UPDATE sessions SET token_hash = '\\x00' WHERE false", false},
+	{"dojo_api", "UPDATE sessions SET learner_id = learner_id WHERE false", false},
+	{"dojo_admin", "SELECT github_login, email, suspended_at FROM learners", true},
+	{"dojo_admin", "UPDATE learners SET suspended_at = now(), updated_at = now() WHERE false", true},
+	{"dojo_admin", "UPDATE learners SET email = 'x' WHERE false", false},
+	{"dojo_admin", "UPDATE learners SET username = 'x' WHERE false", false},
+	{"dojo_admin", "UPDATE learners SET github_id = 2 WHERE false", false},
+	{"dojo_admin", "INSERT INTO learners (org_id, github_id, github_login, username, age_confirmed_at, terms_accepted_at) SELECT id, 1, 'a', 'abc', now(), now() FROM orgs WHERE false", false},
+	{"dojo_admin", "DELETE FROM learners WHERE false", false},
+	{"dojo_admin", "SELECT token_hash FROM sessions", false},
+	{"dojo_admin", "SELECT count(*) FROM sessions", false},
+	{"dojo_admin", "UPDATE sessions SET revoked_at = now() WHERE false", false},
 }
 
 // Connects by the container address: the image trusts loopback, other addresses use scram.

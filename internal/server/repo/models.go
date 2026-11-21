@@ -8,10 +8,38 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Learner struct {
+	ID               pgtype.UUID
+	OrgID            pgtype.UUID
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	GithubID         int64
+	GithubLogin      string
+	Username         string
+	Email            pgtype.Text
+	Language         string
+	AgeConfirmedAt   pgtype.Timestamptz
+	TermsAcceptedAt  pgtype.Timestamptz
+	UsageStats       bool
+	AnalyticsConsent pgtype.Bool
+	SuspendedAt      pgtype.Timestamptz
+}
+
 type Org struct {
 	ID        pgtype.UUID
 	Slug      string
 	Name      string
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
+}
+
+type Session struct {
+	ID         pgtype.UUID
+	OrgID      pgtype.UUID
+	LearnerID  pgtype.UUID
+	TokenHash  []byte
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
+	LastUsedAt pgtype.Timestamptz
+	RevokedAt  pgtype.Timestamptz
 }

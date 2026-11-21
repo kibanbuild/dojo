@@ -27,6 +27,23 @@ services:
         condition: service_healthy
     restart: "no"
 
+  db-roles:
+    image: postgres:18.7-alpine3.24@sha256:ff64c9e3bdf8e2120107d3559de8db314e8305f7e38c5105903c6295876738ff
+    entrypoint: ["sh", "/roles.sh"]
+    environment:
+      PGHOST: db
+      PGUSER: dojo
+      PGDATABASE: dojo
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      DOJO_API_DB_PASSWORD: ${DOJO_API_DB_PASSWORD:?copy .env.example to .env}
+      DOJO_ADMIN_DB_PASSWORD: ${DOJO_ADMIN_DB_PASSWORD:?copy .env.example to .env}
+    volumes:
+      - ./db/roles.sh:/roles.sh:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
   api:
     build:
       context: .
@@ -36,7 +53,7 @@ services:
     ports:
       - "127.0.0.1:${API_PORT:-}:8080"
     depends_on:
-      migrate:
+      db-roles:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "/dojo-api", "healthcheck"]

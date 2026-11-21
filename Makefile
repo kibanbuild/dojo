@@ -12,7 +12,7 @@ SQLC := $(TOOLS)/sqlc-$(SQLC_VERSION)
 
 # The integration stack runs under its own compose project, apart from any other.
 IT_PROJECT := dojo-it
-COMPOSE := docker compose -p $(IT_PROJECT) --env-file .env.example
+COMPOSE := EDGE_PORT= docker compose -p $(IT_PROJECT) --env-file .env.example
 
 # The CLI ships for these; lint and vet each so platform-only files are checked too.
 PLATFORMS := darwin linux windows
@@ -60,7 +60,8 @@ test-integration:
 	@set -e; trap '$(COMPOSE) down -v --remove-orphans' EXIT; \
 	$(COMPOSE) up -d --build --wait; \
 	port=$$($(COMPOSE) port api 8080 | sed 's/.*://'); \
-	DOJO_API_URL=http://127.0.0.1:$$port DOJO_COMPOSE_PROJECT=$(IT_PROJECT) \
+	edge=$$($(COMPOSE) port edge 8080 | sed 's/.*://'); \
+	DOJO_API_URL=http://127.0.0.1:$$port DOJO_EDGE_URL=http://127.0.0.1:$$edge DOJO_COMPOSE_PROJECT=$(IT_PROJECT) \
 		go test -tags integration -count=1 -v ./internal/server/
 
 # Boots a real Lima VM and takes minutes: not part of verify.

@@ -4,3 +4,10 @@
 !cmd/dojo-api
 !internal/server
 !db/migrations
+!caddy/Caddyfile
+!web/package.json
+!web/pnpm-lock.yaml
+!web/pnpm-workspace.yaml
+!web/.npmrc
+!web/astro.config.mjs
+!web/src

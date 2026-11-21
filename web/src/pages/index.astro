@@ -1,0 +1,21 @@
+---
+import '../styles/global.css';
+import { PUBLIC_ORIGIN } from 'astro:env/client';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dojo, coming soon</title>
+    <meta name="description" content="Dojo is coming soon." />
+    <link rel="canonical" href={`${PUBLIC_ORIGIN}/`} />
+  </head>
+  <body class="bg-white text-neutral-900 antialiased">
+    <main class="mx-auto flex min-h-screen max-w-2xl flex-col justify-center gap-4 px-4">
+      <h1 class="text-4xl font-semibold">Dojo, coming soon</h1>
+      <p class="text-lg text-neutral-600">Hands-on practice for the work of a sysadmin, one ticket at a time.</p>
+    </main>
+  </body>
+</html>

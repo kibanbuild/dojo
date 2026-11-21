@@ -1,6 +1,9 @@
 # Go 1.27.4 matches go.mod: the official golang image has this exact tag.
 ARG GO_IMAGE=golang:1.27.4-alpine3.24@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280
 
+ARG NODE_IMAGE=node:24.22.3-alpine3.24@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5
+ARG CADDY_IMAGE=caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+
 FROM ${GO_IMAGE} AS build-api
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -31,3 +34,22 @@ USER 65532:65532
 ENV GOOSE_DRIVER=postgres GOOSE_MIGRATION_DIR=/migrations
 ENTRYPOINT ["/goose"]
 CMD ["up"]
+
+FROM ${NODE_IMAGE} AS build-web
+# Same pnpm as web/package.json (corepack checks its hash); keep both Node pins in step with web/.nvmrc.
+ENV ASTRO_TELEMETRY_DISABLED=1
+ARG PUBLIC_ORIGIN=http://localhost:8080
+ENV PUBLIC_ORIGIN=${PUBLIC_ORIGIN}
+WORKDIR /src
+RUN corepack enable
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml web/.npmrc ./
+RUN pnpm install --frozen-lockfile
+COPY web/astro.config.mjs ./
+COPY web/src ./src
+RUN pnpm build
+
+FROM ${CADDY_IMAGE} AS edge
+COPY caddy/Caddyfile /etc/caddy/Caddyfile
+COPY --from=build-web /src/dist /srv
+USER 65532:65532
+EXPOSE 8080

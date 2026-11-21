@@ -3,7 +3,7 @@
 Status: draft for review, rewritten 2026-11-20 for the paths, roles and work-day exam model.
 It replaces the belt and kata design of 2026-11-19. Updated the same day with the project's answers to
 the open questions (exam grading and appeals, onboarding, waitlist, share link, caps, domain,
-accounts).
+accounts). Updated 2026-11-21 for the operator service (section 3.7, ADR 0002).
 
 Sources of truth: the project brief of 2026-11-20, the design canvas v104 (its Map lists every
 screen, codes below are the Map's) and the design ledger, both kept outside this repo. Where this document needs something none of them decides, it says
@@ -50,6 +50,8 @@ flowchart LR
   api --> ses[SES email]
   api -. sign-in .-> gh[GitHub OAuth]
   api == mTLS ==> runner
+  op[Operator laptop] -. SSM port-forward .-> admin[dojo-admin<br/>private, ECS, count 0]
+  admin --> db
   subgraph machines[AWS account: dojo-machines]
     runner[Runner + gateway<br/>dojo-runner, ECS] --> ec2[(EC2 lab and exam machines<br/>private, no egress)]
     runner --> checker[(One-use checker)]
@@ -64,6 +66,7 @@ Pieces, one repo (public now; it will likely become one private monorepo, sectio
 |---|---|---|
 | Site and app | `web/` | Public pages (static Astro) and the signed-in app (one React SPA). |
 | API | `cmd/dojo-server`, `internal/server/...` | Sign-in, progress, hints, billing, exams, emails. The only writer to the database. |
+| Operator service | `cmd/dojo-admin`, `internal/admin/...` | Review queue, learner lookup, flags, every operator action audited. Private, never on the public origin (section 3.7, ADR 0002). |
 | Runner | `cmd/dojo-runner`, `internal/runner/...` | Starts, pools, checks and destroys machines; SSH gateway; browser terminal. Runs in the machines account. |
 | CLI | `cmd/dojo` (exists) | Labs, checks, hints, `dojo login`, `dojo exam`, `dojo mcp`. |
 | Infra | `infra/` | OpenTofu for both accounts. |
@@ -186,8 +189,10 @@ One adapter, one endpoint family, two uses.
 - **Spend control (decided 2026-11-20):** every call records its tokens in `ai_hints`. A hidden
   daily cap of 20 AI hints per learner (never shown in the UI; hitting it reads as "no more hints
   today, try the written hints, back tomorrow") and a monthly Bedrock spend cap of EUR 50. The
-  app estimates spend from recorded tokens and, at the cap, sets `system_flags.ai_enabled` to
-  false; an AWS Budget alarm at 80 percent and 100 percent of EUR 50 emails us and is the backstop
+  app estimates spend from recorded tokens and, at the cap, writes the current month to
+  `system_flags.ai_cap_month` through `trip_ai_cap()` (section 3.7). AI hints are off while
+  `ai_enabled` is false (the operator's switch) or `ai_cap_month` is the current month, so the cap
+  lifts by itself when the month turns; an AWS Budget alarm at 80 percent and 100 percent of EUR 50 emails us and is the backstop
   if the estimate drifts. When AI is off, the button on L3 is disabled with the text "AI hints are
   paused for now. The written hints still work", `dojo hint` says the same, nothing is charged
   to the learner, and writing-task and exam rubric reviews keep their own reserve: the reserve is
@@ -257,6 +262,7 @@ configuration and the adapter implementation chosen, never in the code that call
 | Edge (site, `/v1/*`, WebSocket) | CloudFront, S3, ALB | Caddy in front of the web build and the API on `http://localhost:8080`, same single origin and path routing | CDN caching, TLS, the ALB-only-from-CloudFront rule |
 | Web and app | S3 static | Vite dev server for `make dev`, or the built static files served by Caddy | none |
 | API | ECS Fargate | The same container image | Fargate limits |
+| Operator service | ECS Fargate in a private subnet, desired count 0, reached by SSM port-forward | The same image as a compose service published only on `127.0.0.1:8090`, not behind Caddy, with its own fake-GitHub OAuth client | SSM, IAM and MFA, scaling to 0 |
 | Database | RDS Postgres | Postgres in a container, same major version, migrations run by a one-off service | RDS backups, failover |
 | Installer, binaries, ticket bundles | S3 over CloudFront | MinIO (S3 API, so the same adapter and presigned URLs) | CloudFront signing |
 | Email (E1 to E8) | SES over SMTP | Mailpit (SMTP in, web inbox to read) | Deliverability, DKIM, SNS bounce delivery (tests post a signed bounce payload to the endpoint) |
@@ -336,7 +342,9 @@ error cases the page must draw. Status is the Map's.
 | R5 Track record | `/record` | Share (opt-in switch, copy link, regenerate or revoke) | Empty before the first role. Private by default; the learner turns sharing on and chooses which practice items show. Foundations and Support L1 entries read "Verified by Dojo" only when the pass is server-side (exam); tickets and practice read "Practice". |
 | Public record | `/r/:token` | none | Only when the learner opted in; the token is long, random and unguessable, and the learner can revoke it or regenerate it (the old link then dies). Shows verified work and the items they chose, nothing else, `noindex`, not listed. There is no per-name record URL and no username namespace. This is not a public portfolio. |
 | L7 / L8 Belt mark, belt | `/celebrate/:id` | Next ticket | Shown once, then in the inbox. L8 only when the four white marks are done. |
-| A1 Review queue | `/review` | Confirm a grade; Override a part with a note; Resolve an appeal | Operator only, internal, not public; canvas v104 A1 (desktop only). Section 2.7. |
+| A1 Review queue | `dojo-admin` `/review` (never on the public origin) | Confirm a grade; Override a part with a note; Resolve an appeal | Operator only, served by the operator service (section 3.7); canvas v104 A1 (desktop only). Section 2.7. |
+| A2 Learner lookup | `dojo-admin` `/learners` | Comp hours or Supporter; void an attempt; set or clear its `retry_after`; rename; suspend; delete (GDPR) | Operator only, section 3.7. Not on the canvas yet. |
+| A3 System switches | `dojo-admin` `/flags` | Change a flag (confirm and reason) | Operator only, section 3.7. Not on the canvas yet. |
 | Accessibility statement | `/accessibility` | none | New, from the a11y review; linked from the footer. |
 | S1 Account | `/settings/account` | Save; Switch path; Test out; Delete account | Username, language of explanations, path, plan, hour packs, extra time, usage stats, danger zone. |
 | S2 Machines | `/settings/machines` | Revoke a CLI token | Lists CLI devices (OS, version, last seen) and the SSH key. |
@@ -488,7 +496,7 @@ stateDiagram-v2
   output or the rubric.
 - **Grade review (while volume is low).** the operator confirms every grade before it is published, so
   results are delayed. A submitted attempt sits in `grade_pending` and appears in the review queue
-  (`/review`, operator only): oldest first, showing the learner's answers, each rubric boolean with
+  (A1 in the operator service, section 3.7): oldest first, showing the learner's answers, each rubric boolean with
   its evidence, the machine results and the learner summary. The operator confirms, or overrides an
   item with a note; the override is recorded and wins. Publishing sets `result`, `retry_after`
   (publication plus 7 days) and `published_at`, writes the role pass on a pass and sends E2 or E3.
@@ -510,7 +518,8 @@ stateDiagram-v2
   `dojo status` all show it.
 - **After scoring:** the machine and the checker are destroyed; the root volume is kept as
   evidence until the appeal window ends (7 days after publication), then deleted.
-- **Delete during an exam:** it ends as `not_yet`, writes the tombstone, queues the teardown.
+- **Delete during an exam:** it counts as a `not_yet` for the retry wait (the tombstone), queues
+  the teardown, and the attempt row is deleted with the rest.
 
 ### 2.8 Hosted lab (a laptop that cannot run labs)
 
@@ -534,7 +543,8 @@ from these hours. On a phone there is no terminal.
 - **Emails:** E1 welcome (names the path), E2 role passed, E3 not yet, E4 hours low, E5 supporter
   welcome, E6 supporter ends, E7 weekly summary (Sundays), E8 account deleted (the last email,
   sent once). Product news is off by default. No streak or "you have not practised" email.
-  `email_log` guarantees once-only kinds; bounces suppress an address.
+  Every email is queued in `email_outbox` (section 3.3), whose `(kind, ref)` key makes it go once;
+  bounces suppress an address.
 
 ### 2.10 Phone and offline
 
@@ -576,10 +586,10 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
 - **Age:** a self-declared confirmation of 14 or older at first sign-in. No other check.
 - **Exam SSH access:** the learner's public key is registered for one machine; no lookup by GitHub
   username, so a renamed login cannot be authorised by mistake.
-- **Operators:** one operator role (`learners.is_operator`, set only by `dojo-admin`). It opens the
-  review queue (`/review`, section 2.7), which is the only operator screen in v1. Other operator
-  tasks (restore an account from backup, reset an exam, set a flag) are `cmd/dojo-admin` commands
-  run with database access. Every override and appeal decision records who made it.
+- **Operators:** listed in the `operators` table, which only the operator service can read or
+  write. Every operator screen and action lives in the private operator service (section 3.7);
+  the public API has no operator routes and the public app no operator screens. Every action
+  records who made it and why.
 
 ### 3.2 Who is trusted with what
 
@@ -609,7 +619,7 @@ Every table also has `org_id`, `created_at`, `updated_at`. Ids are UUIDv7. `lear
 | Table | Key columns | Notes |
 |---|---|---|
 | `orgs` | `slug`, `name` | One row, `public`. |
-| `learners` | `github_id` (unique), `github_login`, `username` (unique), `email`, `language` (en, es: explanations), `extra_time`, `hosted_default`, `age_confirmed_at`, `terms_accepted_at`, `usage_stats` (bool), `analytics_consent` (null, true, false), `chosen_path_id`, `record_shared` (default false), `record_token_hash` (null when not shared), `is_operator` (default false), `deleted_at` | `extra_time` applies to every exam. `record_shared` is the opt-in for the share link; the token is shown once, stored hashed, and regenerating replaces the hash. |
+| `learners` | `github_id` (unique), `github_login`, `username` (unique), `email`, `language` (en, es: explanations), `extra_time`, `hosted_default`, `age_confirmed_at`, `terms_accepted_at`, `usage_stats` (bool), `analytics_consent` (null, true, false), `chosen_path_id`, `record_shared` (default false), `record_token_hash` (null when not shared), `suspended_at`, `deleted_at` | `extra_time` applies to every exam. `record_shared` is the opt-in for the share link; the token is shown once, stored hashed, and regenerating replaces the hash. |
 | `sessions`, `cli_tokens` | `learner_id`, `token_hash`, `last_used_at`, `revoked_at`; tokens add `device_name`, `os`, `cli_version`, `ssh_public_key` | Hashes only. |
 | `paths`, `roles`, `path_roles` | `slug`, `title`, `status` (available, planned); roles add `kind` (foundations, role), `has_exam`, `advanced`; join has `position` | Content, loaded at deploy. v1 data: one available path. |
 | `catalog_items` | `id` (for example `support-l1/perms-03`), `role_id` (null for practice), `kind` (ticket, writing, quiz, story, feedback, practice), `position`, `title`, `est_minutes`, `tags`, `awards_mark`, `catalog_version`, `bundle_key` | Loaded from the catalog at deploy; the API never parses YAML per request. |
@@ -618,8 +628,8 @@ Every table also has `org_id`, `created_at`, `updated_at`. Ids are UUIDv7. `lear
 | `quiz_answers`, `writing_drafts`, `story_choices` | learner, item, answers or `body`, `review` (jsonb), `submitted_at` | Feedback records. |
 | `belt_marks`, `belt_awards` | mark `slug`, `belt`, `title`; award `learner_id`, `mark_id`, `source_ref`, `awarded_at` | Maturity, from writing, simulated feedback rounds and exam artifacts. The white belt has four marks; none unlocks or blocks a role. The fourth, a feedback round, is a simulated one: Carmen or a team lead sends feedback in a `feedback` item (drawn like a story moment, L4) and the learner replies, reviewed by rubric. No peer is involved. |
 | `exam_defs`, `exam_items` | def: role, `version`, `duration_s` (10800), `pause_s` (900), `pass_items` (4), `parts` (the four parts); item `code` (fixes, reply, brief, update, handoff), `kind` (machine, rubric), `part`, `title`, `rubric` | Content. The five items are data. |
-| `exam_attempts` | `learner_id`, `role_id`, `def_version`, `state` (preflight, preparing, running, paused, submitted, grade_pending, published, appealed, voided), `test_out`, `started_at`, `deadline`, `paused_at`, `pause_used`, `time_factor`, `machine_id`, `submitted_at`, `provisional_result`, `grade_status` (pending, published), `result` (passed, not_yet, null), `items_passed`, `published_at`, `retry_after` | Partial unique index: one open attempt per learner (`state IN (preflight, preparing, running, paused, submitted, grade_pending)`), so an appeal or a voided row never blocks a retry. `result` is set once at publication; the only later changes are an overturn through `exam_appeals` and voiding (an overturn of the learner's earlier attempt), both enforced by a trigger. Unique `(id, learner_id, role_id, result)`. |
-| `exam_item_results` | `attempt_id`, `item_code`, `passed`, `rubric_result` (jsonb: booleans and evidence), `learner_summary`, `internal_output`, `overridden_by`, `override_note` | `internal_output` and `rubric_result` are for us; the learner sees `learner_summary`. An override wins over the scored value. |
+| `exam_attempts` | `learner_id`, `role_id`, `def_version`, `state` (preflight, preparing, running, paused, submitted, grade_pending, published, appealed, voided), `test_out`, `started_at`, `deadline`, `paused_at`, `pause_used`, `time_factor`, `machine_id`, `submitted_at`, `provisional_result`, `grade_status` (pending, published), `result` (passed, not_yet, null), `items_passed`, `published_at`, `retry_after`; `grade_status` defaults to `pending`, the publication columns to null | Partial unique index: one open attempt per learner (`state IN (preflight, preparing, running, paused, submitted, grade_pending)`), so an appeal or a voided row never blocks a retry. `result` is set once at publication; the only later changes are an overturn through `exam_appeals` and voiding (an overturn of the learner's earlier attempt), both enforced by a trigger. Unique `(id, learner_id, role_id, result)`. |
+| `exam_item_results` | `attempt_id`, `item_code`, `passed`, `rubric_result` (jsonb: booleans and evidence), `learner_summary`, `internal_output`, `override_passed` (null unless overridden), `overridden_by`, `override_note` | `internal_output` and `rubric_result` are for us; the learner sees `learner_summary`. An override wins over the scored value. |
 | `exam_artifacts` | `attempt_id`, `item_code`, `body`, `saved_at` | The learner's replies, questions, update and handoff. |
 | `exam_appeals` | `attempt_id` (unique: one per attempt), `reason`, `state` (open, upheld, overturned), `resolved_by`, `resolution_note`, `resolved_at` | A person decides. |
 | `exam_defence` | `attempt_id`, `question`, `answer`, `review` | Three rows; feedback only, never scored. |
@@ -633,9 +643,14 @@ Every table also has `org_id`, `created_at`, `updated_at`. Ids are UUIDv7. `lear
 | `ticket_reports` | `learner_id`, `item_id`, `kind` (broken ticket, setup help), `cli_version`, `last_check_output`, `message` | Forwarded by email to us. |
 | `path_waitlist` | `learner_id`, `path_id` (unique together) | The "Tell me when" list for planned paths. |
 | `record_items` | `learner_id`, `ref` (ticket or practice item), `shown` | What the learner chose to show on a shared record. |
-| `system_flags` | `key`, `value` | `maintenance`, `ai_enabled`, `ai_reviews_enabled`, `grade_review_required`, `min_cli_version`, `max_concurrent_machines`, `max_free_lab_machines`, `supporter_soft_cap_h` (60), `supporter_hard_cap_h` (100). No org. |
+| `system_flags` | `key`, `value` | `maintenance`, `ai_enabled`, `ai_reviews_enabled`, `grade_review_required`, `min_cli_version`, `max_concurrent_machines`, `max_free_lab_machines`, `supporter_soft_cap_h` (60), `supporter_hard_cap_h` (100), `ai_cap_month`. No org. Seeded by migrations (`grade_review_required` seeded on); changed only from A3 (M5b on) or `trip_ai_cap()`. |
 | `catalog_secrets` | `item_id`, `hint_guard` (patterns), `catalog_version` | API only: no endpoint returns it, never in a bundle, never readable by a learner or a CLI. Loaded at deploy from the private catalog repo (section 1.6). |
 | `teardown_jobs` | `resources` (machine, volume and snapshot ids), `attempts`, `done_at` | No learner id. Also used at the normal end of an exam. |
+| `operators` | `github_id` (unique), `github_login`, `added_by`, `added_at`, `revoked_at` | Operator service only; `dojo_api` has no grant. The first row is written by `dojo-admin bootstrap` with the migration role. |
+| `admin_sessions` | `operator_id`, `token_hash`, `created_at`, `expires_at` (created plus 1 hour, no sliding), `revoked_at` | Operator service only. |
+| `admin_audit` | `operator_id`, `operator_login` (copied), `action`, `target_type`, `target_id`, `reason`, `before`, `after` (jsonb, changed fields only), `at` | Append-only: `dojo_admin` may insert and select; no role a service uses may update or delete. Written in the same transaction as the change. `before` and `after` never hold an email, a username or a login: for those fields the row says only that they changed. The reason box asks for no personal data. Kept 2 years, then removed by `prune_admin_audit()` (proposed, confirm with the legal review). |
+| `email_outbox` | `learner_id` (null on delete), `to_address` (copied when queued), `kind` (E1 to E8), `ref`, `sent_at` | The operator service never sends mail: it inserts here and the API's sender delivers. Unique `(kind, ref)` so each mail goes once; `ref` per kind: E1 the learner, E2 and E3 the attempt, a corrected E2 the appeal, E4 the learner, month and threshold, E5 and E6 the Stripe event, E7 the learner and ISO week, E8 the learner id. The sender skips kinds whose template is not built yet. On send it calls `mark_email_sent(id)` (section 3.7), which writes `email_log` (except E8), sets `sent_at` and clears `to_address`, and deletes an E8 row, so no address of a deleted learner stays. The address is copied so E8 can go after the learner row is gone. |
+| `comp_grants` | `learner_id`, `kind` (hours, supporter), `seconds` or `until`, `operator_id`, `reason`, `revoked_at`, `revoked_by` | Written only by `dojo_admin`; `dojo_api` reads it for the quota and plan entitlements. Kept apart from Stripe's tables so comps are told apart. |
 | `exam_tombstones` | `github_id`, `role_id`, `retry_after` | Kept after a delete so deleting does not skip the retry wait; deleted at `retry_after`. No name, email or results. |
 
 ### 3.4 Who reads and writes what
@@ -648,15 +663,16 @@ Every table also has `org_id`, `created_at`, `updated_at`. Ids are UUIDv7. `lear
 | SES bounce (SNS) | none | `email_suppressions` |
 | Runner (mTLS, API only) | its own EC2 resources | none: the API writes `machines` from its replies |
 | Public | Pages, and a track record only through its unguessable share token while `record_shared` is true | none |
-| Operator | The review queue (answers, rubric evidence, machine results, appeals) and, through `dojo-admin`, everything | Confirm or override grades, resolve appeals, flags, restores |
+| Operator (operator service, `dojo_admin` role) | Everything a screen in section 3.7 needs | Grade confirmations and overrides, appeal decisions, comp grants, attempt void, `retry_after`, rename, suspend, delete, `system_flags`, the operator list; always with an `admin_audit` row |
 
 No learner can read another's rows. Exam checks, rubrics and `internal_output` are never sent to a
 learner or a CLI.
 
 ### 3.5 Deleting an account (S1)
 
-In one transaction: end any open exam as `not_yet`, write the tombstone if a retry wait is
-running, delete every other learner row, revoke every token, and write a `teardown_jobs` row that
+In one transaction: through `delete_learner(learner_id)` (section 3.7), write the tombstone (a
+retry wait of 7 days if an exam is open, as a `not_yet` would, or the wait already running);
+queue E8 in `email_outbox` with the address copied; delete every other learner row, revoke every token, and write a `teardown_jobs` row that
 lists every resource the attempt used, which the runner retries until all are destroyed. Stripe
 keeps invoices as the law requires; backups keep data for 30 days; E8 is sent once. A restore on
 request within 30 days is a manual backup restore, not a soft delete.
@@ -667,6 +683,127 @@ request within 30 days is a manual backup restore, not a soft delete.
 `/v1/tickets/:id/*` (start, progress, hints), `/v1/hints/ai`, `/v1/quiz`, `/v1/writing`,
 `/v1/labs` (hosted start, stop, terminal ticket), `/v1/exams/*`, `/v1/billing/*`, `/v1/inbox`,
 `/v1/push`, `/v1/reports`, `/v1/telemetry`, `/v1/webhooks/{stripe,ses}`, `/v1/health`.
+
+There are no operator routes under `/v1`. The edge answers a real 404 (not the SPA fallback) for
+`/admin*` and `/review`: a Caddy rule locally, a CloudFront Function on viewer request in AWS. The
+edge integration test checks it against Caddy.
+
+### 3.7 Operator service
+
+Decided 2026-11-21, ADR 0002. Operator work is the highest-value target in the product: a role
+pass, a plan, the grade gate. It gets its own binary, database role and network path.
+
+- **Binary.** `cmd/dojo-admin`, same repo, reusing `internal/server/service` for the domain logic
+  (so a GDPR delete runs the same code as S1). Handlers and server-rendered HTML templates live in
+  `internal/admin`, which `cmd/dojo-server` never imports; a build test fails if it does. No admin
+  screen is in the public SPA bundle.
+- **Network.** `pre` and `pro`: an ECS service in a private subnet, no load balancer, not a
+  CloudFront origin, desired count 0, `enableExecuteCommand` on. The operator raises the count to
+  1 and opens a port-forward through ECS Exec (`AWS-StartPortForwardingSessionToRemoteHost`
+  against the task) to `http://127.0.0.1:8090`. The operator's IAM role needs MFA, may call
+  `ecs:UpdateService` on that one service (to raise the count), `ecs:ListTasks` and
+  `ecs:DescribeTasks` to find the task, and `ssm:StartSession` with that port-forwarding document
+  only; it is denied `ecs:ExecuteCommand`,
+  so nobody gets a shell in the task (a shell would expose the database credentials). The task
+  role carries the `ssmmessages` permissions ECS Exec needs; the private subnet reaches SSM
+  through VPC endpoints. Outbound, the task's security group allows Postgres and HTTPS to GitHub
+  for sign-in (the same NAT path as the API); it has no route to the runner and sends no email. A
+  scheduled job sets the count back to 0 every night. Locally: a compose service published on
+  `127.0.0.1:8090`, not behind Caddy.
+- **Sign-in.** A GitHub OAuth App of its own (callback on `http://127.0.0.1:8090`; OAuth Apps
+  accept a loopback callback), so the public app's credentials can never mint an admin session.
+  The OAuth `state` is kept server-side, keyed by a short-lived pre-session cookie. The GitHub id
+  must be in `operators` (not revoked) and the account must have 2FA. M1 verifies which signal
+  GitHub exposes for that (`two_factor_authentication` on `GET /user`, or membership of an org that
+  enforces 2FA) before relying on it; until verified, sign-in fails closed. The GitHub token is
+  revoked after sign-in, as in the public flow.
+- **Sessions.** `admin_sessions`: random 256-bit id stored hashed, one hour from sign-in with no
+  sliding. The cookie is named `dojo_admin_session`, has no `Domain` attribute, is `HttpOnly` and
+  `SameSite=Lax`. It cannot be `Secure`: the service is reached over plain HTTP inside the tunnel.
+  The service answers only requests whose `Host` is `127.0.0.1:8090`, which stops DNS rebinding
+  through the loopback port-forward. Cookies ignore ports, so the name differs from the public session cookie and locally the admin
+  is used on `127.0.0.1` while the public app is on `localhost`. The operator check runs on every
+  request, not only at sign-in, so a revoked operator is out at the next click. The
+  screens are plain HTML forms, so every state-changing form carries a per-session CSRF token
+  checked on submit, on top of `SameSite=Lax`.
+- **Database roles.** The migration role owns every table. Grants are column-level for both
+  `INSERT` and `UPDATE`, so a column that is not granted keeps its default on insert.
+  - `dojo_api` has no grant on `operators`, `admin_sessions` or `admin_audit`; select only on
+    `comp_grants` and `system_flags`; on `email_outbox` it may insert (its own E1 to E8) and select;
+    the sender marks a row sent only through `mark_email_sent`. It may not insert or update the
+    publication columns of `exam_attempts` (`result`, `grade_status`, `items_passed`,
+    `published_at`, `retry_after`), so a new attempt always starts unpublished; may not insert
+    into `role_passes`; may not move an attempt into `published` or `voided` (the trigger below); may not set the override columns of `exam_item_results`
+    (`overridden_by`, `override_note`); may insert an appeal with `attempt_id` and `reason` only
+    (its `state` defaults to `open`) and may not update its decision columns (`state`,
+    `resolved_by`, `resolution_note`, `resolved_at`); may not set `learners.suspended_at`.
+  - Every move of an attempt into `published` or `voided`, every write of its publication
+    columns (`retry_after` included) and every write or delete of `role_passes` goes through a
+    `SECURITY DEFINER` function with a pinned `search_path`, owned by the migration role. A
+    trigger on `exam_attempts` refuses those writes unless `current_user` is the migration role
+    (that is, inside one of these functions), and refuses any other move out of `published` or
+    `voided`, with one exception: `published` to `appealed`, made by a `SECURITY DEFINER` insert
+    trigger on `exam_appeals`, so `dojo_api` needs no grant on `state` for it. Inside a definer
+    function `current_user` is always the owner, so no function tells its callers apart: each
+    caller gets its own function and its own `EXECUTE` grant. The functions:
+    - `publish_attempt(attempt_id)`: recomputes each item as `coalesce(override_passed, passed)`
+      from `exam_item_results`, then sets `items_passed`, `result`, `grade_status`, `state`
+      (`published`), `published_at` and `retry_after`, writes the role pass on a pass and queues E2
+      or E3. Scoring writes only `provisional_result` (jsonb: each item and the count) and the item
+      rows. Granted to `dojo_api`; it refuses while `grade_review_required` is on.
+    - `admin_publish_attempt(attempt_id)`, `dojo_admin` only: the same, regardless of the flag.
+    - `resolve_appeal(appeal_id, decision, note)`, `dojo_admin` only: upheld puts the attempt back
+      to `published`; overturned recomputes as above, writes the role pass, clears `retry_after`,
+      voids an open or later attempt of the same role as `void_attempt` does and queues the
+      corrected E2.
+    - `void_attempt(attempt_id, reason)`, `dojo_admin` only: drops the result and the
+      `retry_after`, deletes the attempt's role pass if it has one, and queues the machine's
+      teardown.
+    - `set_retry_after(attempt_id, at)`, `dojo_admin` only: sets or clears the retry date.
+    - `delete_learner(learner_id)`: the S1 transaction (section 3.5), called by `dojo_api` for the
+      signed-in learner and by `dojo_admin` from A2.
+    - `mark_email_sent(id)`, `dojo_api` only: as described for `email_outbox` (section 3.3).
+    - `trip_ai_cap()`, `dojo_api` only: writes the current month to `ai_cap_month` (section 1.4)
+      and nothing else.
+    - `prune_admin_audit()`: deletes audit rows past the retention period. Granted to no service
+      role; run by a nightly scheduled task with the migration role (the same scheduler that
+      scales the operator service to 0), and by a compose job locally.
+  - `dojo_admin` may, beyond selecting what the screens show: execute `admin_publish_attempt`, `resolve_appeal`, `void_attempt`, `set_retry_after` and
+    `delete_learner`; set the override columns of `exam_item_results` (`override_passed`,
+    `overridden_by`, `override_note`); insert `comp_grants` and set their `revoked_at` and
+    `revoked_by`; update `learners.username` and `learners.suspended_at`; insert `email_outbox`;
+    update `system_flags`; insert and update `operators` and `admin_sessions`; insert and select
+    `admin_audit`. Nothing else.
+  - What this does not stop: a compromised `dojo_api` can still write billing tables (Stripe
+    webhooks land there), so it could forge an hour pack or a subscription, and it can mark
+    practice tickets passed (practice is self-reported anyway, section 3.2). It can also call
+    `delete_learner` for any learner, as the S1 path needs it: that is a loss of availability,
+    restored from backup, not an escalation. Likewise `mark_email_sent` on any outbox row could
+    suppress a mail. It cannot create an
+    operator, publish or override a grade while review is on, decide an appeal, write a role pass,
+    comp anyone or change a flag beyond tripping the AI cap.
+  - An integration test connects to Postgres as `dojo_api` and asserts each refused write is
+    refused, including inserting a published attempt and a decided appeal. Every new table's
+    migration states the grants for both roles.
+- **Audit.** Every action writes an `admin_audit` row in the same transaction as the change.
+  Destructive actions (void, delete, suspend, revoke an operator, any flag) show what will change
+  and need a written reason before the confirm button works.
+- **Screens in v1:**
+  - A1 review queue (section 2.7): confirm, override with a note, resolve an appeal.
+  - A2 learner lookup by username, GitHub login or email: plan, comps, hosted hours, progress,
+    exam attempts, last doctor report. Actions: comp hours or Supporter (`comp_grants`), void an
+    attempt, set or clear its `retry_after` (clearing it lets the learner start again, for example
+    after a machine failure), rename, suspend (the API refuses that learner's sessions
+    and CLI tokens), delete (the S1 path, section 3.5).
+  - A3 system switches: every `system_flags` key, its current value and the last change from the
+    audit. Before A3 lands (M5b) the flags keep their migration seed values; there are no learners
+    before launch.
+- **Not built:** refunds (the Stripe dashboard does them), analytics (PostHog), content edits
+  (they stay in git, in `kibanbuild/dojo-katas`), email (Mailpit locally, the SES console in
+  AWS). Restoring an account from backup is a written runbook, not a screen.
+- **First operator.** `dojo-admin bootstrap <github-login>` runs once as a one-off task with the
+  migration role and writes the first `operators` row and its audit row. Later operators are added
+  from the service itself.
 
 ## 4. Accessibility carried into the build
 
@@ -787,14 +924,25 @@ parallel (section 5).
   Astro page on a public URL: the CloudFront default domain until `dojo.kyoten.dev` is bought.
   When it is, the domain step adds DNS and an ACM certificate in `us-east-1` (CloudFront needs it
   there). Checks Bedrock and SES availability in `eu-south-2`. The ECS API, RDS, deploy to `pre`
-  on merge and the CLI release to S3 with the installer follow as the next small PRs of this
+  on merge, the operator service (private subnet, count 0, SSM port-forward only, nightly scale
+  to 0) and the CLI release to S3 with the installer follow as the next small PRs of this
   milestone.
 - **M1: Sign-in.** IP rate limit on sign-in, the fake GitHub, GitHub web flow, sessions, `dojo login` device flow, CLI
   tokens, `/v1/me`, age and terms, S1 and S2 minimal, CLI telemetry with its 12 month cleanup,
-  the consent banner and the analytics adapter.
+  the consent banner and the analytics adapter. The operator service skeleton (section 3.7): the
+  `dojo_api` and `dojo_admin` roles with their grants test, `operators`, admin sign-in with the 2FA
+  check verified, admin sessions, the audit table with `prune_admin_audit()` and its job,
+  `dojo-admin bootstrap`, the 404 edge test, `delete_learner` (S1) with the `email_outbox` table it queues E8 into
+  (an E8 row and its address wait unsent until the template lands in M9; there are no learners
+  before launch). Its tombstone and teardown steps are added with the exam tables in M6a. `mark_email_sent` lands with
+  the first email in M3; `publish_attempt`, `admin_publish_attempt`, `void_attempt`,
+  `set_retry_after` and the attempt triggers land with the exam tables in M6a, `resolve_appeal` in M6b, `trip_ai_cap()` in
+  M7.
 - **M2: Tickets on local labs, mirrored on the web.** Catalog sync and bundles, CLI verb changes
   (`ssh`, `stop`, `status`, `check` events), `ticket_progress`, SSE, Today, Path, ticket page,
-  written hints, public pages P1 to P4 and LG1.
+  written hints, public pages P1 to P4 and LG1. Operator A2 learner lookup with rename, suspend
+  and delete (the E8 row is queued now and sent once its template lands in M9; void and `retry_after` come with the exam tables in M6a, comps with M8's
+  entitlements).
 - **M3: Onboarding.** O0 with the waitlist, O1 to O5, `dojo doctor` verifying the O4 steps and
   reporting, AGENTS.md and `dojo mcp`, E1 over Mailpit and SES, first-run Today, the report form.
 - **M4: Between tickets.** Writing tasks, quizzes and the simulated feedback round with the AI
@@ -804,20 +952,21 @@ parallel (section 5).
   ceilings and the queue, machine-start rate limits, H1. First real isolation test on EC2.
 - **M5b: Gateway and browser terminal.** SSH gateway, the browser terminal, `dojo ssh` and
   `dojo check` on hosted labs, free hours, Supporter fair-use caps in the quota, `dojo status
-  --quota` and E4.
+  --quota` and E4. Operator A3 system switches (the machine ceilings and caps start here).
 - **M6a: Exam clock and results.** Exam definition and items, preflight, work-day screens and
-  states, server clock and sweeper, answer autosave, submit, defend, results with the grade
-  published by `dojo-admin` for now, role passes, E2 and E3, R4, track record R5 with the
+  states, server clock and sweeper, answer autosave, submit, defend, results published
+  automatically through `publish_attempt` (the local compose seed turns `grade_review_required`
+  off until M6b; migrations seed it on for `pre` and `pro`), operator A2 void and `retry_after`, role passes, E2 and E3, R4, track record R5 with the
   token share link.
 - **M6b: Checker, rubric and review queue.** Spike first: prove the local compose checker design
   (state on a named volume, read-only mount in a second container, systemd under Docker Desktop),
   or scope the claim to "exercises the same runner code path"; and decide kernel mount against
-  userspace reading. Then the checker and disk reading, rubric scoring, grade pending, the review
-  queue and appeals, the exam spend alarm. End-to-end exam run with escape attempts.
+  userspace reading. Then the checker and disk reading, rubric scoring, grade pending with `grade_review_required` on, the
+  review queue (A1), appeals and `resolve_appeal`, the exam spend alarm. End-to-end exam run with escape attempts.
 - **M7: AI hint button.** The hint endpoint on the Bedrock adapter from M4, `dojo hint`, caps (20
   a day, EUR 50 a month), the budget alarm, the output guard with `catalog_secrets`.
 - **M8: Money.** Stripe Checkout and Portal, signed webhooks, Supporter, packs, P6, E5 and E6, plan
-  entitlements, in Stripe test mode until the tax decision and the GDPR review for 14 to 17 year
+  entitlements, operator A2 comps, in Stripe test mode until the tax decision and the GDPR review for 14 to 17 year
   olds are done; live charges switch on only after both. Exams stay free and equal on every plan.
 - **M9: Launch.** Create `pro`, size the warm pool, domain and email, SES production access, legal
   text, live Stripe keys, a11y and UX fixes, E7 and E8, the first school. Launch checklist (phase 6).

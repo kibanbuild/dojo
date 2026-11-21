@@ -50,9 +50,12 @@ Use the full path to the binary if `dojo` is not on your `PATH`.
 
 ## Develop
 
-You need Go (the version in `go.mod`) and `make`.
+You need Go (the version in `go.mod`) and `make`; the web and API stack also needs Docker with
+Compose and the Node version in `web/.nvmrc`.
 
 ```sh
+make dev                           # the stack plus the web dev server on http://localhost:4321
+make down                          # stops it, keeping the data
 make verify                        # lint for macOS, Linux and Windows, tests with -race, govulncheck
 make e2e                           # needs Lima; boots a real VM and runs every kata end to end
 git config core.hooksPath .githooks  # run the same gate before every push

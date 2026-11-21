@@ -25,7 +25,7 @@ the order, the target dates and the status. Tracked on the kibanbuild GitHub Pro
 
 | # | Milestone | Target | Status |
 |---|---|---|---|
-| M0a | Local hello world: compose (Caddy, web, API `/v1/health`, Postgres, migrations), CI | 2026-11-29 | next |
+| M0a | Local hello world: compose (Caddy, web, API `/v1/health`, Postgres, migrations), CI | 2026-11-29 | done |
 | M1 | Sign-in: GitHub web and device flow (fake GitHub locally), `/v1/me`, CLI telemetry, consent; operator service skeleton: DB roles, admin sign-in, audit (ADR 0002) | 2026-12-13 | |
 | M2 | Tickets on local labs mirrored on the web: catalog, bundles, CLI verbs, SSE, Today, Path, ticket page with written hints, public pages; operator A2 learner lookup | 2026-12-27 | |
 | M3 | Onboarding O0 to O5, `dojo doctor` checks, welcome email (Mailpit) | 2027-01-03 | |

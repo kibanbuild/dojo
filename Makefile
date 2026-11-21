@@ -12,7 +12,7 @@ SQLC := $(TOOLS)/sqlc-$(SQLC_VERSION)
 
 # The integration stack runs under its own compose project, apart from any other.
 IT_PROJECT := dojo-it
-COMPOSE := EDGE_PORT= docker compose -p $(IT_PROJECT) --env-file .env.example
+COMPOSE := EDGE_PORT= FAKE_GITHUB_PORT= docker compose -p $(IT_PROJECT) --env-file .env.example
 
 # The dev stack is the default compose project (dojo); a local .env wins over the fixed values.
 DEV_COMPOSE := docker compose $(if $(wildcard .env),,--env-file .env.example)
@@ -65,7 +65,8 @@ test-integration:
 	$(COMPOSE) up -d --build --wait; \
 	port=$$($(COMPOSE) port api 8080 | sed 's/.*://'); \
 	edge=$$($(COMPOSE) port edge 8080 | sed 's/.*://'); \
-	DOJO_API_URL=http://127.0.0.1:$$port DOJO_EDGE_URL=http://127.0.0.1:$$edge DOJO_COMPOSE_PROJECT=$(IT_PROJECT) \
+	fake=$$($(COMPOSE) port fake-github 8081 | sed 's/.*://'); \
+	DOJO_API_URL=http://127.0.0.1:$$port DOJO_EDGE_URL=http://127.0.0.1:$$edge DOJO_FAKE_GITHUB_URL=http://127.0.0.1:$$fake DOJO_COMPOSE_PROJECT=$(IT_PROJECT) \
 		go test -tags integration -count=1 -v ./internal/server/
 
 # Starts the stack in the background, then the web dev server in the foreground (Astro detaches

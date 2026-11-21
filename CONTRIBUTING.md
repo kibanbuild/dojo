@@ -25,6 +25,13 @@ as milestones land. Needs Docker with Compose.
 - `make test-integration` starts that stack as the isolated project `dojo-it` from a clean state, runs
   the tests tagged `integration`, and always removes the containers and volumes afterwards. It uses the
   fixed local values in `.env.example`, so a clean checkout needs no `.env`.
+- `make dev` is the everyday loop: it starts the stack in the background (`docker compose up`, project
+  `dojo`), then the Astro dev server on `http://localhost:4321` with live reload. That server proxies
+  `/v1/*` to the edge, so the page calls the API on its own origin, as in production. It needs the Node
+  version in `web/.nvmrc` (`fnm install && fnm use` picks it up). Ctrl-C stops only the dev server;
+  `make down` stops the stack and keeps
+  the database volume; `docker compose down -v` also drops the data. A local `.env`, when present,
+  replaces the fixed values.
 - To run the stack by hand, `cp .env.example .env` and `docker compose up -d --build --wait`. The API
   listens on a free port on `127.0.0.1` (`docker compose port api 8080`); set `API_PORT` to pin it.
   Postgres is not published to the host.
@@ -39,7 +46,8 @@ The public site lives in `web/` (Astro, static output, Tailwind 4). It uses pnpm
 versions, install scripts off and a committed lockfile; every new dependency needs a reason in its PR.
 
 - With the Node version in `web/.nvmrc`: `cd web && corepack enable && pnpm install --frozen-lockfile && pnpm build`.
-  `pnpm dev` serves it on its own port; the stack above bakes the build into the `edge` image.
+  `make dev` (above) runs the dev server with the API behind it; the stack bakes the build into the
+  `edge` image.
 - `pnpm audit --audit-level high` and OSV-Scanner on `web/pnpm-lock.yaml` run in the `Web: Tests` workflow.
 
 ## AI-assisted contributions

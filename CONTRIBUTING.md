@@ -16,6 +16,21 @@ Thanks for helping. Katas, fixes and ideas are all welcome.
   It reads the catalog from `katas/`, or from the directory in `DOJO_KATAS`.
   CI runs it in the `Go: E2E` workflow.
 
+## API and local stack
+
+The API (`cmd/dojo-api`, code in `internal/server/`) is a separate binary from the CLI. `compose.yaml`
+runs Postgres, a one-off `migrate` job (goose, SQL in `db/migrations/`) and the API; more pieces join it
+as milestones land. Needs Docker with Compose.
+
+- `make test-integration` starts that stack as the isolated project `dojo-it` from a clean state, runs
+  the tests tagged `integration`, and always removes the containers and volumes afterwards. It uses the
+  fixed local values in `.env.example`, so a clean checkout needs no `.env`.
+- To run the stack by hand, `cp .env.example .env` and `docker compose up -d --build --wait`. The API
+  listens on a free port on `127.0.0.1` (`docker compose port api 8080`); set `API_PORT` to pin it.
+  Postgres is not published to the host.
+- Database access goes through sqlc: after editing `db/migrations/` or `internal/server/repo/queries/`,
+  run `make sqlc` and commit the result. `make verify` fails when the generated code is stale.
+
 ## AI-assisted contributions
 
 AI-assisted pull requests are welcome if you understand the change and can explain it in review.

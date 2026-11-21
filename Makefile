@@ -1,22 +1,28 @@
-.PHONY: build verify lint test e2e vuln tools
+.PHONY: build verify lint test test-integration e2e vuln tools sqlc sqlc-check
 
 # Pinned tool versions, installed into the repo (never a shared bin) so the local gate and CI
 # run exactly the same ones. They are built for this machine; GOOS only changes what they check.
 GOLANGCI_LINT_VERSION := v2.14.0
 GOVULNCHECK_VERSION := v1.9.0
+SQLC_VERSION := v1.31.1
 TOOLS := $(CURDIR)/.tools
 GOLANGCI_LINT := $(TOOLS)/golangci-lint-$(GOLANGCI_LINT_VERSION)
 GOVULNCHECK := $(TOOLS)/govulncheck-$(GOVULNCHECK_VERSION)
+SQLC := $(TOOLS)/sqlc-$(SQLC_VERSION)
+
+# The integration stack runs under its own compose project, apart from any other.
+IT_PROJECT := dojo-it
+COMPOSE := docker compose -p $(IT_PROJECT) --env-file .env.example
 
 # The CLI ships for these; lint and vet each so platform-only files are checked too.
 PLATFORMS := darwin linux windows
 
-verify: lint test vuln
+verify: lint test vuln sqlc-check
 
 build:
 	go build -o bin/dojo ./cmd/dojo
 
-tools: $(GOLANGCI_LINT) $(GOVULNCHECK)
+tools: $(GOLANGCI_LINT) $(GOVULNCHECK) $(SQLC)
 
 $(GOLANGCI_LINT):
 	GOOS= GOARCH= GOBIN=$(TOOLS) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
@@ -26,15 +32,36 @@ $(GOVULNCHECK):
 	GOOS= GOARCH= GOBIN=$(TOOLS) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	mv $(TOOLS)/govulncheck $@
 
+$(SQLC):
+	GOOS= GOARCH= GOBIN=$(TOOLS) go install github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
+	mv $(TOOLS)/sqlc $@
+
+# Regenerates the committed sqlc code from db/migrations and the queries.
+sqlc: $(SQLC)
+	$(SQLC) generate
+
+# Fails when the committed generated code is stale.
+sqlc-check: $(SQLC)
+	$(SQLC) diff
+
 lint: $(GOLANGCI_LINT)
 	@for os in $(PLATFORMS); do \
 		echo "lint $$os"; \
 		GOOS=$$os $(GOLANGCI_LINT) run ./... || exit 1; \
-		GOOS=$$os go vet -tags e2e ./... || exit 1; \
+		GOOS=$$os go vet -tags "e2e integration" ./... || exit 1; \
 	done
 
 test:
 	go test -race -count=1 -cover ./...
+
+# Needs Docker. Starts the stack from a clean state, tests it, and always tears it down.
+test-integration:
+	@$(COMPOSE) down -v --remove-orphans
+	@set -e; trap '$(COMPOSE) down -v --remove-orphans' EXIT; \
+	$(COMPOSE) up -d --build --wait; \
+	port=$$($(COMPOSE) port api 8080 | sed 's/.*://'); \
+	DOJO_API_URL=http://127.0.0.1:$$port DOJO_COMPOSE_PROJECT=$(IT_PROJECT) \
+		go test -tags integration -count=1 -v ./internal/server/
 
 # Boots a real Lima VM and takes minutes: not part of verify.
 e2e:

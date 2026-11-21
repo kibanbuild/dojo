@@ -1,0 +1,80 @@
+name: 'API: Tests'
+
+on:
+  push:
+    branches:
+      - 'main'
+  pull_request:
+    branches:
+      - 'main'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  api-tests:
+    if: github.repository == 'kibanbuild/dojo'
+    name: API Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            release-assets.githubusercontent.com:443
+            objects.githubusercontent.com:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+            registry-1.docker.io:443
+            auth.docker.io:443
+            production.cloudflare.docker.com:443
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # Our own diff, not a third-party action. The job always runs so the required check never hangs.
+      - name: Detect API changes
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "api=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # A failed diff must fail the step, not skip the tests.
+          files=$(git diff --name-only "$BASE_SHA"...HEAD)
+          if printf '%s\n' "$files" | grep -E '^(cmd/dojo-api/|internal/server/|db/|sqlc\.yaml$|Dockerfile$|\.dockerignore$|compose\.yaml$|\.env\.example$|go\.mod$|go\.sum$|Makefile$|\.github/workflows/api-tests\.yml$)' > /dev/null; then
+            echo "api=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "api=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Go
+        if: steps.changes.outputs.api == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Check generated sqlc code is up to date
+        if: steps.changes.outputs.api == 'true'
+        run: make sqlc-check
+
+      - name: Run integration tests
+        if: steps.changes.outputs.api == 'true'
+        run: make test-integration

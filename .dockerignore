@@ -1,0 +1,6 @@
+*
+!go.mod
+!go.sum
+!cmd/dojo-api
+!internal/server
+!db/migrations

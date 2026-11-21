@@ -1,6 +1,6 @@
 # ADR 0002: Operator tools run in a separate private service with its own database role
 
-Status: proposed, 2026-11-21. Decided by the project on 2026-11-21, with security as the first
+Status: accepted, 2026-11-21. Decided by the project on 2026-11-21, with security as the first
 criterion. Replaces the review queue at `/review` in the public app and the "`dojo-admin`
 commands run with database access" of the first technical design.
 
@@ -23,7 +23,7 @@ other task in a command-line tool with database access. That leaves three weakne
 ## Decision
 
 1. **Separate binary.** `cmd/dojo-admin` in this repo, reusing `internal/server/service`. No
-   operator route, handler or template is compiled into `cmd/dojo-server`, and no admin UI is in
+   operator route, handler or template is compiled into `cmd/dojo-api`, and no admin UI is in
    the public SPA bundle. The admin UI is server-rendered HTML from the admin binary.
 2. **Own database role.** Migrations create `dojo_api` (the public API) and `dojo_admin` with
    column-level `INSERT` and `UPDATE` grants. `dojo_api` cannot write the operator list, the audit
@@ -42,8 +42,8 @@ other task in a command-line tool with database access. That leaves three weakne
    only while it is in use. Locally it is one more compose service bound to `127.0.0.1`.
 4. **Identity checked on every request.** GitHub sign-in through its own OAuth App, an
    `operators` table the API cannot read, admin sessions that expire after one hour with no
-   sliding, 2FA required on the GitHub account (how it is verified is settled in M1, sign-in fails
-   closed until then).
+   sliding, 2FA required on the GitHub account: the `two_factor_authentication` field of
+   `GET /user` must be `true`, or sign-in is refused (technical design section 3.7).
 5. **Every action audited.** Destructive actions need a confirm step and a written reason. Every
    operator action writes an append-only `admin_audit` row (who, when, what, why, before and
    after) in the same transaction as the change.

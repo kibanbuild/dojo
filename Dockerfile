@@ -12,6 +12,14 @@ COPY cmd/dojo-api ./cmd/dojo-api
 COPY internal/server ./internal/server
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/dojo-api ./cmd/dojo-api
 
+FROM ${GO_IMAGE} AS build-fake-github
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/fake-github ./cmd/fake-github
+COPY internal/fakegithub ./internal/fakegithub
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/fake-github ./cmd/fake-github
+
 FROM ${GO_IMAGE} AS build-goose
 # Pinned migration tool, built here so it never enters go.mod. Keep in step with the Makefile.
 ARG GOOSE_VERSION=v3.30.1
@@ -25,6 +33,13 @@ COPY --from=build-api /out/dojo-api /dojo-api
 USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/dojo-api"]
+
+# The GitHub stand-in for local and test stacks only; never part of the api image.
+FROM scratch AS fake-github
+COPY --from=build-fake-github /out/fake-github /fake-github
+USER 65532:65532
+EXPOSE 8081
+ENTRYPOINT ["/fake-github"]
 
 FROM scratch AS migrate
 COPY --from=build-goose /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt

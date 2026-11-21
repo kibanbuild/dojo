@@ -62,6 +62,23 @@ services:
       retries: 15
     restart: unless-stopped
 
+  fake-github:
+    build:
+      context: .
+      target: fake-github
+    environment:
+      # id:secret:redirect_uri|redirect_uri;... The web client and the operator client (design 3.7).
+      FAKE_GITHUB_CLIENTS: ${FAKE_GITHUB_CLIENTS:-dojo-web-local:web-local-only:http://localhost:8080/v1/auth/github/callback;dojo-admin-local:admin-local-only:http://127.0.0.1:8090/auth/github/callback}
+    ports:
+      # The browser is redirected to the authorize page. Unset = 8081; set but empty = a random free port.
+      - "127.0.0.1:${FAKE_GITHUB_PORT-8081}:8081"
+    healthcheck:
+      test: ["CMD", "/fake-github", "healthcheck"]
+      interval: 2s
+      timeout: 4s
+      retries: 15
+    restart: unless-stopped
+
   edge:
     build:
       context: .

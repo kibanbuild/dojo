@@ -3,6 +3,8 @@
 !go.sum
 !cmd/dojo-api
 !internal/server
+!cmd/fake-github
+!internal/fakegithub
 !db/migrations
 !caddy/Caddyfile
 !web/package.json

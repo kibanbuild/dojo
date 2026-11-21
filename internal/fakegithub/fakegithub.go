@@ -136,11 +136,16 @@ var chooser = template.Must(template.New("c").Parse(`<!doctype html><title>Fake 
 func (s *server) authorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	c, ok := s.client(q.Get("client_id"))
-	if !ok || !slices.Contains(c.RedirectURIs, q.Get("redirect_uri")) {
+	i := -1
+	if ok {
+		i = slices.Index(c.RedirectURIs, q.Get("redirect_uri"))
+	}
+	if i < 0 {
 		http.Error(w, "404 unknown client or redirect_uri", http.StatusNotFound)
 		return
 	}
-	redirect, err := url.Parse(q.Get("redirect_uri"))
+	// Redirect to the registered copy, never the request's value.
+	redirect, err := url.Parse(c.RedirectURIs[i])
 	if err != nil {
 		http.Error(w, "bad redirect_uri", http.StatusBadRequest)
 		return
@@ -150,7 +155,7 @@ func (s *server) authorize(w http.ResponseWriter, r *http.Request) {
 			vals.Set("state", st)
 		}
 		redirect.RawQuery = vals.Encode()
-		http.Redirect(w, r, redirect.String(), http.StatusFound) //nolint:gosec // redirect_uri was matched against the registered list
+		http.Redirect(w, r, redirect.String(), http.StatusFound)
 	}
 	challenge := q.Get("code_challenge")
 	if challenge != "" && q.Get("code_challenge_method") != "S256" {
@@ -174,7 +179,7 @@ func (s *server) authorize(w http.ResponseWriter, r *http.Request) {
 	}
 	code := randHex(10)
 	s.mu.Lock()
-	s.codes[code] = grant{c.ID, q.Get("redirect_uri"), challenge, login, scopes, s.cfg.Now().Add(codeTTL)}
+	s.codes[code] = grant{c.ID, c.RedirectURIs[i], challenge, login, scopes, s.cfg.Now().Add(codeTTL)}
 	s.mu.Unlock()
 	back(url.Values{"code": {code}})
 }

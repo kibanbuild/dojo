@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"strings"
 	"time"
 
@@ -38,11 +39,16 @@ Usage:
   dojo check [--quick]    reboot the lab and verify your fix (--quick skips the reboot)
   dojo clean              delete the lab machine
   dojo mcp                run the mentor server your AI tool connects to (see the README)
+  dojo login [--force]    sign in with GitHub (an account made on the website first)
+  dojo logout [--local]   sign out; --local only forgets the token on this computer
 
 Environment:
   DOJO_BACKEND     lab backend (default lima)
   DOJO_KATAS       read katas from this directory instead of the built-in catalog
-  DOJO_HOME        where progress is stored
+  DOJO_HOME        where progress and the login token are stored
+  DOJO_API_URL     the Dojo API (login, logout)
+  DOJO_GITHUB_URL  GitHub's base URL (default https://github.com)
+  DOJO_GITHUB_CLIENT_ID  the OAuth App client id login uses
 `
 
 // ErrCheckFailed means exit 1; the failure was already explained to the learner.
@@ -64,6 +70,10 @@ type App struct {
 	Now         func() time.Time
 	// Probe reads the host's facts for dojo doctor.
 	Probe func(context.Context) doctor.Machine
+	// Login says where login and logout talk to; HTTP and Sleep are replaceable for tests.
+	Login LoginConfig
+	HTTP  *http.Client
+	Sleep func(context.Context, time.Duration) error
 }
 
 // Run executes one command line (without the program name).
@@ -74,14 +84,17 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	}
 	cmd, rest := args[0], args[1:]
 	switch cmd {
-	case "list", "status", "hint", "doctor", "start", "shell", "ssh-config", "check", "clean", "mcp":
+	case "list", "status", "hint", "doctor", "start", "shell", "ssh-config", "check", "clean", "mcp", "login", "logout":
 	default:
 		return fmt.Errorf("unknown command %q (see dojo help)", cmd)
 	}
 	fset := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fset.SetOutput(io.Discard)
 	quick, key := new(bool), new(string)
+	var lf *loginFlags
 	switch cmd {
+	case "login", "logout":
+		lf = newLoginFlags(cmd, fset)
 	case "check":
 		quick = fset.Bool("quick", false, "skip the reboot")
 	case "ssh-config":
@@ -115,6 +128,10 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		return a.hint()
 	case "mcp":
 		return a.mcp(ctx)
+	case "login":
+		return a.login(ctx, lf)
+	case "logout":
+		return a.logout(ctx, lf)
 	}
 	backend, err := a.NewBackend(a.BackendName)
 	if err != nil {

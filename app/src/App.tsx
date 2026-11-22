@@ -1,6 +1,7 @@
 import { Navigate } from 'react-router';
 import { useMe } from './lib/me';
 import { Shell } from './pages/Shell';
+import { Settings } from './pages/Settings';
 import { SignInPage } from './pages/SignIn';
 
 function Loading() {
@@ -29,6 +30,15 @@ export function App() {
   if (me.isError) return <LoadFailed retry={() => void me.refetch()} />;
   if (me.data === null) return <Navigate to="/signin" replace />;
   return <Shell me={me.data} />;
+}
+
+// /app/settings: same guard as /app.
+export function SettingsRoute() {
+  const me = useMe();
+  if (me.isPending) return <Loading />;
+  if (me.isError) return <LoadFailed retry={() => void me.refetch()} />;
+  if (me.data === null) return <Navigate to="/signin" replace />;
+  return <Settings me={me.data} />;
 }
 
 // /app/signin: a signed-in browser has nothing to do here.

@@ -615,7 +615,7 @@ func TestParseStateKey(t *testing.T) {
 		{"repetitive", strings.Repeat("a", 40), true, false},
 		{"dev value in local", DevStateKey, true, true},
 		{"dev value in pro", DevStateKey, false, false},
-		{"real key in pro", "Zk3v9QpL2xRt7WnB5yHc8DfJ1mGs4AeU", false, true},
+		{"real key in pro", strings.Repeat("abcdefgh", 5), false, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

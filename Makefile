@@ -67,7 +67,8 @@ test-integration:
 	edge=$$($(COMPOSE) port edge 8080 | sed 's/.*://'); \
 	fake=$$($(COMPOSE) port fake-github 8081 | sed 's/.*://'); \
 	DOJO_API_URL=http://127.0.0.1:$$port DOJO_EDGE_URL=http://127.0.0.1:$$edge DOJO_FAKE_GITHUB_URL=http://127.0.0.1:$$fake DOJO_COMPOSE_PROJECT=$(IT_PROJECT) \
-		go test -tags integration -count=1 -v ./internal/server/ ./internal/github/
+		go test -tags integration -count=1 -v ./internal/server/ ./internal/github/ \
+		|| { rc=$$?; $(COMPOSE) logs --no-color --tail=100 api fake-github; exit $$rc; }
 
 # Starts the stack in the background, then the web dev server in the foreground (Astro detaches
 # when there is no terminal). The dev server proxies /v1 to the edge, so the page and the API

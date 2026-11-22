@@ -54,11 +54,13 @@ services:
       TRUSTED_PROXY_HOPS: "1"
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
       # The fake GitHub client from FAKE_GITHUB_CLIENTS below; the browser and the API reach it by different names.
-      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-dojo-web-local}
-      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-web-local-only}
-      GITHUB_AUTHORIZE_URL: ${GITHUB_AUTHORIZE_URL:-http://localhost:8081}
-      GITHUB_OAUTH_URL: ${GITHUB_OAUTH_URL:-http://fake-github:8081}
-      GITHUB_API_URL: ${GITHUB_API_URL:-http://fake-github:8081}
+      # The host-side overrides are DOJO_-prefixed: GitHub Actions exports GITHUB_API_URL (and more) into
+      # every step, and compose would read it, pointing the API at the real GitHub.
+      GITHUB_CLIENT_ID: ${DOJO_GITHUB_CLIENT_ID:-dojo-web-local}
+      GITHUB_CLIENT_SECRET: ${DOJO_GITHUB_CLIENT_SECRET:-web-local-only}
+      GITHUB_AUTHORIZE_URL: ${DOJO_GITHUB_AUTHORIZE_URL:-http://localhost:8081}
+      GITHUB_OAUTH_URL: ${DOJO_GITHUB_OAUTH_URL:-http://fake-github:8081}
+      GITHUB_API_URL: ${DOJO_GITHUB_API_URL:-http://fake-github:8081}
       AUTH_STATE_KEY: ${AUTH_STATE_KEY:-local-dev-state-key-not-a-secret-0123456789}
       DATABASE_URL: postgres://dojo_api:${DOJO_API_DB_PASSWORD:?copy .env.example to .env}@db:5432/dojo?sslmode=disable&application_name=dojo-api
     ports:

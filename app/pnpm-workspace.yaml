@@ -1,0 +1,3 @@
+# Dependency install scripts stay off: nothing here needs one. Add an entry only with a reason.
+strictDepBuilds: true
+allowBuilds: {}

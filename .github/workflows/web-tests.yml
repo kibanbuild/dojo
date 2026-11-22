@@ -59,7 +59,7 @@ jobs:
           fi
           # A failed diff must fail the step, not skip the checks.
           files=$(git diff --name-only "$BASE_SHA"...HEAD)
-          if printf '%s\n' "$files" | grep -E '^(web/|caddy/|Dockerfile$|\.dockerignore$|\.github/workflows/web-tests\.yml$)' > /dev/null; then
+          if printf '%s\n' "$files" | grep -E '^(web/|app/|caddy/|Dockerfile$|\.dockerignore$|\.github/workflows/web-tests\.yml$)' > /dev/null; then
             echo "web=true" >> "$GITHUB_OUTPUT"
           else
             echo "web=false" >> "$GITHUB_OUTPUT"
@@ -92,9 +92,43 @@ jobs:
         run: pnpm audit --audit-level high
 
       # OSV-Scanner fails on any finding, which is stricter than high or critical.
-      - name: Scan the lockfile with OSV-Scanner
+      - name: Scan the lockfiles with OSV-Scanner
         if: steps.changes.outputs.web == 'true'
         run: |
           docker run --rm -v "$PWD/web:/src:ro" \
             ghcr.io/google/osv-scanner:v2.6.0@sha256:afd838850ac1a0fcc15ff4a041dc9ba11123c3f0d2666217a5f0fcf9222b55fa \
             scan source --lockfile=/src/pnpm-lock.yaml
+          docker run --rm -v "$PWD/app:/src:ro" \
+            ghcr.io/google/osv-scanner:v2.6.0@sha256:afd838850ac1a0fcc15ff4a041dc9ba11123c3f0d2666217a5f0fcf9222b55fa \
+            scan source --lockfile=/src/pnpm-lock.yaml
+
+      # The signed-in SPA is its own package (app/), checked by the same job so the required check stays one.
+      - name: Install SPA dependencies
+        if: steps.changes.outputs.web == 'true'
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint SPA
+        if: steps.changes.outputs.web == 'true'
+        working-directory: app
+        run: pnpm lint
+
+      - name: Typecheck SPA
+        if: steps.changes.outputs.web == 'true'
+        working-directory: app
+        run: pnpm typecheck
+
+      - name: Test SPA
+        if: steps.changes.outputs.web == 'true'
+        working-directory: app
+        run: pnpm test
+
+      - name: Build SPA
+        if: steps.changes.outputs.web == 'true'
+        working-directory: app
+        run: pnpm build
+
+      - name: Audit SPA dependencies
+        if: steps.changes.outputs.web == 'true'
+        working-directory: app
+        run: pnpm audit --audit-level high

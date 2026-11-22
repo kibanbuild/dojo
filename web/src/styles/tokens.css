@@ -1,0 +1,6 @@
+/* Design tokens shared by the public site (web/) and the signed-in app (app/). Tailwind theme variables. */
+@theme {
+  --color-ink: #171717;
+  --color-muted: #525252;
+  --color-surface: #ffffff;
+}

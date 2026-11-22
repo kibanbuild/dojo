@@ -40,6 +40,7 @@ type SessionStore interface {
 	TouchCLIToken(ctx context.Context, id pgtype.UUID) error
 	RevokeCLIToken(ctx context.Context, id pgtype.UUID) error
 	GetLearnerByID(ctx context.Context, id pgtype.UUID) (repo.Learner, error)
+	UpdateLearnerProfile(ctx context.Context, arg repo.UpdateLearnerProfileParams) (repo.Learner, error)
 }
 
 // Auth authenticates requests by session cookie or CLI bearer token.
@@ -231,6 +232,10 @@ func (a Auth) me(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthenticated")
 		return
 	}
+	writeJSON(w, http.StatusOK, newMeResponse(l))
+}
+
+func newMeResponse(l repo.Learner) meResponse {
 	out := meResponse{
 		ID: l.ID.String(), Username: l.Username, GithubLogin: l.GithubLogin,
 		Language: l.Language, UsageStats: l.UsageStats,
@@ -241,7 +246,7 @@ func (a Auth) me(w http.ResponseWriter, r *http.Request) {
 	if l.AnalyticsConsent.Valid {
 		out.AnalyticsConsent = &l.AnalyticsConsent.Bool
 	}
-	writeJSON(w, http.StatusOK, out)
+	return out
 }
 
 // cliLogout ends the CLI token the request presented (`dojo logout`). Only a bearer principal can:

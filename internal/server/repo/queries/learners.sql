@@ -13,3 +13,11 @@ SELECT * FROM learners WHERE id = $1;
 
 -- name: GetLearnerByGithubID :one
 SELECT * FROM learners WHERE github_id = $1;
+
+-- name: UpdateLearnerProfile :one
+UPDATE learners
+SET username = COALESCE(sqlc.narg('username'), username),
+    language = COALESCE(sqlc.narg('language'), language),
+    updated_at = now()
+WHERE id = $1
+RETURNING *;

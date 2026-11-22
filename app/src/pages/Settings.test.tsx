@@ -221,6 +221,8 @@ describe('language switch', () => {
     await mount();
     expect(toggle().type).toBe('checkbox');
     await click(toggle());
+    // The PATCH is held, so this is the optimistic state; settle lets the query notify its observers.
+    await settle();
     expect(toggle().checked).toBe(true);
     const patch = calls.find((c) => c.method === 'PATCH')!;
     expect(patch.body).toBe('{"language":"es"}');

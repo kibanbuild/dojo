@@ -32,7 +32,9 @@ table PR adds its grant rows (allowed and refused) to `grantCases` in `internal/
 - `make dev` is the everyday loop: it starts the stack in the background (`docker compose up`, project
   `dojo`), then the Astro dev server on `http://localhost:4321` with live reload. That server proxies
   `/v1/*` to the edge, so the page calls the API on its own origin, as in production. It needs the Node
-  version in `web/.nvmrc` (`fnm install && fnm use` picks it up). Ctrl-C stops only the dev server;
+  version in `web/.nvmrc` (`fnm install && fnm use` picks it up). `compose.dev.yaml` (loaded only by
+  `make dev`) sets `PUBLIC_ORIGIN=http://localhost:4321` and registers that callback on the fake GitHub
+  client, so sign-in works from the Astro origin; the integration run keeps `:8080`. Ctrl-C stops only the dev server;
   `make down` stops the stack and keeps
   the database volume; `docker compose down -v` also drops the data. A local `.env`, when present,
   replaces the fixed values.

@@ -17,12 +17,16 @@ type Readiness interface {
 	Ready(ctx context.Context) error
 }
 
+// logoutPath ends the cookie session (design 3.1).
+const logoutPath = "/v1/auth/logout"
+
 // New returns the API router.
 // signin may be nil, which leaves the web sign-in routes out.
 func New(ready Readiness, auth Auth, limits *RateLimits, signin *SignIn) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", health(ready))
 	mux.HandleFunc("GET /v1/me", requireSession(auth.me))
+	mux.HandleFunc("POST "+logoutPath, auth.logout)
 	if signin != nil {
 		signin.limits = limits
 		mux.HandleFunc("POST "+startPath, signin.start)

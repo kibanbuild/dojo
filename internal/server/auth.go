@@ -33,6 +33,7 @@ const (
 type SessionStore interface {
 	GetActiveSession(ctx context.Context, tokenHash []byte) (repo.GetActiveSessionRow, error)
 	TouchSession(ctx context.Context, id pgtype.UUID) error
+	RevokeSession(ctx context.Context, id pgtype.UUID) error
 	GetLearnerByID(ctx context.Context, id pgtype.UUID) (repo.Learner, error)
 }
 
@@ -182,6 +183,23 @@ func (a Auth) me(w http.ResponseWriter, r *http.Request) {
 		out.AnalyticsConsent = &l.AnalyticsConsent.Bool
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// logout ends the session Session resolved (never the cookie itself, so the CSRF check has
+// already run) and clears the cookie. Suspended learners can still sign out.
+func (a Auth) logout(w http.ResponseWriter, r *http.Request) {
+	p, ok := principalOf(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated")
+		return
+	}
+	if err := a.Store.RevokeSession(context.WithoutCancel(r.Context()), p.session); err != nil {
+		slog.Error("logout: revoking the session failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "server_error")
+		return
+	}
+	http.SetCookie(w, a.ClearCookie())
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // SetCookie returns the session cookie for a freshly generated token.

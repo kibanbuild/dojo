@@ -1,0 +1,13 @@
+# `make dev` only: the site is served by the Astro dev server on :4321, so that is the public origin
+# (start's Origin check, the cookie, the OAuth redirect_uri). The integration run and CI do not load this file.
+services:
+  api:
+    environment:
+      PUBLIC_ORIGIN: http://localhost:4321
+  edge:
+    build:
+      args:
+        PUBLIC_ORIGIN: http://localhost:4321
+  fake-github:
+    environment:
+      FAKE_GITHUB_CLIENTS: ${FAKE_GITHUB_CLIENTS:-dojo-web-local:web-local-only:http://localhost:4321/v1/auth/github/callback;dojo-admin-local:admin-local-only:http://127.0.0.1:8090/auth/github/callback}

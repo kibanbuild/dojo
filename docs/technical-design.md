@@ -281,7 +281,7 @@ configuration and the adapter implementation chosen, never in the code that call
 - One `compose.yaml` starts all of it; profiles keep the heavy parts optional (the Ollama model,
   the browser end-to-end tests). `make dev` is `docker compose up` plus the web dev server.
 - Secrets in local are fixed test values in `.env.example`. The public origin is a config value
-  (`PUBLIC_ORIGIN`), `http://localhost:8080` locally.
+  (`PUBLIC_ORIGIN`), `http://localhost:8080` locally (`http://localhost:4321` under `make dev`, via `compose.dev.yaml`).
 - `test:integration` runs against this stack and never mocks a service we have a stand-in for. The
   fake GitHub and the deterministic AI stand-in are ours; each gets one smoke test against the
   real service in `pre`.
@@ -320,7 +320,7 @@ error cases the page must draw. Status is the Map's.
 | P6 Pricing | `/pricing` | Become a supporter (to sign-in, then Stripe Checkout); Buy hours | Monthly and yearly toggle. Signed-in learners see their own plan. Teams: "Contact us" mailto only. |
 | LG1 Privacy, terms, conduct | `/privacy`, `/terms`, `/conduct` | none | Names the hint button, usage stats and what survives account deletion. Legal text written and reviewed before launch (NEEDS-DECISION for the reviewer). |
 | O0 Pick your path | `/start` | Continue: stores the chosen path in a short-lived cookie, applied at first sign-in | Reachable signed out. Security, Backend and Frontend show "coming soon" with "Tell me when" (the waitlist, section 2.3). |
-| O1 Sign in | `/start/signin` | Continue with GitHub (web flow, section 3.1) | Asks for age (14 or older) and terms on first sign-in. Error: GitHub refused or the state check failed, retry. |
+| O1 Sign in | `/app/signin` (in the SPA) | Continue with GitHub (web flow, section 3.1) | Asks for age (14 or older) and terms on first sign-in. Error: GitHub refused or the state check failed, retry. |
 | O2 Install | `/start/install` | Copy the install command per OS (Windows with WSL, macOS, Linux), then `dojo login` | Waits for `login` via SSE ("Waiting for dojo login on your computer"). Shows the usage-stats notice and `dojo telemetry off`. Error: code expired, show a new one. |
 | O3 Doctor | `/start/doctor` | Continue (enabled when every line is green) | Waiting, 2 to fix, all good, blocked. Blocked: "Use a hosted lab" turns on `learners.hosted_default` and goes on. "I'm stuck: get help" opens the report form. |
 | O4 SSH key and repo | `/start/key` | Continue when the checklist is green | Steps the learner follows, each with the command to copy; `dojo doctor` verifies them and the page turns each line green (section 2.4). Failing lines show the fix. |
@@ -582,6 +582,11 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   characters); the API stores and looks up the sha256 of that string, and a value of any other
   length never reaches the database. The sliding expiry is written at most once a minute per session.
   GitHub may return no usable email; `learners.email` is then empty until the learner adds one.
+- **Sign-out:** `POST /v1/auth/logout` (no body, `Content-Type: application/json` and `X-Dojo-Csrf`)
+  needs a cookie session that the session middleware resolved; it sets `revoked_at` on that session,
+  clears `dojo_session` with the attributes it was set with and answers `204`. No cookie principal
+  (anonymous, an unknown or already revoked cookie, or a bearer call) is `401`; a missing CSRF header
+  is `403`. A suspended learner can still sign out. Bearer sign-out is part of the CLI work (8a).
 - **Age and terms:** O1 asks for both before "Continue with GitHub". `start` takes them in a
   POST body (never query parameters, so a link from elsewhere cannot tick them) and carries them in
   the short-lived state cookie, which is signed by the API and bound to the OAuth `state`, as O0

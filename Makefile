@@ -15,7 +15,8 @@ IT_PROJECT := dojo-it
 COMPOSE := EDGE_PORT= FAKE_GITHUB_PORT= docker compose -p $(IT_PROJECT) -f compose.yaml -f compose.it.yaml --env-file .env.example
 
 # The dev stack is the default compose project (dojo); a local .env wins over the fixed values.
-DEV_COMPOSE := docker compose $(if $(wildcard .env),,--env-file .env.example)
+# compose.dev.yaml makes http://localhost:4321 (Astro) the public origin, which only this path uses.
+DEV_COMPOSE := docker compose -f compose.yaml -f compose.dev.yaml $(if $(wildcard .env),,--env-file .env.example)
 NODE_VERSION := $(shell cat web/.nvmrc)
 
 # The SPA dev server runs as the node process itself, so its pid file holds Vite's own pid. A recorded

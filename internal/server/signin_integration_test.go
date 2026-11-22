@@ -168,7 +168,7 @@ func TestWebSignInUnknownWithoutTicksStoresNothing(t *testing.T) {
 	resetLearners(t, "1002")
 	b := newBrowser(t)
 	resp := b.signIn("bob", "", "age=on", false)
-	if resp.Header.Get("Location") != "/start/signin?confirm=1" || b.sessionCookie(resp) != nil {
+	if resp.Header.Get("Location") != "/app/signin?confirm=1" || b.sessionCookie(resp) != nil {
 		t.Fatalf("got %d %q", resp.StatusCode, resp.Header.Get("Location"))
 	}
 	if n := learnerCount(t, "1002"); n != "0" {
@@ -183,7 +183,7 @@ func TestWebSignInTamperedStateGivesNoSession(t *testing.T) {
 	resetLearners(t, "1003")
 	b := newBrowser(t)
 	resp := b.signIn("cy", "", "age=on&terms=on", true)
-	if resp.Header.Get("Location") != "/start/signin?error=state_check" || b.sessionCookie(resp) != nil {
+	if resp.Header.Get("Location") != "/app/signin?error=state_check" || b.sessionCookie(resp) != nil {
 		t.Fatalf("got %d %q", resp.StatusCode, resp.Header.Get("Location"))
 	}
 	if code, _ := b.me(); code != http.StatusUnauthorized || learnerCount(t, "1003") != "0" {
@@ -214,7 +214,61 @@ func TestWebSignInSuspendedLearnerGetsNoSession(t *testing.T) {
 	asOwner(t, "UPDATE learners SET suspended_at = now() WHERE github_id = 1002")
 	b := newBrowser(t)
 	resp := b.signIn("bob", "", "", false)
-	if resp.Header.Get("Location") != "/start/signin?error=suspended" || b.sessionCookie(resp) != nil {
+	if resp.Header.Get("Location") != "/app/signin?error=suspended" || b.sessionCookie(resp) != nil {
 		t.Fatalf("got %d %q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+}
+
+func (b *browser) logout(csrf bool) *http.Response {
+	b.t.Helper()
+	req, _ := http.NewRequest(http.MethodPost, apiURL(b.t)+"/v1/auth/logout", nil)
+	if csrf {
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(server.CSRFHeader, "1")
+	}
+	return b.do(req)
+}
+
+func TestWebSignOutRevokesTheSession(t *testing.T) {
+	resetLearners(t, "1003")
+	b := newBrowser(t)
+	if resp := b.signIn("cy", "", "age=on&terms=on", false); resp.Header.Get("Location") != "/app" {
+		t.Fatalf("sign-in: %d %q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	token := ""
+	u, _ := url.Parse(apiURL(t))
+	for _, c := range b.c.Jar.Cookies(u) {
+		if c.Name == server.SessionCookie {
+			token = c.Value
+		}
+	}
+	if code, _ := b.me(); code != http.StatusOK || token == "" {
+		t.Fatalf("signed in: me %d, token %q", code, token)
+	}
+
+	if resp := b.logout(false); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("without CSRF: %d", resp.StatusCode)
+	}
+	if code, _ := b.me(); code != http.StatusOK {
+		t.Fatalf("a refused sign-out ended the session: me %d", code)
+	}
+
+	resp := b.logout(true)
+	c := b.sessionCookie(resp)
+	if resp.StatusCode != http.StatusNoContent || c == nil || c.Value != "" || c.MaxAge != -1 || c.Path != "/" || !c.HttpOnly {
+		t.Fatalf("logout: %d %+v", resp.StatusCode, c)
+	}
+	if got := asOwner(t, "SELECT count(*) FROM sessions s JOIN learners l ON l.id = s.learner_id WHERE l.github_id = 1003 AND s.revoked_at IS NOT NULL"); got != "1" {
+		t.Fatalf("revoked sessions: %s", got)
+	}
+	if code, _ := b.me(); code != http.StatusUnauthorized {
+		t.Fatalf("after sign-out me: %d", code)
+	}
+	// The old cookie value is dead on the server, not only dropped by the browser.
+	if code, _ := getMe(t, token); code != http.StatusUnauthorized {
+		t.Fatalf("replayed cookie: %d", code)
+	}
+	if resp := b.logout(true); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("second logout: %d", resp.StatusCode)
 	}
 }

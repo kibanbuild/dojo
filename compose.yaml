@@ -50,6 +50,8 @@ services:
       target: api
     environment:
       DOJO_ENV: local
+      # Caddy is the one proxy in front of the API (design 3.1).
+      TRUSTED_PROXY_HOPS: "1"
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
       DATABASE_URL: postgres://dojo_api:${DOJO_API_DB_PASSWORD:?copy .env.example to .env}@db:5432/dojo?sslmode=disable&application_name=dojo-api
     ports:

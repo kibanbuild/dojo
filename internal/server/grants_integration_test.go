@@ -87,6 +87,27 @@ var grantCases = []struct {
 	{"dojo_admin", "SELECT token_hash FROM sessions", false},
 	{"dojo_admin", "SELECT count(*) FROM sessions", false},
 	{"dojo_admin", "UPDATE sessions SET revoked_at = now() WHERE false", false},
+
+	// cli_tokens: the API reads, inserts the device row and touches last_used_at and revoked_at;
+	// the hash and the device fields never change; nothing is deleted; the operator service has no access.
+	{"dojo_api", "SELECT token_hash, device_name, os, cli_version, last_used_at, revoked_at FROM cli_tokens", true},
+	{"dojo_api", "INSERT INTO cli_tokens (org_id, learner_id, token_hash, device_name, os, cli_version) SELECT org_id, id, '\\x00'::bytea, 'd', 'linux', '1' FROM learners WHERE false", true},
+	{"dojo_api", "UPDATE cli_tokens SET last_used_at = now(), revoked_at = now(), updated_at = now() WHERE false", true},
+	{"dojo_api", "INSERT INTO cli_tokens (org_id, learner_id, token_hash, device_name, os, cli_version, revoked_at) SELECT org_id, id, '\\x00'::bytea, 'd', 'linux', '1', now() FROM learners WHERE false", false},
+	{"dojo_api", "INSERT INTO cli_tokens (org_id, learner_id, token_hash, device_name, os, cli_version, last_used_at) SELECT org_id, id, '\\x00'::bytea, 'd', 'linux', '1', now() FROM learners WHERE false", false},
+	{"dojo_api", "UPDATE cli_tokens SET token_hash = '\\x00' WHERE false", false},
+	{"dojo_api", "UPDATE cli_tokens SET learner_id = learner_id WHERE false", false},
+	{"dojo_api", "UPDATE cli_tokens SET org_id = org_id WHERE false", false},
+	{"dojo_api", "UPDATE cli_tokens SET device_name = 'x' WHERE false", false},
+	{"dojo_api", "UPDATE cli_tokens SET os = 'x' WHERE false", false},
+	{"dojo_api", "UPDATE cli_tokens SET cli_version = 'x' WHERE false", false},
+	{"dojo_api", "UPDATE cli_tokens SET created_at = now() WHERE false", false},
+	{"dojo_api", "DELETE FROM cli_tokens WHERE false", false},
+	{"dojo_admin", "SELECT count(*) FROM cli_tokens", false},
+	{"dojo_admin", "SELECT token_hash FROM cli_tokens", false},
+	{"dojo_admin", "UPDATE cli_tokens SET revoked_at = now() WHERE false", false},
+	{"dojo_admin", "INSERT INTO cli_tokens (org_id, learner_id, token_hash, device_name, os, cli_version) SELECT org_id, id, '\\x00'::bytea, 'd', 'linux', '1' FROM learners WHERE false", false},
+	{"dojo_admin", "DELETE FROM cli_tokens WHERE false", false},
 }
 
 // Connects by the container address: the image trusts loopback, other addresses use scram.

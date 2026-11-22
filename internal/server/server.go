@@ -22,11 +22,16 @@ const logoutPath = "/v1/auth/logout"
 
 // New returns the API router.
 // signin may be nil, which leaves the web sign-in routes out.
-func New(ready Readiness, auth Auth, limits *RateLimits, signin *SignIn) http.Handler {
+// cli may be nil, which leaves the CLI login route out (DELETE /v1/auth/cli, the CLI's own sign-out, stays).
+func New(ready Readiness, auth Auth, limits *RateLimits, signin *SignIn, cli *CLILogin) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", health(ready))
 	mux.HandleFunc("GET /v1/me", requireSession(auth.me))
 	mux.HandleFunc("POST "+logoutPath, auth.logout)
+	mux.HandleFunc("DELETE "+cliPath, auth.cliLogout)
+	if cli != nil {
+		mux.HandleFunc("POST "+cliPath, cli.login)
+	}
 	if signin != nil {
 		signin.limits = limits
 		mux.HandleFunc("POST "+startPath, signin.start)

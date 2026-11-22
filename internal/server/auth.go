@@ -9,8 +9,10 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/kibanbuild/dojo/internal/server/repo"
@@ -34,10 +36,13 @@ type SessionStore interface {
 	GetActiveSession(ctx context.Context, tokenHash []byte) (repo.GetActiveSessionRow, error)
 	TouchSession(ctx context.Context, id pgtype.UUID) error
 	RevokeSession(ctx context.Context, id pgtype.UUID) error
+	GetActiveCLIToken(ctx context.Context, tokenHash []byte) (repo.GetActiveCLITokenRow, error)
+	TouchCLIToken(ctx context.Context, id pgtype.UUID) error
+	RevokeCLIToken(ctx context.Context, id pgtype.UUID) error
 	GetLearnerByID(ctx context.Context, id pgtype.UUID) (repo.Learner, error)
 }
 
-// Auth authenticates requests by session cookie.
+// Auth authenticates requests by session cookie or CLI bearer token.
 type Auth struct {
 	Store  SessionStore
 	Secure bool // cookie Secure flag, from PUBLIC_ORIGIN
@@ -61,9 +66,13 @@ func ParseOrigin(env, origin string) (secure bool, err error) {
 	return u.Scheme == "https", nil
 }
 
+// principal is the learner a request acts as. A cookie principal carries session, a bearer
+// principal carries cliToken and bearer: the two never mix on one request.
 type principal struct {
 	learner   pgtype.UUID
 	session   pgtype.UUID
+	cliToken  pgtype.UUID
+	bearer    bool
 	suspended bool
 }
 
@@ -80,15 +89,32 @@ func HashToken(token string) []byte {
 	return h[:]
 }
 
-// Session resolves the cookie into a principal on the request context. It never rejects:
-// routes that need a learner use requireSession. A request with an Authorization header
-// ignores the cookie (one credential only).
+// Session resolves the credential into a principal on the request context. A request carries one
+// credential: with an Authorization header the bearer token decides and any session cookie is
+// ignored (never both, so the CSRF exemption of bearer calls cannot cover a cookie call). A
+// non-empty Authorization header that is not a valid, active CLI token is 401, never anonymous.
+// Without the header the cookie is resolved; no cookie, or a bad one, leaves the request anonymous:
+// routes that need a learner use requireSession. POST /v1/auth/cli is the exception that proves
+// the rule: it carries the GitHub token in its body, so it ignores both credentials.
 func (a Auth) Session(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") == "" {
+		switch h := r.Header.Values("Authorization"); {
+		case r.Method == http.MethodPost && r.URL.Path == cliPath:
+		case len(h) == 0 || (len(h) == 1 && h[0] == ""):
 			if p, ok := a.lookup(r); ok {
 				r = r.WithContext(context.WithValue(r.Context(), ctxKey{}, p))
 			}
+		default:
+			p, status := a.lookupBearer(r, h)
+			if status != 0 {
+				name := "unauthenticated"
+				if status != http.StatusUnauthorized {
+					name = "server_error"
+				}
+				writeError(w, status, name)
+				return
+			}
+			r = r.WithContext(context.WithValue(r.Context(), ctxKey{}, p))
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -111,12 +137,45 @@ func (a Auth) lookup(r *http.Request) (principal, bool) {
 	return principal{learner: row.LearnerID, session: row.ID, suspended: row.SuspendedAt.Valid}, true
 }
 
+// lookupBearer resolves "Authorization: Bearer <cli token>". It returns the HTTP status to refuse
+// with, or 0 for a principal. The token shape is checked before the database is asked.
+func (a Auth) lookupBearer(r *http.Request, header []string) (principal, int) {
+	token, ok := parseBearer(header)
+	if !ok {
+		return principal{}, http.StatusUnauthorized
+	}
+	row, err := a.Store.GetActiveCLIToken(r.Context(), HashToken(token))
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return principal{}, http.StatusUnauthorized
+	case errors.Is(err, context.Canceled):
+		return principal{}, http.StatusServiceUnavailable
+	case err != nil:
+		slog.Error("bearer lookup failed", "error", err)
+		return principal{}, http.StatusInternalServerError
+	}
+	if time.Since(row.LastUsedAt.Time) > touchEvery {
+		if err := a.Store.TouchCLIToken(context.WithoutCancel(r.Context()), row.ID); err != nil {
+			slog.Warn("touch cli token failed", "error", err)
+		}
+	}
+	return principal{learner: row.LearnerID, cliToken: row.ID, bearer: true, suspended: row.SuspendedAt.Valid}, 0
+}
+
+// parseBearer accepts exactly one header of the form "Bearer dojo_<43 base64url characters>".
+func parseBearer(header []string) (string, bool) {
+	if len(header) != 1 || len(header[0]) < 7 || !strings.EqualFold(header[0][:7], "bearer ") {
+		return "", false
+	}
+	return header[0][7:], validCLIToken(header[0][7:])
+}
+
 // CSRF requires a JSON content type and the custom header on state-changing requests
 // authenticated by the cookie. Requests without a cookie principal (bearer, anonymous) pass.
 func CSRF(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// start is a browser form POST that acts on no session; a signed-in browser must still reach it.
-		if _, ok := principalOf(r.Context()); ok && !safeMethod(r.Method) && r.URL.Path != startPath {
+		if p, ok := principalOf(r.Context()); ok && !p.bearer && !safeMethod(r.Method) && r.URL.Path != startPath {
 			mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 			if err != nil || mt != "application/json" || r.Header.Get(CSRFHeader) == "" {
 				writeError(w, http.StatusForbidden, "csrf_rejected")
@@ -185,11 +244,27 @@ func (a Auth) me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// cliLogout ends the CLI token the request presented (`dojo logout`). Only a bearer principal can:
+// a cookie session signs out through logout. Suspended learners can still sign out.
+func (a Auth) cliLogout(w http.ResponseWriter, r *http.Request) {
+	p, ok := principalOf(r.Context())
+	if !ok || !p.bearer {
+		writeError(w, http.StatusUnauthorized, "unauthenticated")
+		return
+	}
+	if err := a.Store.RevokeCLIToken(context.WithoutCancel(r.Context()), p.cliToken); err != nil {
+		slog.Error("cli logout: revoking the token failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "server_error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // logout ends the session Session resolved (never the cookie itself, so the CSRF check has
 // already run) and clears the cookie. Suspended learners can still sign out.
 func (a Auth) logout(w http.ResponseWriter, r *http.Request) {
 	p, ok := principalOf(r.Context())
-	if !ok {
+	if !ok || p.bearer {
 		writeError(w, http.StatusUnauthorized, "unauthenticated")
 		return
 	}

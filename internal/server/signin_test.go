@@ -111,7 +111,7 @@ func newRig(t *testing.T) *rig {
 		st: &fakeStore{}, t0: time.Unix(1_800_000_000, 0)}
 	r.si = &SignIn{GitHub: r.gh, Store: r.st, Origin: "http://localhost:8080", Key: []byte(DevStateKey), TermsVersion: "2026-11-20", Now: func() time.Time { return r.t0 },
 		Backoff: []time.Duration{time.Millisecond, time.Millisecond}}
-	r.h = New(fakeReady{}, Auth{Store: &fakeSessions{}}, NewRateLimits(1), r.si)
+	r.h = New(fakeReady{}, Auth{Store: &fakeSessions{}}, NewRateLimits(1), r.si, nil)
 	return r
 }
 
@@ -354,7 +354,7 @@ func TestUsernameRetriesOnUniqueViolation(t *testing.T) {
 func TestSignedInBrowserCanStart(t *testing.T) {
 	r := newRig(t)
 	f := &fakeSessions{row: activeRow(time.Now(), false)}
-	r.h = New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), r.si)
+	r.h = New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), r.si, nil)
 	req := httptest.NewRequest(http.MethodPost, startPath, strings.NewReader(bothTicks))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: SessionCookie, Value: goodToken})
@@ -406,7 +406,7 @@ func TestStartRefusesCrossSiteRequests(t *testing.T) {
 
 func TestStartLimitRedirectsAndCallbackIsNotLimited(t *testing.T) {
 	r := newRig(t)
-	r.h = New(fakeReady{}, Auth{Store: &fakeSessions{}}, testLimits(2), r.si)
+	r.h = New(fakeReady{}, Auth{Store: &fakeSessions{}}, testLimits(2), r.si, nil)
 	post := func() *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, startPath, strings.NewReader(bothTicks))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -497,7 +497,7 @@ func TestCallbackLimiterCapsDistinctValidCookies(t *testing.T) {
 	r := newRig(t)
 	lim := testLimits(100)
 	lim.Callback = newMemLimiter(2, time.Minute, 100, time.Now)
-	r.h = New(fakeReady{}, Auth{Store: &fakeSessions{}}, lim, r.si)
+	r.h = New(fakeReady{}, Auth{Store: &fakeSessions{}}, lim, r.si, nil)
 	var locs []string
 	for i := 0; i < 4; i++ {
 		c, state := r.begin(t, startPath, bothTicks)
@@ -532,7 +532,7 @@ func TestCallbackExemptionGuards(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := newRig(t)
-			r.h = New(fakeReady{}, Auth{Store: &fakeSessions{}}, testLimits(2), r.si)
+			r.h = New(fakeReady{}, Auth{Store: &fakeSessions{}}, testLimits(2), r.si, nil)
 			var codes []int
 			for i := 0; i < 3; i++ {
 				req := httptest.NewRequest(tt.method, tt.target, nil)
@@ -552,7 +552,7 @@ func TestSuccessfulCallbackRevokesThePresentedSession(t *testing.T) {
 	r := newRig(t)
 	f := &fakeSessions{row: activeRow(time.Now(), false)}
 	f.row.ID = pgtype.UUID{Bytes: [16]byte{7}, Valid: true}
-	r.h = New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), r.si)
+	r.h = New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), r.si, nil)
 	run := func(withSession bool) {
 		c, state := r.begin(t, startPath, bothTicks)
 		req := httptest.NewRequest(http.MethodGet, callbackPath+"?code=c&state="+state, nil)

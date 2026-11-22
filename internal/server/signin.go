@@ -345,7 +345,7 @@ func (s *SignIn) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The browser changes identity: the session it presented, if any, ends.
-	if p, ok := principalOf(r.Context()); ok {
+	if p, ok := principalOf(r.Context()); ok && !p.bearer {
 		if err := s.Store.RevokeSession(ctx, p.session); err != nil {
 			slog.Warn("sign-in: revoking the previous session failed", "error", err)
 		}
@@ -384,11 +384,16 @@ func (s *SignIn) identify(ctx context.Context, code, verifier string) (github.Us
 
 // revoke retries after each Backoff wait, within ctx's bound.
 func (s *SignIn) revoke(ctx context.Context, token string) error {
-	waits := s.Backoff
+	return revokeWithRetry(ctx, s.GitHub.Revoke, token, s.Backoff)
+}
+
+// revokeWithRetry calls revoke, then again after each wait of backoff (nil means the default).
+func revokeWithRetry(ctx context.Context, revoke func(context.Context, string) error, token string, backoff []time.Duration) error {
+	waits := backoff
 	if waits == nil {
 		waits = defaultBackoff
 	}
-	err := s.GitHub.Revoke(ctx, token)
+	err := revoke(ctx, token)
 	for _, d := range waits {
 		if err == nil {
 			break
@@ -398,7 +403,7 @@ func (s *SignIn) revoke(ctx context.Context, token string) error {
 		case <-ctx.Done():
 			return err
 		}
-		err = s.GitHub.Revoke(ctx, token)
+		err = revoke(ctx, token)
 	}
 	return err
 }

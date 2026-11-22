@@ -197,7 +197,7 @@ func TestCallbackStateChecks(t *testing.T) {
 			c, state := r.begin(t, startPath, bothTicks)
 			r.t0 = r.t0.Add(tt.age)
 			rec := r.callback(tt.cookie(c), url.Values{"code": {"c"}, "state": {tt.state(state)}}.Encode())
-			if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/start/signin?error=state_check" {
+			if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/app/signin?error=state_check" {
 				t.Fatalf("got %d %q", rec.Code, rec.Header().Get("Location"))
 			}
 			if r.st.sessions != 0 || len(r.st.upserts) != 0 || len(r.gh.revoked) != 0 {
@@ -211,7 +211,7 @@ func TestCallbackWrongKeyIsRejected(t *testing.T) {
 	r := newRig(t)
 	c, state := r.begin(t, startPath, bothTicks)
 	r.si.Key = []byte("another-key-another-key-another-key-123")
-	if rec := r.callback(c, "code=c&state="+state); rec.Header().Get("Location") != "/start/signin?error=state_check" {
+	if rec := r.callback(c, "code=c&state="+state); rec.Header().Get("Location") != "/app/signin?error=state_check" {
 		t.Fatalf("got %q", rec.Header().Get("Location"))
 	}
 }
@@ -230,20 +230,20 @@ func TestCallbackSuccessAndErrors(t *testing.T) {
 		wantMail string
 	}{
 		{"new learner with ticks", func(*rig) {}, "code=c", bothTicks, "/app", true, 1, 1, "ada@example.test"},
-		{"new learner without ticks", func(*rig) {}, "code=c", "", "/start/signin?confirm=1", false, 1, 0, ""},
-		{"one tick is not enough", func(*rig) {}, "code=c", "age=on", "/start/signin?confirm=1", false, 1, 0, ""},
+		{"new learner without ticks", func(*rig) {}, "code=c", "", "/app/signin?confirm=1", false, 1, 0, ""},
+		{"one tick is not enough", func(*rig) {}, "code=c", "age=on", "/app/signin?confirm=1", false, 1, 0, ""},
 		{"known learner needs no ticks", func(r *rig) { r.st.known = &repo.Learner{Username: "ada"} }, "code=c", "", "/app", true, 1, 1, "ada@example.test"},
-		{"suspended learner", func(r *rig) { r.st.known = suspended }, "code=c", bothTicks, "/start/signin?error=suspended", false, 1, 0, ""},
-		{"user denied", func(*rig) {}, "error=access_denied&error_description=secret+text", bothTicks, "/start/signin?error=access_denied", false, 0, 0, ""},
-		{"other github error", func(*rig) {}, "error=redirect_uri_mismatch", bothTicks, "/start/signin?error=github_refused", false, 0, 0, ""},
-		{"no code", func(*rig) {}, "", bothTicks, "/start/signin?error=github_refused", false, 0, 0, ""},
-		{"exchange rejected", func(r *rig) { r.gh.exchangeErr = github.ErrRejected }, "code=c", bothTicks, "/start/signin?error=github_refused", false, 0, 0, ""},
-		{"exchange unavailable", func(r *rig) { r.gh.exchangeErr = github.ErrUnavailable }, "code=c", bothTicks, "/start/signin?error=github_unavailable", false, 0, 0, ""},
-		{"revoke failure fails sign-in", func(r *rig) { r.gh.revokeErr = github.ErrUnavailable }, "code=c", bothTicks, "/start/signin?error=github_unavailable", false, 3, 0, ""},
+		{"suspended learner", func(r *rig) { r.st.known = suspended }, "code=c", bothTicks, "/app/signin?error=suspended", false, 1, 0, ""},
+		{"user denied", func(*rig) {}, "error=access_denied&error_description=secret+text", bothTicks, "/app/signin?error=access_denied", false, 0, 0, ""},
+		{"other github error", func(*rig) {}, "error=redirect_uri_mismatch", bothTicks, "/app/signin?error=github_refused", false, 0, 0, ""},
+		{"no code", func(*rig) {}, "", bothTicks, "/app/signin?error=github_refused", false, 0, 0, ""},
+		{"exchange rejected", func(r *rig) { r.gh.exchangeErr = github.ErrRejected }, "code=c", bothTicks, "/app/signin?error=github_refused", false, 0, 0, ""},
+		{"exchange unavailable", func(r *rig) { r.gh.exchangeErr = github.ErrUnavailable }, "code=c", bothTicks, "/app/signin?error=github_unavailable", false, 0, 0, ""},
+		{"revoke failure fails sign-in", func(r *rig) { r.gh.revokeErr = github.ErrUnavailable }, "code=c", bothTicks, "/app/signin?error=github_unavailable", false, 3, 0, ""},
 		{"revoke succeeds on the last retry", func(r *rig) { r.gh.revokeFails = 2 }, "code=c", bothTicks, "/app", true, 3, 1, "ada@example.test"},
-		{"emails failure still revokes", func(r *rig) { r.gh.emailsErr = github.ErrUnavailable }, "code=c", bothTicks, "/start/signin?error=github_unavailable", false, 1, 0, ""},
+		{"emails failure still revokes", func(r *rig) { r.gh.emailsErr = github.ErrUnavailable }, "code=c", bothTicks, "/app/signin?error=github_unavailable", false, 1, 0, ""},
 		{"no user:email grant signs in without email", func(r *rig) { r.gh.token.Scopes = []string{"read:user"} }, "code=c", bothTicks, "/app", true, 1, 1, ""},
-		{"session insert fails", func(r *rig) { r.st.sessionErr = errors.New("db down") }, "code=c", bothTicks, "/start/signin?error=server_error", false, 1, 1, "ada@example.test"},
+		{"session insert fails", func(r *rig) { r.st.sessionErr = errors.New("db down") }, "code=c", bothTicks, "/app/signin?error=server_error", false, 1, 1, "ada@example.test"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -346,7 +346,7 @@ func TestUsernameRetriesOnUniqueViolation(t *testing.T) {
 	r = newRig(t)
 	r.st.conflicts = usernameTries
 	c, state = r.begin(t, startPath, bothTicks)
-	if rec := r.callback(c, "code=c&state="+state); rec.Header().Get("Location") != "/start/signin?error=server_error" || r.st.sessions != 0 {
+	if rec := r.callback(c, "code=c&state="+state); rec.Header().Get("Location") != "/app/signin?error=server_error" || r.st.sessions != 0 {
 		t.Fatalf("got %q", rec.Header().Get("Location"))
 	}
 }
@@ -394,7 +394,7 @@ func TestStartRefusesCrossSiteRequests(t *testing.T) {
 			rec := httptest.NewRecorder()
 			r.h.ServeHTTP(rec, req)
 			loc := rec.Header().Get("Location")
-			if refused := loc == "/start/signin?error=state_check"; refused != tt.refused {
+			if refused := loc == "/app/signin?error=state_check"; refused != tt.refused {
 				t.Fatalf("got %d %q", rec.Code, loc)
 			}
 			if tt.refused && len(rec.Result().Cookies()) != 0 {
@@ -418,7 +418,7 @@ func TestStartLimitRedirectsAndCallbackIsNotLimited(t *testing.T) {
 	post()
 	post()
 	rec := post()
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/start/signin?error=rate_limited" || rec.Header().Get("Retry-After") == "" {
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/app/signin?error=rate_limited" || rec.Header().Get("Retry-After") == "" {
 		t.Fatalf("limited start: %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 	get := func(target string) int {
@@ -450,7 +450,7 @@ func TestStateIsSingleUse(t *testing.T) {
 		t.Fatalf("first use: %q", locs[0])
 	}
 	for i, l := range locs[1:] {
-		if l != "/start/signin?error=state_check" {
+		if l != "/app/signin?error=state_check" {
 			t.Fatalf("replay %d: %q", i+1, l)
 		}
 	}
@@ -503,7 +503,7 @@ func TestCallbackLimiterCapsDistinctValidCookies(t *testing.T) {
 		c, state := r.begin(t, startPath, bothTicks)
 		locs = append(locs, r.callback(c, "code=c&state="+state).Header().Get("Location"))
 	}
-	want := []string{"/app", "/app", "/start/signin?error=rate_limited", "/start/signin?error=rate_limited"}
+	want := []string{"/app", "/app", "/app/signin?error=rate_limited", "/app/signin?error=rate_limited"}
 	for i := range want {
 		if locs[i] != want[i] {
 			t.Fatalf("got %q, want %q", locs, want)
@@ -588,7 +588,7 @@ func TestSecureOriginUsesThePrefixedStateCookie(t *testing.T) {
 	}
 	plain := *c
 	plain.Name = stateCookie
-	if rec := r.callback(&plain, "code=c&state="+state); rec.Header().Get("Location") != "/start/signin?error=state_check" {
+	if rec := r.callback(&plain, "code=c&state="+state); rec.Header().Get("Location") != "/app/signin?error=state_check" {
 		t.Fatalf("an unprefixed cookie was accepted: %q", rec.Header().Get("Location"))
 	}
 }

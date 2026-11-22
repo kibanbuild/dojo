@@ -177,6 +177,7 @@ func limitedChain(auth Auth, rl *RateLimits, calls *atomic.Int64) http.Handler {
 	h := func(w http.ResponseWriter, _ *http.Request) { calls.Add(1); w.WriteHeader(http.StatusNoContent) }
 	mux.HandleFunc("GET /v1/auth/github/start", h)
 	mux.HandleFunc("POST /v1/auth/cli", h)
+	mux.HandleFunc("POST /v1/auth/logout", h)
 	mux.HandleFunc("POST /v1/telemetry", h)
 	mux.HandleFunc("GET /v1/health", h)
 	return auth.Session(rl.wrap(mux, CSRF(mux)))
@@ -203,6 +204,7 @@ func TestLimiterAppliesToTheRoutedPath(t *testing.T) {
 		{"GET", "/V1/AUTH/github/start"},
 		{"GET", "/v1/auth/unrouted"},
 		{"POST", "/v1/auth/cli"},
+		{"POST", "/v1/auth/logout"},
 		{"GET", "/v1/auth"},
 	}
 	for _, p := range paths {

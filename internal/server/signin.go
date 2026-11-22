@@ -274,7 +274,7 @@ func (s *SignIn) start(w http.ResponseWriter, r *http.Request) {
 }
 
 func redirectSignin(w http.ResponseWriter, r *http.Request, query string) {
-	http.Redirect(w, r, "/start/signin?"+query, http.StatusSeeOther)
+	http.Redirect(w, r, "/app/signin?"+query, http.StatusSeeOther)
 }
 
 // callback finishes the flow. Every failure redirects to O1 with a stable code; GitHub's text is never echoed.

@@ -3,6 +3,10 @@
 @import '@fontsource-variable/jetbrains-mono';
 @import '../../web/src/styles/tokens.css';
 
+@theme {
+  --color-ctl: #7a7f8c;
+}
+
 @layer base {
   html {
     background: var(--color-bg);

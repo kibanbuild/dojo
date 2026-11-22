@@ -37,8 +37,8 @@ func TestMeThroughTheEdge(t *testing.T) {
 	resetLearners(t, "777001")
 	token := strings.Repeat("Z", 43)
 	hash := `\x` + hex.EncodeToString(server.HashToken(token))
-	asOwner(t, `INSERT INTO learners (org_id, github_id, github_login, username, language, age_confirmed_at, terms_accepted_at, usage_stats)
-		SELECT id, 777001, 'Grace', 'grace', 'en', now(), now(), true FROM orgs WHERE slug = 'public'`)
+	asOwner(t, `INSERT INTO learners (org_id, github_id, github_login, username, language, age_confirmed_at, terms_accepted_at, terms_version, usage_stats)
+		SELECT id, 777001, 'Grace', 'grace', 'en', now(), now(), '2026-11-20', true FROM orgs WHERE slug = 'public'`)
 	asOwner(t, `INSERT INTO sessions (org_id, learner_id, token_hash)
 		SELECT org_id, id, '`+hash+`' FROM learners WHERE github_id = 777001`)
 

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -66,7 +67,9 @@ type SignIn struct {
 	Auth   Auth   // for the session cookie
 	Origin string // PUBLIC_ORIGIN without a trailing slash
 	Key    []byte // signs the state cookie
-	Now    func() time.Time
+	// TermsVersion is the terms version stored on a new learner, from TERMS_VERSION.
+	TermsVersion string
+	Now          func() time.Time
 	// Backoff is the wait before each GitHub revoke retry; nil means the default.
 	Backoff []time.Duration
 
@@ -146,6 +149,20 @@ func (s *SignIn) crossSite(r *http.Request) bool {
 	}
 	o := r.Header.Get("Origin")
 	return o != "" && o != s.Origin
+}
+
+var termsVersionRE = regexp.MustCompile(`^[0-9a-z.-]{1,32}$`)
+
+// ParseTermsVersion validates TERMS_VERSION: required, 1 to 32 of lowercase letters, digits, dots and hyphens.
+func ParseTermsVersion(v string) (string, error) {
+	if !termsVersionRE.MatchString(v) {
+		return "", fmt.Errorf("TERMS_VERSION must match %s, got %q", termsVersionRE, v)
+	}
+	// Reserved: migration 00004 backfills it on rows created before the column existed.
+	if v == "unrecorded" {
+		return "", fmt.Errorf("TERMS_VERSION %q is reserved for rows with no recorded version", v)
+	}
+	return v, nil
 }
 
 // ParseStateKey validates AUTH_STATE_KEY: at least 32 bytes, with some variety, and never the dev value outside local.
@@ -399,7 +416,7 @@ func (s *SignIn) learner(ctx context.Context, u github.User, email string, st oa
 		}
 		return s.Store.UpsertLearner(ctx, repo.UpsertLearnerParams{OrgID: known.OrgID, GithubID: u.ID, GithubLogin: u.Login,
 			Username: known.Username, Email: mail, Language: known.Language, AgeConfirmedAt: known.AgeConfirmedAt,
-			TermsAcceptedAt: known.TermsAcceptedAt, UsageStats: known.UsageStats})
+			TermsAcceptedAt: known.TermsAcceptedAt, TermsVersion: known.TermsVersion, UsageStats: known.UsageStats})
 	case !errors.Is(err, pgx.ErrNoRows):
 		return repo.Learner{}, err
 	case !st.Age || !st.Terms:
@@ -413,6 +430,6 @@ func (s *SignIn) learner(ctx context.Context, u github.User, email string, st oa
 	at := pgtype.Timestamptz{Time: s.now(), Valid: true}
 	return createWithUsername(u.Login, func(name string) (repo.Learner, error) {
 		return s.Store.UpsertLearner(ctx, repo.UpsertLearnerParams{OrgID: org.ID, GithubID: u.ID, GithubLogin: u.Login,
-			Username: name, Email: mail, Language: "en", AgeConfirmedAt: at, TermsAcceptedAt: at, UsageStats: true})
+			Username: name, Email: mail, Language: "en", AgeConfirmedAt: at, TermsAcceptedAt: at, TermsVersion: s.TermsVersion, UsageStats: true})
 	})
 }

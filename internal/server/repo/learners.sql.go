@@ -12,7 +12,7 @@ import (
 )
 
 const getLearnerByGithubID = `-- name: GetLearnerByGithubID :one
-SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at FROM learners WHERE github_id = $1
+SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version FROM learners WHERE github_id = $1
 `
 
 func (q *Queries) GetLearnerByGithubID(ctx context.Context, githubID int64) (Learner, error) {
@@ -33,12 +33,13 @@ func (q *Queries) GetLearnerByGithubID(ctx context.Context, githubID int64) (Lea
 		&i.UsageStats,
 		&i.AnalyticsConsent,
 		&i.SuspendedAt,
+		&i.TermsVersion,
 	)
 	return i, err
 }
 
 const getLearnerByID = `-- name: GetLearnerByID :one
-SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at FROM learners WHERE id = $1
+SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version FROM learners WHERE id = $1
 `
 
 func (q *Queries) GetLearnerByID(ctx context.Context, id pgtype.UUID) (Learner, error) {
@@ -59,19 +60,20 @@ func (q *Queries) GetLearnerByID(ctx context.Context, id pgtype.UUID) (Learner, 
 		&i.UsageStats,
 		&i.AnalyticsConsent,
 		&i.SuspendedAt,
+		&i.TermsVersion,
 	)
 	return i, err
 }
 
 const upsertLearner = `-- name: UpsertLearner :one
 INSERT INTO learners (org_id, github_id, github_login, username, email, language,
-                      age_confirmed_at, terms_accepted_at, usage_stats)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                      age_confirmed_at, terms_accepted_at, terms_version, usage_stats)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 ON CONFLICT (github_id) DO UPDATE
 SET github_login = EXCLUDED.github_login,
     email = COALESCE(EXCLUDED.email, learners.email),
     updated_at = now()
-RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at
+RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version
 `
 
 type UpsertLearnerParams struct {
@@ -83,6 +85,7 @@ type UpsertLearnerParams struct {
 	Language        string
 	AgeConfirmedAt  pgtype.Timestamptz
 	TermsAcceptedAt pgtype.Timestamptz
+	TermsVersion    string
 	UsageStats      bool
 }
 
@@ -96,6 +99,7 @@ func (q *Queries) UpsertLearner(ctx context.Context, arg UpsertLearnerParams) (L
 		arg.Language,
 		arg.AgeConfirmedAt,
 		arg.TermsAcceptedAt,
+		arg.TermsVersion,
 		arg.UsageStats,
 	)
 	var i Learner
@@ -114,6 +118,7 @@ func (q *Queries) UpsertLearner(ctx context.Context, arg UpsertLearnerParams) (L
 		&i.UsageStats,
 		&i.AnalyticsConsent,
 		&i.SuspendedAt,
+		&i.TermsVersion,
 	)
 	return i, err
 }

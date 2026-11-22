@@ -145,6 +145,12 @@ func TestWebSignInNewAndReturningLearner(t *testing.T) {
 		t.Fatalf("confirmations stored: %q", got)
 	}
 
+	if got := asOwner(t, "SELECT terms_version FROM learners WHERE github_id = 1001"); got != envExample(t, "TERMS_VERSION") {
+		t.Fatalf("terms version stored: %q", got)
+	}
+	// A later change of the configured version must not rewrite what this learner accepted.
+	asOwner(t, "UPDATE learners SET terms_version = 'accepted-earlier' WHERE github_id = 1001")
+
 	again := newBrowser(t)
 	resp = again.signIn("ada", "", "", false)
 	if resp.Header.Get("Location") != "/app" || again.sessionCookie(resp) == nil {
@@ -152,6 +158,9 @@ func TestWebSignInNewAndReturningLearner(t *testing.T) {
 	}
 	if code, _ := again.me(); code != http.StatusOK || learnerCount(t, "1001") != "1" {
 		t.Fatalf("returning me %d, rows %s", code, learnerCount(t, "1001"))
+	}
+	if got := asOwner(t, "SELECT terms_version FROM learners WHERE github_id = 1001"); got != "accepted-earlier" {
+		t.Fatalf("returning sign-in rewrote terms version: %q", got)
 	}
 }
 

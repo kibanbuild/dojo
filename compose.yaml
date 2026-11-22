@@ -61,6 +61,7 @@ services:
       GITHUB_AUTHORIZE_URL: ${DOJO_GITHUB_AUTHORIZE_URL:-http://localhost:8081}
       GITHUB_OAUTH_URL: ${DOJO_GITHUB_OAUTH_URL:-http://fake-github:8081}
       GITHUB_API_URL: ${DOJO_GITHUB_API_URL:-http://fake-github:8081}
+      TERMS_VERSION: ${TERMS_VERSION:?copy .env.example to .env}
       AUTH_STATE_KEY: ${AUTH_STATE_KEY:-local-dev-state-key-not-a-secret-0123456789}
       DATABASE_URL: postgres://dojo_api:${DOJO_API_DB_PASSWORD:?copy .env.example to .env}@db:5432/dojo?sslmode=disable&application_name=dojo-api
     ports:

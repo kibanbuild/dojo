@@ -68,7 +68,7 @@ func TestLearnerAndSessionQueries(t *testing.T) {
 	now := pgtype.Timestamptz{Time: time.Now(), Valid: true}
 	args := repo.UpsertLearnerParams{
 		OrgID: org.ID, GithubID: 4242, GithubLogin: "Ada", Username: "ada", Language: "en",
-		AgeConfirmedAt: now, TermsAcceptedAt: now, UsageStats: true,
+		AgeConfirmedAt: now, TermsAcceptedAt: now, TermsVersion: "2026-11-20", UsageStats: true,
 	}
 	l, err := q.UpsertLearner(ctx, args)
 	if err != nil {

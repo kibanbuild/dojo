@@ -584,8 +584,9 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
 - **Age and terms:** O1 asks for both before "Continue with GitHub". `start` takes them in a
   POST body (never query parameters, so a link from elsewhere cannot tick them) and carries them in
   the short-lived state cookie, which is signed by the API and bound to the OAuth `state`, as O0
-  carries the path. The callback records `age_confirmed_at`, `terms_accepted_at` and the terms
-  version from the server's own clock and config; the cookie only says the boxes were ticked.
+  carries the path. The callback records `age_confirmed_at`, `terms_accepted_at` and `terms_version`
+  from the server's own clock and the required `TERMS_VERSION` config (the API refuses to start
+  without a valid one; `unrecorded` is reserved); the cookie only says the boxes were ticked.
   They are needed only to create a learner:
   when an unknown GitHub account comes back without them (for example from a sign-in started on
   P6), the callback stores nothing and sends the browser back to O1 to confirm. So no GitHub data
@@ -651,7 +652,7 @@ each migration states the grants for `dojo_api` and `dojo_admin` (section 3.7).
 | Table | Key columns | Notes |
 |---|---|---|
 | `orgs` | `slug`, `name` | One row, `public`. |
-| `learners` | `github_id` (unique), `github_login`, `username` (unique), `email`, `language` (en, es: explanations), `extra_time`, `hosted_default`, `age_confirmed_at`, `terms_accepted_at`, `usage_stats` (bool), `analytics_consent` (null, true, false), `chosen_path_id`, `record_shared` (default false), `record_token_hash` (null when not shared), `suspended_at` | `extra_time` applies to every exam. `record_shared` is the opt-in for the share link; the token is shown once, stored hashed, and regenerating replaces the hash. |
+| `learners` | `github_id` (unique), `github_login`, `username` (unique), `email`, `language` (en, es: explanations), `extra_time`, `hosted_default`, `age_confirmed_at`, `terms_accepted_at`, `terms_version`, `usage_stats` (bool), `analytics_consent` (null, true, false), `chosen_path_id`, `record_shared` (default false), `record_token_hash` (null when not shared), `suspended_at` | `extra_time` applies to every exam. `terms_version` is the API's required `TERMS_VERSION` at creation (1 to 32 of `a-z 0-9 . -`), insert-only like `terms_accepted_at`; rows from before the column read `unrecorded`. `record_shared` is the opt-in for the share link; the token is shown once, stored hashed, and regenerating replaces the hash. |
 | `sessions`, `cli_tokens` | `learner_id`, `token_hash`, `last_used_at`, `revoked_at`; tokens add `device_name`, `os`, `cli_version`, `ssh_public_key` | Hashes only. |
 | `paths`, `roles`, `path_roles` | `slug`, `title`, `status` (available, planned); roles add `kind` (foundations, role), `has_exam`, `advanced`; join has `position` | Content, loaded at deploy. v1 data: one available path. |
 | `catalog_items` | `id` (for example `support-l1/perms-03`), `role_id` (null for practice), `kind` (ticket, writing, quiz, story, feedback, practice), `position`, `title`, `est_minutes`, `tags`, `awards_mark`, `catalog_version`, `bundle_key` | Loaded from the catalog at deploy; the API never parses YAML per request. |

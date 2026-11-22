@@ -18,10 +18,11 @@ type Readiness interface {
 }
 
 // New returns the API router.
-func New(ready Readiness) http.Handler {
+func New(ready Readiness, auth Auth) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", health(ready))
-	return mux
+	mux.HandleFunc("GET /v1/me", requireSession(auth.me))
+	return auth.Session(CSRF(mux))
 }
 
 func health(ready Readiness) http.HandlerFunc {

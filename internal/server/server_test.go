@@ -26,7 +26,7 @@ func TestHealth(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := New(fakeReady{err: tt.ready})
+			h := New(fakeReady{err: tt.ready}, Auth{Store: &fakeSessions{}})
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, httptest.NewRequest(tt.method, "/v1/health", nil))
 			if rec.Code != tt.wantStatus {
@@ -52,7 +52,7 @@ func (slowReady) Ready(ctx context.Context) error {
 }
 
 func TestHealthTimesOut(t *testing.T) {
-	h := New(slowReady{})
+	h := New(slowReady{}, Auth{Store: &fakeSessions{}})
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/health", nil))
 	if rec.Code != http.StatusServiceUnavailable {

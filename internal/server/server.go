@@ -27,6 +27,7 @@ func New(ready Readiness, auth Auth, limits *RateLimits, signin *SignIn, cli *CL
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", health(ready))
 	mux.HandleFunc("GET /v1/me", requireSession(auth.me))
+	mux.HandleFunc("PATCH /v1/me", requireSession(auth.patchMe))
 	mux.HandleFunc("POST "+logoutPath, auth.logout)
 	mux.HandleFunc("DELETE "+cliPath, auth.cliLogout)
 	if cli != nil {

@@ -347,7 +347,7 @@ error cases the page must draw. Status is the Map's.
 | A2 Learner lookup | `dojo-admin` `/learners` | Give hours or Supporter, take a gift back; void an attempt; suspend; delete (GDPR) | Operator only, section 3.7; canvas v108 A2 and the delete confirm (desktop only). |
 | A3 System switches | `dojo-admin` `/flags` | Change a flag (confirm and reason) | Operator only, section 3.7; canvas v108 A3 and the switch confirm (desktop only). |
 | Accessibility statement | `/accessibility` | none | New, from the a11y review; linked from the footer. |
-| S1 Account | `/settings/account` | Save; Switch path; Test out; Delete account | Username, language of explanations, path, plan, hour packs, extra time, usage stats, danger zone. |
+| S1 Account | `/settings/account` | Save; Switch path; Test out; Delete account | Username and language of explanations save through `PATCH /v1/me` (section 3.1); the rest of the list is path, plan, hour packs, extra time, usage stats, danger zone. |
 | S2 Machines | `/settings/machines` | Revoke a CLI token | Lists CLI devices (OS, version, last seen) and the SSH key. |
 | S3 Notifications | `/settings/notifications` | Toggle | Per-kind push and email; quiet 22:00 to 08:00 local. No streak emails ever. |
 | S4 Your AI | `/settings/ai` | Copy MCP config; Test the connection | Per-tool tabs. |
@@ -659,6 +659,17 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
 - **Username:** unique, lowercased, 3 to 30 characters `[a-z0-9-]`, reserved list; defaults
   to the GitHub login when free. Only shown to the learner and used in the app; it carries no
   public URL, so a change needs no redirect.
+- **Profile update (S1):** `PATCH /v1/me`, for an active learner by cookie (with the CSRF header and a
+  JSON content type) or bearer. Body `{"username"?, "language"?}`, at least one, and any other field is
+  refused (`400 bad_request`, as is a non-JSON, empty, oversized or trailing body; a `null` counts as
+  absent). `username` is lowercased, then held to the sign-in rules (`^[a-z0-9-]{3,30}$`, not reserved),
+  so `Ada-New` saves as `ada-new`; `language` is `en` or `es`, exactly. Answers `200` with the body of
+  `GET /v1/me`, and sets `updated_at`. Errors, all `{"error": "<code>"}`: `400 invalid_username`,
+  `400 invalid_language`, `400 bad_request`, `401 unauthenticated`, `403 csrf_rejected`,
+  `403 account_suspended`, `409 username_taken` (the unique index decides, so two racing renames
+  cannot both win), `500 server_error`. Re-sending the current values is a `200`. It writes only the
+  columns `dojo_api` may update (3.3). There is no availability-check route in M1: it would let a
+  signed-in learner enumerate usernames for little gain, and S1 shows the `409` at save instead.
 - **Age:** a self-declared confirmation of 14 or older at first sign-in. No other check.
 - **Exam SSH access:** the learner's public key is registered for one machine; no lookup by GitHub
   username, so a renamed login cannot be authorised by mistake.

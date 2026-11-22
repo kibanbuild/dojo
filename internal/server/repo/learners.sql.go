@@ -65,6 +65,44 @@ func (q *Queries) GetLearnerByID(ctx context.Context, id pgtype.UUID) (Learner, 
 	return i, err
 }
 
+const updateLearnerProfile = `-- name: UpdateLearnerProfile :one
+UPDATE learners
+SET username = COALESCE($2, username),
+    language = COALESCE($3, language),
+    updated_at = now()
+WHERE id = $1
+RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version
+`
+
+type UpdateLearnerProfileParams struct {
+	ID       pgtype.UUID
+	Username pgtype.Text
+	Language pgtype.Text
+}
+
+func (q *Queries) UpdateLearnerProfile(ctx context.Context, arg UpdateLearnerProfileParams) (Learner, error) {
+	row := q.db.QueryRow(ctx, updateLearnerProfile, arg.ID, arg.Username, arg.Language)
+	var i Learner
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GithubID,
+		&i.GithubLogin,
+		&i.Username,
+		&i.Email,
+		&i.Language,
+		&i.AgeConfirmedAt,
+		&i.TermsAcceptedAt,
+		&i.UsageStats,
+		&i.AnalyticsConsent,
+		&i.SuspendedAt,
+		&i.TermsVersion,
+	)
+	return i, err
+}
+
 const upsertLearner = `-- name: UpsertLearner :one
 INSERT INTO learners (org_id, github_id, github_login, username, email, language,
                       age_confirmed_at, terms_accepted_at, terms_version, usage_stats)

@@ -34,6 +34,9 @@ type fakeSessions struct {
 	cliHashes  [][]byte
 	cliTouched int
 	cliRevoked []pgtype.UUID
+
+	updates   []repo.UpdateLearnerProfileParams
+	updateErr error
 }
 
 func (f *fakeSessions) GetActiveSession(_ context.Context, h []byte) (repo.GetActiveSessionRow, error) {

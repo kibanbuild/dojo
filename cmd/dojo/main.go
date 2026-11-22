@@ -33,6 +33,7 @@ func main() {
 		NewBackend:  lab.New,
 		Now:         time.Now,
 		Probe:       doctor.Probe,
+		Login:       cli.LoginConfigFromEnv(),
 	}
 	err := app.Run(ctx, os.Args[1:])
 	switch {

@@ -18,9 +18,30 @@ bin/dojo shell             # a terminal inside the lab
 bin/dojo check             # reboots the lab and verifies your fix (--quick skips the reboot)
 bin/dojo clean             # deletes the lab
 bin/dojo mcp               # the mentor server for your AI tool (see below)
+bin/dojo login             # signs in with GitHub (device code); --force logs in again
+bin/dojo logout            # revokes this computer's login; --local only forgets it here
 ```
 
 It needs [Lima](https://lima-vm.io/) on macOS or Linux.
+
+## Sign in
+
+`dojo login` needs a Dojo account, made on the website first. It shows a code and a GitHub address:
+open the address, enter the code and approve. The CLI then exchanges GitHub's answer for its own
+token (GitHub's token is used once and never stored) and saves it in `DOJO_HOME` (`token`, mode 0600).
+`dojo logout` revokes that token on the server and deletes the file; if the server cannot be reached
+the file stays, and `dojo logout --local` forgets it on this computer anyway.
+
+The API address and the OAuth client id have no production default until the public domain exists, so
+set them (or pass `--api-url`, `--client-id`; `--github-url` defaults to `https://github.com`). Against
+the local stack (`make dev`):
+
+```sh
+export DOJO_API_URL=http://localhost:4321      # the web dev server proxies /v1 to the API
+export DOJO_GITHUB_URL=http://localhost:8081   # the fake GitHub
+export DOJO_GITHUB_CLIENT_ID=dojo-web-local
+bin/dojo login   # approve the code at http://localhost:8081/login/device
+```
 
 ## Let your AI mentor you
 

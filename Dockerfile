@@ -52,7 +52,7 @@ ENTRYPOINT ["/goose"]
 CMD ["up"]
 
 FROM ${NODE_IMAGE} AS build-web
-# Same pnpm as web/package.json (corepack checks its hash); keep both Node pins in step with web/.nvmrc.
+# Same pnpm as web/package.json (corepack checks its hash); keep both Node pins in step with web/.nvmrc and app/.nvmrc.
 ENV ASTRO_TELEMETRY_DISABLED=1
 ARG PUBLIC_ORIGIN=http://localhost:8080
 ENV PUBLIC_ORIGIN=${PUBLIC_ORIGIN}
@@ -64,8 +64,20 @@ COPY web/astro.config.mjs ./
 COPY web/src ./src
 RUN pnpm build
 
+FROM ${NODE_IMAGE} AS build-app
+# The signed-in SPA: its own package, sharing only the design tokens with web/.
+WORKDIR /src/app
+RUN corepack enable
+COPY app/package.json app/pnpm-lock.yaml app/pnpm-workspace.yaml app/.npmrc ./
+RUN pnpm install --frozen-lockfile
+COPY web/src/styles/tokens.css /src/web/src/styles/tokens.css
+COPY app/index.html app/tsconfig.json app/vite.config.ts ./
+COPY app/src ./src
+RUN pnpm build
+
 FROM ${CADDY_IMAGE} AS edge
 COPY caddy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build-web /src/dist /srv
+COPY --from=build-app /src/app/dist /srv/app
 USER 65532:65532
 EXPOSE 8080

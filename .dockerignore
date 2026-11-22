@@ -14,3 +14,12 @@
 !web/.npmrc
 !web/astro.config.mjs
 !web/src
+!web/src/styles/tokens.css
+!app/package.json
+!app/pnpm-lock.yaml
+!app/pnpm-workspace.yaml
+!app/.npmrc
+!app/index.html
+!app/tsconfig.json
+!app/vite.config.ts
+!app/src

@@ -18,6 +18,11 @@ COMPOSE := EDGE_PORT= FAKE_GITHUB_PORT= docker compose -p $(IT_PROJECT) -f compo
 DEV_COMPOSE := docker compose $(if $(wildcard .env),,--env-file .env.example)
 NODE_VERSION := $(shell cat web/.nvmrc)
 
+# The SPA dev server runs as the node process itself, so its pid file holds Vite's own pid. A recorded
+# pid only counts when that process is still a Vite: a stale file is never trusted or killed.
+SPA_PID := $(CURDIR)/app/.dev.pid
+SPA_UP = [ -s $(SPA_PID) ] && ps -p "$$(cat $(SPA_PID))" -o command= 2>/dev/null | grep -q 'vite/bin/vite.js'
+
 # The CLI ships for these; lint and vet each so platform-only files are checked too.
 PLATFORMS := darwin linux windows
 
@@ -70,21 +75,30 @@ test-integration:
 		go test -tags integration -count=1 -v ./internal/server/ ./internal/github/ \
 		|| { rc=$$?; $(COMPOSE) logs --no-color --tail=100 api fake-github; exit $$rc; }
 
-# Starts the stack in the background, then the web dev server in the foreground (Astro detaches
-# when there is no terminal). The dev server proxies /v1 to the edge, so the page and the API
-# share one origin as they do behind Caddy.
+# Starts the stack in the background, then the SPA's Vite dev server (background, its own pid in app/.dev.pid)
+# and the web dev server in the foreground (Astro detaches when there is no terminal). The web dev
+# server proxies /v1 to the edge and /app to Vite, so page, API and SPA share one origin as behind
+# Caddy. With a terminal, leaving Astro also stops Vite; without one, `make down` does.
 dev:
 	@node --version 2>/dev/null | grep -qx 'v$(NODE_VERSION)' || \
 		{ echo "make dev needs Node $(NODE_VERSION) (web/.nvmrc); with fnm: fnm install && fnm use"; exit 1; }
 	$(DEV_COMPOSE) up -d --build --wait
 	cd web && corepack pnpm install --frozen-lockfile
+	cd app && corepack pnpm install --frozen-lockfile
+	@if $(SPA_UP); then echo "SPA dev server already running (pid $$(cat $(SPA_PID)))"; else \
+		cd app && { nohup node node_modules/vite/bin/vite.js > .dev.log 2>&1 & echo $$! > .dev.pid; }; \
+		for i in 1 2 3 4 5 6 7 8 9 10; do curl -fs --max-time 2 -o /dev/null http://127.0.0.1:5174/app/ 2>/dev/null && break; sleep 1; done; \
+		sleep 1; $(SPA_UP) || { echo "SPA dev server failed to start:"; tail -n 20 .dev.log; exit 1; }; \
+	fi
 	@edge=$$($(DEV_COMPOSE) port edge 8080 | sed 's/.*://'); \
+		if [ -t 1 ]; then trap 'if $(SPA_UP); then kill $$(cat $(SPA_PID)); fi; rm -f $(SPA_PID)' EXIT; fi; \
 		cd web && DOJO_EDGE_URL=http://127.0.0.1:$$edge ASTRO_TELEMETRY_DISABLED=1 corepack pnpm dev
 
-# Stops the dev stack, keeping its database volume, and a dev server Astro left in the background
-# (it detaches when there is no terminal).
+# Stops the dev stack, keeping its database volume, the SPA dev server (by its own pid file, never by
+# pattern) and a web dev server Astro left in the background (it detaches when there is no terminal).
 down:
 	$(DEV_COMPOSE) down
+	-@if $(SPA_UP); then kill $$(cat $(SPA_PID)); fi; rm -f $(SPA_PID)
 	-@cd web && corepack pnpm exec astro dev stop 2>/dev/null
 
 # Boots a real Lima VM and takes minutes: not part of verify.

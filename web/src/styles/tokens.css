@@ -1,6 +1,42 @@
-/* Design tokens shared by the public site (web/) and the signed-in app (app/). Tailwind theme variables. */
+/* Design tokens shared by the public site (web/) and the signed-in app (app/): Aurora, light only. */
 @theme {
-  --color-ink: #171717;
-  --color-muted: #525252;
+  --color-bg: #fbfbfd;
   --color-surface: #ffffff;
+  --color-surface2: #f2f3f7;
+  --color-line: #e3e5ec;
+  --color-fg: #0e0f14;
+  --color-fg2: #3f4350;
+  --color-muted: #5e6270;
+  --color-accent: #6a3df5;
+  --color-accentfg: #ffffff;
+  --color-accentink: #5b2ee0;
+  --color-accentsoft: #eeeafe;
+  --color-ok: #1f7a4d;
+  --color-oksoft: #e3f1e9;
+  --color-bad: #b42318;
+  --color-badsoft: #fbe7e4;
+
+  --font-sans: 'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+
+  --shadow-card: 0 30px 80px rgba(17, 19, 24, 0.14);
+}
+
+:root {
+  --glow: rgba(106, 61, 245, 0.16);
+  --hlbg: linear-gradient(100deg, #6a3df5, #0e7490);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accentink);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }

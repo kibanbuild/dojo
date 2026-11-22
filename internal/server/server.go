@@ -18,10 +18,16 @@ type Readiness interface {
 }
 
 // New returns the API router.
-func New(ready Readiness, auth Auth, limits *RateLimits) http.Handler {
+// signin may be nil, which leaves the web sign-in routes out.
+func New(ready Readiness, auth Auth, limits *RateLimits, signin *SignIn) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", health(ready))
 	mux.HandleFunc("GET /v1/me", requireSession(auth.me))
+	if signin != nil {
+		signin.limits = limits
+		mux.HandleFunc("POST "+startPath, signin.start)
+		mux.HandleFunc("GET "+callbackPath, signin.callback)
+	}
 	return auth.Session(limits.wrap(mux, CSRF(mux)))
 }
 

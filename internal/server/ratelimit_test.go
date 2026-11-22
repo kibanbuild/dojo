@@ -25,6 +25,14 @@ func (c *clock) add(d time.Duration) {
 	c.mu.Unlock()
 }
 
+// The production limits must include the callback limiter; allowCallback admits everything without it.
+func TestNewRateLimitsHasEveryLimiter(t *testing.T) {
+	l := NewRateLimits(1)
+	if l.Auth == nil || l.Telemetry == nil || l.Callback == nil {
+		t.Fatalf("missing limiter: %+v", l)
+	}
+}
+
 func TestParseTrustedHops(t *testing.T) {
 	for in, want := range map[string]int{"1": 1, " 2 ": 2, "8": 8} {
 		if got, err := ParseTrustedHops(in); err != nil || got != want {
@@ -179,6 +187,7 @@ func testLimits(burst int) *RateLimits {
 	return &RateLimits{
 		Auth:      newMemLimiter(burst, time.Minute, 100, c.now),
 		Telemetry: newMemLimiter(burst, time.Minute, 100, c.now),
+		Callback:  newMemLimiter(burst, time.Minute, 100, c.now),
 		Hops:      1,
 	}
 }
@@ -307,7 +316,7 @@ func TestParallelRequestsAdmitExactlyTheBurst(t *testing.T) {
 // The limiter wraps CSRF, it must not replace it (design 3.1).
 func TestNewKeepsCSRFBehindTheLimiter(t *testing.T) {
 	f := &fakeSessions{row: activeRow(time.Now(), false), learner: repo.Learner{Username: "ada"}}
-	h := New(fakeReady{}, Auth{Store: f}, NewRateLimits(1))
+	h := New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil)
 	req := httptest.NewRequest("POST", "/v1/me", strings.NewReader("{}"))
 	req.AddCookie(&http.Cookie{Name: SessionCookie, Value: goodToken})
 	rec := httptest.NewRecorder()

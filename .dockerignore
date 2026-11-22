@@ -3,6 +3,7 @@
 !go.sum
 !cmd/dojo-api
 !internal/server
+!internal/github
 !cmd/fake-github
 !internal/fakegithub
 !db/migrations

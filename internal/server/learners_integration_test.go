@@ -57,6 +57,7 @@ func asOwner(t *testing.T, sql string) string {
 }
 
 func TestLearnerAndSessionQueries(t *testing.T) {
+	resetLearners(t, "4242")
 	ctx := context.Background()
 	q := repo.New(apiConn(t))
 
@@ -123,7 +124,7 @@ func TestLearnerAndSessionQueries(t *testing.T) {
 	}
 
 	// The sliding window: a session unused for 31 days is not active.
-	asOwner(t, "UPDATE sessions SET last_used_at = now() - interval '31 days'")
+	asOwner(t, "UPDATE sessions SET last_used_at = now() - interval '31 days' WHERE learner_id = '"+l.ID.String()+"'")
 	if _, err := q.GetActiveSession(ctx, hash[:]); err != pgx.ErrNoRows {
 		t.Fatalf("expired: %v", err)
 	}
@@ -142,7 +143,7 @@ func TestLearnerAndSessionQueries(t *testing.T) {
 
 	// Removing the learner as the migration role cascades to its sessions.
 	asOwner(t, "DELETE FROM learners WHERE github_id = 4242")
-	if out := asOwner(t, "SELECT count(*) FROM sessions"); out != "0" {
+	if out := asOwner(t, "SELECT count(*) FROM sessions WHERE learner_id = '"+l.ID.String()+"'"); out != "0" {
 		t.Fatalf("sessions after cascade: %q", out)
 	}
 }

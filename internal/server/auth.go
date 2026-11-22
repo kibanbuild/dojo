@@ -62,6 +62,7 @@ func ParseOrigin(env, origin string) (secure bool, err error) {
 
 type principal struct {
 	learner   pgtype.UUID
+	session   pgtype.UUID
 	suspended bool
 }
 
@@ -106,14 +107,15 @@ func (a Auth) lookup(r *http.Request) (principal, bool) {
 			slog.Warn("touch session failed", "error", err)
 		}
 	}
-	return principal{learner: row.LearnerID, suspended: row.SuspendedAt.Valid}, true
+	return principal{learner: row.LearnerID, session: row.ID, suspended: row.SuspendedAt.Valid}, true
 }
 
 // CSRF requires a JSON content type and the custom header on state-changing requests
 // authenticated by the cookie. Requests without a cookie principal (bearer, anonymous) pass.
 func CSRF(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := principalOf(r.Context()); ok && !safeMethod(r.Method) {
+		// start is a browser form POST that acts on no session; a signed-in browser must still reach it.
+		if _, ok := principalOf(r.Context()); ok && !safeMethod(r.Method) && r.URL.Path != startPath {
 			mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 			if err != nil || mt != "application/json" || r.Header.Get(CSRFHeader) == "" {
 				writeError(w, http.StatusForbidden, "csrf_rejected")

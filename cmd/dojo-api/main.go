@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/kibanbuild/dojo/internal/github"
 	"github.com/kibanbuild/dojo/internal/server"
 	"github.com/kibanbuild/dojo/internal/server/repo"
 )
@@ -44,6 +46,15 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	local := os.Getenv("DOJO_ENV") == "local"
+	ghCfg, err := github.LoadConfig(os.Getenv, local)
+	if err != nil {
+		return err
+	}
+	stateKey, err := server.ParseStateKey(os.Getenv("AUTH_STATE_KEY"), local)
+	if err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -53,9 +64,12 @@ func run(args []string) error {
 	}
 	defer store.Close()
 
+	auth := server.Auth{Store: store.Queries(), Secure: secure}
+	signin := &server.SignIn{GitHub: github.New(ghCfg), Store: store.Queries(), Auth: auth,
+		Origin: strings.TrimRight(os.Getenv("PUBLIC_ORIGIN"), "/"), Key: stateKey}
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           server.New(store, server.Auth{Store: store.Queries(), Secure: secure}, server.NewRateLimits(hops)),
+		Handler:           server.New(store, auth, server.NewRateLimits(hops), signin),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

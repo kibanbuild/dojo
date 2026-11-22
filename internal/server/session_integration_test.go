@@ -34,6 +34,7 @@ func getMe(t *testing.T, token string) (int, string) {
 }
 
 func TestMeThroughTheEdge(t *testing.T) {
+	resetLearners(t, "777001")
 	token := strings.Repeat("Z", 43)
 	hash := `\x` + hex.EncodeToString(server.HashToken(token))
 	asOwner(t, `INSERT INTO learners (org_id, github_id, github_login, username, language, age_confirmed_at, terms_accepted_at, usage_stats)

@@ -111,7 +111,9 @@ func (l *memLimiter) sweep(now time.Time) {
 // RateLimits limits the auth routes and anonymous telemetry per client IP (design 3.1).
 type RateLimits struct {
 	Auth, Telemetry Limiter
-	Hops            int
+	// Callback is taken inside the sign-in callback, after the state cookie checks out and before any GitHub call.
+	Callback Limiter
+	Hops     int
 }
 
 // NewRateLimits returns the in-memory limits with the production constants.
@@ -119,6 +121,7 @@ func NewRateLimits(hops int) *RateLimits {
 	return &RateLimits{
 		Auth:      newMemLimiter(authBurst, authPer, maxKeys, time.Now),
 		Telemetry: newMemLimiter(telemetryBurst, telemetryPer, maxKeys, time.Now),
+		Callback:  newMemLimiter(authBurst, authPer, maxKeys, time.Now),
 		Hops:      hops,
 	}
 }
@@ -129,7 +132,10 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, pattern := mux.Handler(r)
 		var lim Limiter
+		isStart := pattern == "POST "+startPath && r.URL.Path == startPath
 		switch {
+		// The callback has its own limiter inside the handler, taken once the state cookie checks out.
+		case pattern == "GET "+callbackPath && r.URL.Path == callbackPath:
 		case matches(pattern, r, isAuthPath):
 			lim = rl.Auth
 		case matches(pattern, r, isTelemetryPath):
@@ -141,6 +147,10 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 			if ok, retry := lim.Allow(clientKey(r, rl.Hops)); !ok {
 				secs := max(1, int(math.Ceil(retry.Seconds())))
 				w.Header().Set("Retry-After", strconv.Itoa(secs))
+				if isStart { // a browser form post: show O1, not JSON
+					redirectSignin(w, r, "error=rate_limited")
+					return
+				}
 				writeError(w, http.StatusTooManyRequests, "rate_limited")
 				return
 			}

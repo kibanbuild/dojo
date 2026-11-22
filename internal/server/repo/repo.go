@@ -25,6 +25,9 @@ func Open(ctx context.Context, url string) (*Store, error) {
 	return &Store{pool: pool, q: New(pool)}, nil
 }
 
+// Queries exposes the sqlc queries to the server package.
+func (s *Store) Queries() *Queries { return s.q }
+
 // Close releases the pool.
 func (s *Store) Close() { s.pool.Close() }
 

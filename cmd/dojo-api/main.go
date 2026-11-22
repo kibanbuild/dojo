@@ -36,6 +36,10 @@ func run(args []string) error {
 	if dbURL == "" {
 		return errors.New("DATABASE_URL is required")
 	}
+	secure, err := server.ParseOrigin(os.Getenv("DOJO_ENV"), os.Getenv("PUBLIC_ORIGIN"))
+	if err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -47,7 +51,7 @@ func run(args []string) error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           server.New(store),
+		Handler:           server.New(store, server.Auth{Store: store.Queries(), Secure: secure}),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

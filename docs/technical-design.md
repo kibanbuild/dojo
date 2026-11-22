@@ -576,7 +576,10 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   `HttpOnly`, `SameSite=Lax`, 30-day sliding expiry, and `Secure` whenever `PUBLIC_ORIGIN` is
   `https` (Safari drops `Secure` cookies on `http://localhost`, so the local stack goes without).
   In `pre` and `pro` the API refuses to start unless `PUBLIC_ORIGIN` is `https`, so a wrong origin
-  can never ship cookies without `Secure`.
+  can never ship cookies without `Secure`. The environment is the required `DOJO_ENV` variable
+  (`local`, `pre` or `pro`). The cookie value is 32 random bytes in unpadded base64url (43
+  characters); the API stores and looks up the sha256 of that string, and a value of any other
+  length never reaches the database. The sliding expiry is written at most once a minute per session.
   GitHub may return no usable email; `learners.email` is then empty until the learner adds one.
 - **Age and terms:** O1 asks for both before "Continue with GitHub". `start` takes them in a
   POST body (never query parameters, so a link from elsewhere cannot tick them) and carries them in
@@ -600,7 +603,8 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   random, stored hashed with device name, OS and CLI version, listed and revocable in S2.
 - **No token to the learner's GitHub.** Their practice repo is public and is read without auth.
 - **CSRF:** every state-changing request authenticated by the session cookie needs a JSON body and
-  a custom header; the site and the API share one origin, so no CORS is allowed. CLI requests carry
+  a custom header (`X-Dojo-Csrf`, any non-empty value, with `Content-Type: application/json`;
+  refused with 403 `csrf_rejected`); the site and the API share one origin, so no CORS is allowed. CLI requests carry
   their token in the `Authorization` header, which a browser never adds by itself, so they are
   exempt. A request is authenticated by one credential only: one with a bearer token ignores any
   session cookie, so the exemption never covers a cookie-authenticated request.

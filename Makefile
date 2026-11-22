@@ -12,7 +12,7 @@ SQLC := $(TOOLS)/sqlc-$(SQLC_VERSION)
 
 # The integration stack runs under its own compose project, apart from any other.
 IT_PROJECT := dojo-it
-COMPOSE := EDGE_PORT= FAKE_GITHUB_PORT= docker compose -p $(IT_PROJECT) --env-file .env.example
+COMPOSE := EDGE_PORT= FAKE_GITHUB_PORT= docker compose -p $(IT_PROJECT) -f compose.yaml -f compose.it.yaml --env-file .env.example
 
 # The dev stack is the default compose project (dojo); a local .env wins over the fixed values.
 DEV_COMPOSE := docker compose $(if $(wildcard .env),,--env-file .env.example)

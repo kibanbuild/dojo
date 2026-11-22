@@ -1,0 +1,5 @@
+# Integration run only: publishes Postgres on a random loopback port so query tests connect as dojo_api.
+services:
+  db:
+    ports:
+      - "127.0.0.1::5432"

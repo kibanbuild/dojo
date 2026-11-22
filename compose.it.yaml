@@ -3,3 +3,7 @@ services:
   db:
     ports:
       - "127.0.0.1::5432"
+  fake-github:
+    environment:
+      # A short poll interval keeps the device-flow smoke test fast.
+      FAKE_GITHUB_DEVICE_INTERVAL: "1"

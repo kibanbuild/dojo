@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +27,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if err := enableDevice(clients, os.Getenv("FAKE_GITHUB_DEVICE_CLIENTS")); err != nil {
+		return err
+	}
+	interval := 5 * time.Second
+	if v := os.Getenv("FAKE_GITHUB_DEVICE_INTERVAL"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return fmt.Errorf("FAKE_GITHUB_DEVICE_INTERVAL must be whole seconds >= 1, got %q", v)
+		}
+		interval = time.Duration(n) * time.Second
+	}
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {
 		addr = ":8081"
@@ -33,8 +46,9 @@ func run() error {
 		return healthcheck(addr)
 	}
 	srv := &http.Server{
-		Addr:              addr,
-		Handler:           fakegithub.New(fakegithub.Config{Clients: clients, Users: fakegithub.DefaultUsers()}),
+		Addr: addr,
+		Handler: fakegithub.New(fakegithub.Config{Clients: clients, Users: fakegithub.DefaultUsers(),
+			PublicURL: os.Getenv("FAKE_GITHUB_PUBLIC_URL"), DeviceInterval: interval}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -59,6 +73,18 @@ func parseClients(s string) ([]fakegithub.Client, error) {
 		out = append(out, fakegithub.Client{ID: p[0], Secret: p[1], RedirectURIs: strings.Split(p[2], "|")})
 	}
 	return out, nil
+}
+
+// enableDevice turns the device flow on for the listed client ids (GitHub enables it per OAuth App).
+func enableDevice(clients []fakegithub.Client, list string) error {
+	for _, id := range strings.FieldsFunc(list, func(r rune) bool { return r == ',' || r == ' ' }) {
+		i := slices.IndexFunc(clients, func(c fakegithub.Client) bool { return c.ID == id })
+		if i < 0 {
+			return fmt.Errorf("FAKE_GITHUB_DEVICE_CLIENTS names unknown client %q", id)
+		}
+		clients[i].DeviceFlow = true
+	}
+	return nil
 }
 
 // healthcheck probes the local server; the scratch image has no curl for the compose check.

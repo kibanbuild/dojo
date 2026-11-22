@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -29,6 +30,7 @@ const (
 type Client struct {
 	ID, Secret   string
 	RedirectURIs []string
+	DeviceFlow   bool // GitHub requires device flow to be enabled per OAuth App
 }
 
 // Email is one entry of GET /user/emails.
@@ -53,6 +55,16 @@ type Config struct {
 	Clients []Client
 	Users   []User
 	Now     func() time.Time
+
+	// PublicURL is the address browsers use to reach the fake; it fills verification_uri.
+	// Empty means derive it from the request's Host header.
+	PublicURL string
+	// DeviceInterval is the minimum polling interval in the device flow (GitHub: 5s). Zero means 5s.
+	DeviceInterval time.Duration
+	// DeviceExpiry is how long a device code lives (GitHub: 900s). Zero means 15 minutes.
+	DeviceExpiry time.Duration
+	// TokenTTL makes issued access tokens expire. Zero means they never do (OAuth App tokens do not expire).
+	TokenTTL time.Duration
 }
 
 // DefaultUsers covers the sign-in cases: 2FA on, 2FA off, and no public or verified email.
@@ -76,6 +88,8 @@ type grant struct {
 type token struct {
 	clientID, login string
 	scopes          []string
+	created         time.Time
+	expires         time.Time // zero = never
 }
 
 type server struct {
@@ -84,6 +98,7 @@ type server struct {
 	mu     sync.Mutex
 	codes  map[string]grant
 	tokens map[string]token
+	device map[string]*deviceGrant // by device_code
 }
 
 // New returns the fake GitHub handler.
@@ -91,7 +106,7 @@ func New(cfg Config) http.Handler {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	s := &server{cfg: cfg, users: map[string]User{}, codes: map[string]grant{}, tokens: map[string]token{}}
+	s := &server{cfg: cfg, users: map[string]User{}, codes: map[string]grant{}, tokens: map[string]token{}, device: map[string]*deviceGrant{}}
 	for _, u := range cfg.Users {
 		s.users[u.Login] = u
 	}
@@ -100,6 +115,10 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("POST /login/oauth/access_token", s.accessToken)
 	mux.HandleFunc("GET /user", s.user)
 	mux.HandleFunc("GET /user/emails", s.emails)
+	mux.HandleFunc("POST /login/device/code", s.deviceCode)
+	mux.HandleFunc("GET /login/device", s.devicePage)
+	mux.HandleFunc("POST /login/device", s.deviceDecide)
+	mux.HandleFunc("POST /applications/{client_id}/token", s.checkToken)
 	mux.HandleFunc("DELETE /applications/{client_id}/token", s.revoke)
 	return mux
 }
@@ -185,13 +204,16 @@ func (s *server) authorize(w http.ResponseWriter, r *http.Request) {
 }
 
 func oauthError(w http.ResponseWriter, r *http.Request, code, desc string) {
-	body := map[string]string{"error": code, "error_description": desc,
+	writeOAuth(w, r, oauthErrorBody(code, desc))
+}
+
+func oauthErrorBody(code, desc string) map[string]any {
+	return map[string]any{"error": code, "error_description": desc,
 		"error_uri": "https://docs.github.com/apps/oauth-apps/maintaining-oauth-apps/troubleshooting-oauth-app-access-token-request-errors/#" + strings.ReplaceAll(code, "_", "-")}
-	writeOAuth(w, r, body)
 }
 
 // writeOAuth answers JSON when asked for it and form-encoded otherwise, always with status 200.
-func writeOAuth(w http.ResponseWriter, r *http.Request, body map[string]string) {
+func writeOAuth(w http.ResponseWriter, r *http.Request, body map[string]any) {
 	if strings.Contains(r.Header.Get("Accept"), "application/json") {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(body)
@@ -199,7 +221,7 @@ func writeOAuth(w http.ResponseWriter, r *http.Request, body map[string]string) 
 	}
 	v := url.Values{}
 	for k, val := range body {
-		v.Set(k, val)
+		v.Set(k, fmt.Sprint(val))
 	}
 	w.Header().Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
 	_, _ = w.Write([]byte(v.Encode()))
@@ -222,6 +244,15 @@ func (s *server) accessToken(w http.ResponseWriter, r *http.Request) {
 		for k := range r.PostForm {
 			p[k] = r.PostForm.Get(k)
 		}
+	}
+	switch p["grant_type"] {
+	case "", "authorization_code": // real GitHub and x/oauth2 send grant_type=authorization_code on the web exchange
+	case deviceGrantType:
+		s.devicePoll(w, r, p)
+		return
+	default:
+		oauthError(w, r, "unsupported_grant_type", "The grant type is not supported.")
+		return
 	}
 	c, ok := s.client(p["client_id"])
 	if !ok || subtle.ConstantTimeCompare([]byte(c.Secret), []byte(p["client_secret"])) != 1 {
@@ -247,11 +278,30 @@ func (s *server) accessToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	writeOAuth(w, r, s.issue(c.ID, g.login, g.scopes))
+}
+
+// issue mints an access token and returns the access_token response body.
+func (s *server) issue(clientID, login string, scopes []string) map[string]any {
+	now := s.cfg.Now()
+	t := token{clientID: clientID, login: login, scopes: scopes, created: now}
+	if s.cfg.TokenTTL > 0 {
+		t.expires = now.Add(s.cfg.TokenTTL)
+	}
 	tok := "gho_" + randHex(18)
 	s.mu.Lock()
-	s.tokens[tok] = token{c.ID, g.login, g.scopes}
+	s.tokens[tok] = t
 	s.mu.Unlock()
-	writeOAuth(w, r, map[string]string{"access_token": tok, "scope": strings.Join(g.scopes, ","), "token_type": "bearer"})
+	return map[string]any{"access_token": tok, "scope": strings.Join(scopes, ","), "token_type": "bearer"}
+}
+
+// live looks a token up, treating an expired one as gone. The caller holds s.mu.
+func (s *server) live(tok string) (token, bool) {
+	t, ok := s.tokens[tok]
+	if ok && !t.expires.IsZero() && !s.cfg.Now().Before(t.expires) {
+		return token{}, false
+	}
+	return t, ok
 }
 
 func apiError(w http.ResponseWriter, status int, msg string) {
@@ -264,7 +314,7 @@ func apiError(w http.ResponseWriter, status int, msg string) {
 func (s *server) authed(w http.ResponseWriter, r *http.Request) (token, bool) {
 	scheme, val, _ := strings.Cut(r.Header.Get("Authorization"), " ")
 	s.mu.Lock()
-	t, ok := s.tokens[strings.TrimSpace(val)]
+	t, ok := s.live(strings.TrimSpace(val))
 	s.mu.Unlock()
 	if !ok || (!strings.EqualFold(scheme, "bearer") && !strings.EqualFold(scheme, "token")) {
 		apiError(w, http.StatusUnauthorized, "Bad credentials")
@@ -327,7 +377,7 @@ func (s *server) revoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	t, exists := s.tokens[body.AccessToken]
+	t, exists := s.live(body.AccessToken)
 	if exists && t.clientID == id {
 		delete(s.tokens, body.AccessToken)
 	} else {

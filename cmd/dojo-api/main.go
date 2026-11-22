@@ -40,6 +40,10 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	hops, err := server.ParseTrustedHops(os.Getenv("TRUSTED_PROXY_HOPS"))
+	if err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -51,7 +55,7 @@ func run(args []string) error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           server.New(store, server.Auth{Store: store.Queries(), Secure: secure}),
+		Handler:           server.New(store, server.Auth{Store: store.Queries(), Secure: secure}, server.NewRateLimits(hops)),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

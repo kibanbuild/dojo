@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,35 @@ func TestEdgeProxiesTheAPI(t *testing.T) {
 	code, body := do(t, http.MethodGet, edgeURL(t)+"/v1/health")
 	if code != http.StatusOK || body != "{\"status\":\"ok\"}\n" {
 		t.Fatalf("got %d %q", code, body)
+	}
+}
+
+// Caddy replaces a client-sent X-Forwarded-For with the peer address, so a spoofed value must not
+// give a fresh budget: the 429 arrives at the same request as without it.
+func TestEdgeIgnoresSpoofedForwardedFor(t *testing.T) {
+	const burst = 30 // authBurst
+	limitedAt := 0
+	for i := 1; i <= burst+5; i++ {
+		req, err := http.NewRequest(http.MethodGet, edgeURL(t)+"/v1/auth/rate-limit-probe", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("X-Forwarded-For", "10.9.8."+strconv.Itoa(i))
+		resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusTooManyRequests {
+			if resp.Header.Get("Retry-After") == "" {
+				t.Error("429 without Retry-After")
+			}
+			limitedAt = i
+			break
+		}
+	}
+	if limitedAt == 0 || limitedAt > burst+1 {
+		t.Fatalf("first 429 at request %d, want within %d (a spoofed address changed the key)", limitedAt, burst+1)
 	}
 }
 

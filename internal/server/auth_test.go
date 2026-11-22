@@ -76,7 +76,7 @@ func TestMeAuthentication(t *testing.T) {
 				req.Header.Set("Authorization", tt.authHeader)
 			}
 			rec := httptest.NewRecorder()
-			New(fakeReady{}, Auth{Store: f}).ServeHTTP(rec, req)
+			New(fakeReady{}, Auth{Store: f}, NewRateLimits(1)).ServeHTTP(rec, req)
 			if rec.Code != tt.wantStatus || !strings.Contains(rec.Body.String(), tt.wantBody) {
 				t.Fatalf("got %d %q", rec.Code, rec.Body.String())
 			}
@@ -102,7 +102,7 @@ func TestSessionTouchIsCoarse(t *testing.T) {
 			f := &fakeSessions{row: activeRow(time.Now().Add(-tt.lastUsed), false)}
 			req := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
 			req.AddCookie(&http.Cookie{Name: SessionCookie, Value: goodToken})
-			New(fakeReady{}, Auth{Store: f}).ServeHTTP(httptest.NewRecorder(), req)
+			New(fakeReady{}, Auth{Store: f}, NewRateLimits(1)).ServeHTTP(httptest.NewRecorder(), req)
 			if f.touched != tt.want {
 				t.Fatalf("touched = %d, want %d", f.touched, tt.want)
 			}

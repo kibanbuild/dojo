@@ -176,6 +176,60 @@ func (c *Client) Emails(ctx context.Context, token string) (string, error) {
 	return "", nil
 }
 
+// TokenInfo is what the check-token endpoint says about a token issued to our app.
+type TokenInfo struct {
+	UserID int64
+	Login  string
+	Scopes []string
+}
+
+// CheckToken asks GitHub whether token was issued to our app (POST /applications/{client_id}/token,
+// basic auth with the client secret). Only a 200 whose app.client_id is ours counts: the id is
+// checked even though GitHub should answer 404 for another app's token. An unknown, expired or foreign token is ErrRejected; a refusal of our own
+// credentials (401) is our misconfiguration, so ErrUnavailable.
+func (c *Client) CheckToken(ctx context.Context, token string) (TokenInfo, error) {
+	b, _ := json.Marshal(map[string]string{"access_token": token})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.cfg.APIURL+"/applications/"+url.PathEscape(c.cfg.ClientID)+"/token", strings.NewReader(string(b)))
+	if err != nil {
+		return TokenInfo{}, err
+	}
+	req.SetBasicAuth(c.cfg.ClientID, string(c.cfg.ClientSecret))
+	setAPIHeaders(req)
+	req.Header.Set("Content-Type", "application/json")
+	status, _, body, err := c.do(req)
+	if err != nil {
+		return TokenInfo{}, fmt.Errorf("check token: %w", err)
+	}
+	switch status {
+	case http.StatusOK:
+	case http.StatusNotFound:
+		return TokenInfo{}, fmt.Errorf("check token: %w: status 404", ErrRejected)
+	default:
+		return TokenInfo{}, fmt.Errorf("check token: %w: status %d", ErrUnavailable, status)
+	}
+	var out struct {
+		App struct {
+			ClientID string `json:"client_id"`
+		} `json:"app"`
+		User struct {
+			ID    int64  `json:"id"`
+			Login string `json:"login"`
+		} `json:"user"`
+		Scopes []string `json:"scopes"`
+	}
+	if json.Unmarshal(body, &out) != nil {
+		return TokenInfo{}, fmt.Errorf("check token: %w: unusable body", ErrUnavailable)
+	}
+	if out.App.ClientID != c.cfg.ClientID {
+		return TokenInfo{}, fmt.Errorf("check token: %w: token of another app", ErrRejected)
+	}
+	if out.User.ID == 0 || out.User.Login == "" {
+		return TokenInfo{}, fmt.Errorf("check token: %w: no user in the answer", ErrUnavailable)
+	}
+	return TokenInfo{UserID: out.User.ID, Login: out.User.Login, Scopes: out.Scopes}, nil
+}
+
 // Revoke deletes the access token at GitHub (never the app's grant).
 func (c *Client) Revoke(ctx context.Context, token string) error {
 	b, _ := json.Marshal(map[string]string{"access_token": token})

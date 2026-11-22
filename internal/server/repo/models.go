@@ -8,6 +8,20 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type CliToken struct {
+	ID         pgtype.UUID
+	OrgID      pgtype.UUID
+	LearnerID  pgtype.UUID
+	TokenHash  []byte
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
+	LastUsedAt pgtype.Timestamptz
+	RevokedAt  pgtype.Timestamptz
+	DeviceName string
+	Os         string
+	CliVersion string
+}
+
 type Learner struct {
 	ID               pgtype.UUID
 	OrgID            pgtype.UUID

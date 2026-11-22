@@ -586,7 +586,8 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   needs a cookie session that the session middleware resolved; it sets `revoked_at` on that session,
   clears `dojo_session` with the attributes it was set with and answers `204`. No cookie principal
   (anonymous, an unknown or already revoked cookie, or a bearer call) is `401`; a missing CSRF header
-  is `403`. A suspended learner can still sign out. Bearer sign-out is part of the CLI work (8a).
+  is `403`. A suspended learner can still sign out. A bearer call is not a cookie session: it gets `401`
+  here and signs out through `DELETE /v1/auth/cli` (below).
 - **Age and terms:** O1 asks for both before "Continue with GitHub". `start` takes them in a
   POST body (never query parameters, so a link from elsewhere cannot tick them) and carries them in
   the short-lived state cookie, which is signed by the API and bound to the OAuth `state`, as O0
@@ -602,12 +603,49 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   client IP. The client IP is the address `TRUSTED_PROXY_HOPS` entries from the right of
   `X-Forwarded-For` (1 locally, behind Caddy; 2 in AWS, behind CloudFront and the ALB), or the
   connection address when the header is shorter; the header is never trusted further.
-- **CLI:** `dojo login` uses the GitHub device flow with our client id and sends the resulting
-  token once to `POST /v1/auth/cli`. The API accepts it only if GitHub's check-token endpoint
-  (`POST /applications/{client_id}/token`, with our client secret) says it was issued to our app,
-  reads id, login and email, revokes that token, and only then returns its own CLI token. If the
-  revoke fails the login fails and is retried: no GitHub token is ever stored. CLI tokens are
-  random, stored hashed with device name, OS and CLI version, listed and revocable in S2.
+- **CLI login:** `dojo login` uses the GitHub device flow with our client id (the same OAuth App as
+  the web flow, device flow enabled), asking for the scopes `read:user user:email`, and sends the
+  resulting token once to `POST /v1/auth/cli`. Rate limited with the rest of `/v1/auth/*`.
+  - Request: JSON body (`Content-Type: application/json`, at most 4 KB) with `access_token` (the GitHub
+    token, 1 to 255 of `A-Za-z0-9_-`), `device_name` (1 to 64 characters, no control or invisible format
+    characters, no leading or trailing space), `os` (1 to 32 of `A-Za-z0-9._/+ -`, for example `darwin/arm64`) and
+    `cli_version` (1 to 32 of `A-Za-z0-9._+-`). Unknown fields are ignored. The route reads no cookie
+    and no `Authorization` header, so a stale token on the CLI never blocks a new login.
+  - The API calls GitHub's check-token endpoint (`POST /applications/{client_id}/token`, basic auth
+    with our client id and secret) and accepts only a `200` whose `app.client_id` is ours: another
+    app's token, an unknown or a revoked one is refused. It reads the user id and login from that
+    answer, the verified primary email from `GET /user/emails` when the grant includes `user:email`
+    (a grant without it logs in with no email), and then revokes the GitHub token
+    (`DELETE /applications/{client_id}/token`, a `404` counts as already gone, two retries). If the
+    revoke fails the login fails and is retried from the device flow: no GitHub token is ever stored
+    or logged. The revoke happens for every outcome after a successful check, including the refusals
+    below.
+  - Only an **existing learner** gets a CLI token. Age and terms are confirmed only on O1, so the CLI
+    never creates a learner: an unknown GitHub account is `403 signup_required` and `dojo login` tells
+    the person to sign up on the website first. A suspended learner is `403 account_suspended`. A known
+    learner's `github_login` and `email` are refreshed as in the web flow (a non-empty GitHub email
+    replaces the stored one, an empty one keeps it).
+  - Response `201` with `{"token": "dojo_<43 characters>"}`, `Cache-Control: no-store`. The token is
+    `dojo_` plus 32 random bytes in unpadded base64url (48 characters in all); the prefix tells a
+    secret scanner and a person it is ours and never a session cookie. Only its sha256 is stored,
+    with the device name, OS and CLI version. It has no expiry: it lives until revoked, and
+    `last_used_at` (written at most once a minute) is what S2 shows as "last seen".
+  - Errors, all `{"error": "<code>"}`: `400 bad_request` (not JSON, wrong content type, a field out of
+    its limits), `401 github_rejected` (GitHub does not know the token as ours: expired, revoked,
+    another app's, already used for a login), `403 signup_required`, `403 account_suspended`,
+    `429 rate_limited` (with `Retry-After`), `502 github_unavailable` (GitHub failed, including a
+    revoke that kept failing; retry the whole login), `500 server_error`.
+- **CLI requests:** `Authorization: Bearer dojo_...`. The API checks the shape, then the sha256 in
+  `cli_tokens`; a revoked token does not resolve (`401 unauthenticated`); a suspended learner's
+  token resolves but gets `403 account_suspended` on routes that need an active learner, like
+  `/v1/me`. A non-empty `Authorization` header that is not a valid, active CLI token is `401` on
+  every route, never an anonymous request. A request has one credential: with an `Authorization`
+  header the bearer decides and any session cookie is ignored (bearer wins), so a call is never both
+  CSRF-exempt and cookie-authenticated. A bearer is not a cookie session either: the web sign-out
+  refuses it.
+- **CLI sign-out:** `DELETE /v1/auth/cli` with the bearer token revokes that token (`dojo logout`)
+  and answers `204`; no bearer principal is `401`; a suspended learner can still do it. Revoking
+  another device's token by id is S2 (M1.9b).
 - **No token to the learner's GitHub.** Their practice repo is public and is read without auth.
 - **CSRF:** every state-changing request authenticated by the session cookie needs a JSON body and
   a custom header (`X-Dojo-Csrf`, any non-empty value, with `Content-Type: application/json`;
@@ -659,7 +697,7 @@ each migration states the grants for `dojo_api` and `dojo_admin` (section 3.7).
 |---|---|---|
 | `orgs` | `slug`, `name` | One row, `public`. |
 | `learners` | `github_id` (unique), `github_login`, `username` (unique), `email`, `language` (en, es: explanations), `extra_time`, `hosted_default`, `age_confirmed_at`, `terms_accepted_at`, `terms_version`, `usage_stats` (bool), `analytics_consent` (null, true, false), `chosen_path_id`, `record_shared` (default false), `record_token_hash` (null when not shared), `suspended_at` | `extra_time` applies to every exam. `terms_version` is the API's required `TERMS_VERSION` at creation (1 to 32 of `a-z 0-9 . -`), insert-only like `terms_accepted_at`; rows from before the column read `unrecorded`. `record_shared` is the opt-in for the share link; the token is shown once, stored hashed, and regenerating replaces the hash. |
-| `sessions`, `cli_tokens` | `learner_id`, `token_hash`, `last_used_at`, `revoked_at`; tokens add `device_name`, `os`, `cli_version`, `ssh_public_key` | Hashes only. |
+| `sessions`, `cli_tokens` | `learner_id`, `token_hash`, `last_used_at`, `revoked_at`; tokens add `device_name`, `os`, `cli_version`, `ssh_public_key` | Hashes only. M1 creates `cli_tokens` without `ssh_public_key` (the exam milestone adds it). `dojo_api` reads, inserts the device row and updates `last_used_at`, `revoked_at` and `updated_at`; no `DELETE`, and `dojo_admin` has no grant. No expiry: a token ends when revoked or when the learner is deleted (cascade). |
 | `paths`, `roles`, `path_roles` | `slug`, `title`, `status` (available, planned); roles add `kind` (foundations, role), `has_exam`, `advanced`; join has `position` | Content, loaded at deploy. v1 data: one available path. |
 | `catalog_items` | `id` (for example `support-l1/perms-03`), `role_id` (null for practice), `kind` (ticket, writing, quiz, story, feedback, practice), `position`, `title`, `est_minutes`, `tags`, `awards_mark`, `catalog_version`, `bundle_key` | Loaded from the catalog at deploy; the API never parses YAML per request. |
 | `ticket_progress` | `learner_id`, `item_id`, `state` (started, passed), `lab` (local, hosted), `check_count`, `written_hints_opened` (int array), `last_check_at`, `last_check_pass`, `last_check_total`, `last_check_output`, `first_passed_at`, `passed_seconds`, `passed_commit` | One row per learner and item. Revisits never change `first_passed_at`. |

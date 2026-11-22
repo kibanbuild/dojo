@@ -69,11 +69,13 @@ func run(args []string) error {
 	defer store.Close()
 
 	auth := server.Auth{Store: store.Queries(), Secure: secure}
-	signin := &server.SignIn{GitHub: github.New(ghCfg), Store: store.Queries(), Auth: auth,
+	gh := github.New(ghCfg)
+	cli := &server.CLILogin{GitHub: gh, Store: store.Queries()}
+	signin := &server.SignIn{GitHub: gh, Store: store.Queries(), Auth: auth,
 		Origin: strings.TrimRight(os.Getenv("PUBLIC_ORIGIN"), "/"), Key: stateKey, TermsVersion: termsVersion}
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           server.New(store, auth, server.NewRateLimits(hops), signin),
+		Handler:           server.New(store, auth, server.NewRateLimits(hops), signin, cli),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

@@ -296,3 +296,48 @@ func TestNeverPrintsSecret(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckToken(t *testing.T) {
+	const ok = `{"app":{"client_id":"cid"},"user":{"id":1001,"login":"ada"},"scopes":["read:user","user:email"],"token":"echo"}`
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		want   error
+	}{
+		{"ok", 200, ok, nil},
+		{"another app's token", 200, `{"app":{"client_id":"other"},"user":{"id":1001,"login":"ada"}}`, ErrRejected},
+		{"no app in the answer", 200, `{"user":{"id":1001,"login":"ada"}}`, ErrRejected},
+		{"unknown or revoked token", 404, `{"message":"Not Found"}`, ErrRejected},
+		{"our credentials refused", 401, `{"message":"Bad credentials"}`, ErrUnavailable},
+		{"422", 422, `{}`, ErrUnavailable},
+		{"500", 500, `oops`, ErrUnavailable},
+		{"no user", 200, `{"app":{"client_id":"cid"}}`, ErrUnavailable},
+		{"bad json", 200, `<html>`, ErrUnavailable},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				id, sec, _ := r.BasicAuth()
+				var in map[string]string
+				_ = json.NewDecoder(r.Body).Decode(&in)
+				if r.Method != http.MethodPost || r.URL.Path != "/applications/cid/token" || id != "cid" || sec != "sek" ||
+					in["access_token"] != "gho_tok" || r.URL.RawQuery != "" {
+					t.Errorf("request: %s %s basic=%q/%q body=%v", r.Method, r.URL, id, sec, in)
+				}
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			})
+			info, err := c.CheckToken(context.Background(), "gho_tok")
+			if (tt.want == nil) != (err == nil) || (tt.want != nil && !errors.Is(err, tt.want)) {
+				t.Fatalf("err = %v, want %v", err, tt.want)
+			}
+			if tt.want == nil && (info.UserID != 1001 || info.Login != "ada" || !HasScope(info.Scopes, "user:email")) {
+				t.Fatalf("info = %+v", info)
+			}
+			if err != nil && strings.Contains(err.Error(), "gho_tok") {
+				t.Fatalf("error leaks the token: %v", err)
+			}
+		})
+	}
+}

@@ -318,7 +318,7 @@ func TestParallelRequestsAdmitExactlyTheBurst(t *testing.T) {
 // The limiter wraps CSRF, it must not replace it (design 3.1).
 func TestNewKeepsCSRFBehindTheLimiter(t *testing.T) {
 	f := &fakeSessions{row: activeRow(time.Now(), false), learner: repo.Learner{Username: "ada"}}
-	h := New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil)
+	h := New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil, nil)
 	req := httptest.NewRequest("POST", "/v1/me", strings.NewReader("{}"))
 	req.AddCookie(&http.Cookie{Name: SessionCookie, Value: goodToken})
 	rec := httptest.NewRecorder()

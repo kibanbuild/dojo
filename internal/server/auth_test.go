@@ -10,12 +10,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/kibanbuild/dojo/internal/server/repo"
 )
 
-var goodToken = strings.Repeat("a", tokenLen)
+var (
+	goodToken    = strings.Repeat("a", tokenLen)
+	goodCLIToken = cliTokenPrefix + strings.Repeat("b", tokenLen)
+)
 
 type fakeSessions struct {
 	row       *repo.GetActiveSessionRow // nil = no active session
@@ -24,6 +28,12 @@ type fakeSessions struct {
 	touched   int
 	revoked   []pgtype.UUID
 	revokeErr error
+
+	cli        *repo.GetActiveCLITokenRow // nil = no active CLI token
+	cliErr     error                      // a database failure on the bearer lookup
+	cliHashes  [][]byte
+	cliTouched int
+	cliRevoked []pgtype.UUID
 }
 
 func (f *fakeSessions) GetActiveSession(_ context.Context, h []byte) (repo.GetActiveSessionRow, error) {
@@ -46,12 +56,47 @@ func (f *fakeSessions) RevokeSession(_ context.Context, id pgtype.UUID) error {
 	return nil
 }
 
+func (f *fakeSessions) GetActiveCLIToken(_ context.Context, h []byte) (repo.GetActiveCLITokenRow, error) {
+	f.cliHashes = append(f.cliHashes, h)
+	if f.cliErr != nil {
+		return repo.GetActiveCLITokenRow{}, f.cliErr
+	}
+	if f.cli == nil || string(h) != string(HashToken(goodCLIToken)) {
+		return repo.GetActiveCLITokenRow{}, pgx.ErrNoRows
+	}
+	return *f.cli, nil
+}
+
+func (f *fakeSessions) TouchCLIToken(context.Context, pgtype.UUID) error { f.cliTouched++; return nil }
+
+// RevokeCLIToken ends the token the way the database does: it is no longer active.
+func (f *fakeSessions) RevokeCLIToken(_ context.Context, id pgtype.UUID) error {
+	if f.revokeErr != nil {
+		return f.revokeErr
+	}
+	f.cliRevoked = append(f.cliRevoked, id)
+	f.cli = nil
+	return nil
+}
+
 func (f *fakeSessions) GetLearnerByID(context.Context, pgtype.UUID) (repo.Learner, error) {
 	return f.learner, nil
 }
 
 func activeRow(lastUsed time.Time, suspended bool) *repo.GetActiveSessionRow {
 	r := &repo.GetActiveSessionRow{
+		LearnerID:  pgtype.UUID{Bytes: [16]byte{1}, Valid: true},
+		LastUsedAt: pgtype.Timestamptz{Time: lastUsed, Valid: true},
+	}
+	if suspended {
+		r.SuspendedAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
+	}
+	return r
+}
+
+func activeCLI(lastUsed time.Time, suspended bool) *repo.GetActiveCLITokenRow {
+	r := &repo.GetActiveCLITokenRow{
+		ID:         pgtype.UUID{Bytes: [16]byte{7}, Valid: true},
 		LearnerID:  pgtype.UUID{Bytes: [16]byte{1}, Valid: true},
 		LastUsedAt: pgtype.Timestamptz{Time: lastUsed, Valid: true},
 	}
@@ -89,7 +134,7 @@ func TestMeAuthentication(t *testing.T) {
 				req.Header.Set("Authorization", tt.authHeader)
 			}
 			rec := httptest.NewRecorder()
-			New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil).ServeHTTP(rec, req)
+			New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil, nil).ServeHTTP(rec, req)
 			if rec.Code != tt.wantStatus || !strings.Contains(rec.Body.String(), tt.wantBody) {
 				t.Fatalf("got %d %q", rec.Code, rec.Body.String())
 			}
@@ -115,7 +160,7 @@ func TestSessionTouchIsCoarse(t *testing.T) {
 			f := &fakeSessions{row: activeRow(time.Now().Add(-tt.lastUsed), false)}
 			req := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
 			req.AddCookie(&http.Cookie{Name: SessionCookie, Value: goodToken})
-			New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil).ServeHTTP(httptest.NewRecorder(), req)
+			New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil, nil).ServeHTTP(httptest.NewRecorder(), req)
 			if f.touched != tt.want {
 				t.Fatalf("touched = %d, want %d", f.touched, tt.want)
 			}
@@ -154,7 +199,7 @@ func TestCSRF(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := &fakeSessions{row: activeRow(time.Now(), false)}
+			f := &fakeSessions{row: activeRow(time.Now(), false), cli: activeCLI(time.Now(), false)}
 			req := httptest.NewRequest(tt.method, "/x", nil)
 			if tt.contentType != "" {
 				req.Header.Set("Content-Type", tt.contentType)
@@ -166,7 +211,7 @@ func TestCSRF(t *testing.T) {
 				req.AddCookie(&http.Cookie{Name: SessionCookie, Value: goodToken})
 			}
 			if tt.bearer {
-				req.Header.Set("Authorization", "Bearer abc")
+				req.Header.Set("Authorization", "Bearer "+goodCLIToken)
 			}
 			rec := httptest.NewRecorder()
 			Auth{Store: f}.Session(CSRF(ok)).ServeHTTP(rec, req)
@@ -243,7 +288,7 @@ func TestLogout(t *testing.T) {
 	t.Run("no principal is 401 and revokes nothing", func(t *testing.T) {
 		f := newF()
 		rec := httptest.NewRecorder()
-		New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil).ServeHTTP(rec, logoutReq(false, nil))
+		New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil, nil).ServeHTTP(rec, logoutReq(false, nil))
 		if rec.Code != 401 || len(f.revoked) != 0 || rec.Header().Get("Set-Cookie") != "" {
 			t.Fatalf("got %d, revoked %v, cookie %q", rec.Code, f.revoked, rec.Header().Get("Set-Cookie"))
 		}
@@ -251,7 +296,7 @@ func TestLogout(t *testing.T) {
 	t.Run("bearer is 401 even with a valid cookie", func(t *testing.T) {
 		f := newF()
 		rec := httptest.NewRecorder()
-		h := New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil)
+		h := New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil, nil)
 		h.ServeHTTP(rec, logoutReq(true, map[string]string{"Authorization": "Bearer abc"}))
 		if rec.Code != 401 || len(f.revoked) != 0 {
 			t.Fatalf("got %d, revoked %v", rec.Code, f.revoked)
@@ -261,7 +306,7 @@ func TestLogout(t *testing.T) {
 		for _, hdr := range []map[string]string{nil, {"Content-Type": "application/json"}, {CSRFHeader: "1"}} {
 			f := newF()
 			rec := httptest.NewRecorder()
-			New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil).ServeHTTP(rec, logoutReq(true, hdr))
+			New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil, nil).ServeHTTP(rec, logoutReq(true, hdr))
 			if rec.Code != 403 || len(f.revoked) != 0 {
 				t.Fatalf("%v: got %d, revoked %v", hdr, rec.Code, f.revoked)
 			}
@@ -270,7 +315,7 @@ func TestLogout(t *testing.T) {
 	for _, secure := range []bool{false, true} {
 		t.Run(fmt.Sprintf("success secure=%v: 204, cookie cleared, session revoked, then 401", secure), func(t *testing.T) {
 			f := newF()
-			h := New(fakeReady{}, Auth{Store: f, Secure: secure}, NewRateLimits(1), nil)
+			h := New(fakeReady{}, Auth{Store: f, Secure: secure}, NewRateLimits(1), nil, nil)
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, logoutReq(true, csrfHeaders))
 			if rec.Code != 204 || rec.Body.Len() != 0 {
@@ -302,7 +347,7 @@ func TestLogout(t *testing.T) {
 		f := newF()
 		f.revokeErr = errors.New("db down")
 		rec := httptest.NewRecorder()
-		New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil).ServeHTTP(rec, logoutReq(true, csrfHeaders))
+		New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil, nil).ServeHTTP(rec, logoutReq(true, csrfHeaders))
 		if rec.Code != 500 || rec.Header().Get("Set-Cookie") != "" {
 			t.Fatalf("got %d, cookie %q", rec.Code, rec.Header().Get("Set-Cookie"))
 		}
@@ -311,7 +356,7 @@ func TestLogout(t *testing.T) {
 		f := newF()
 		f.row = activeRow(time.Now(), true)
 		rec := httptest.NewRecorder()
-		New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil).ServeHTTP(rec, logoutReq(true, csrfHeaders))
+		New(fakeReady{}, Auth{Store: f}, NewRateLimits(1), nil, nil).ServeHTTP(rec, logoutReq(true, csrfHeaders))
 		if rec.Code != 204 || len(f.revoked) != 1 {
 			t.Fatalf("got %d, revoked %v", rec.Code, f.revoked)
 		}

@@ -109,7 +109,7 @@ func newRig(t *testing.T) *rig {
 	t.Helper()
 	r := &rig{gh: &fakeOAuth{token: github.Token{AccessToken: "gho_secret", Scopes: []string{"read:user", "user:email"}}},
 		st: &fakeStore{}, t0: time.Unix(1_800_000_000, 0)}
-	r.si = &SignIn{GitHub: r.gh, Store: r.st, Origin: "http://localhost:8080", Key: []byte(DevStateKey), Now: func() time.Time { return r.t0 },
+	r.si = &SignIn{GitHub: r.gh, Store: r.st, Origin: "http://localhost:8080", Key: []byte(DevStateKey), TermsVersion: "2026-11-20", Now: func() time.Time { return r.t0 },
 		Backoff: []time.Duration{time.Millisecond, time.Millisecond}}
 	r.h = New(fakeReady{}, Auth{Store: &fakeSessions{}}, NewRateLimits(1), r.si)
 	return r
@@ -283,6 +283,50 @@ func TestNewLearnerRecordsServerClock(t *testing.T) {
 	u := r.st.upserts[0]
 	if !u.AgeConfirmedAt.Time.Equal(r.t0) || !u.TermsAcceptedAt.Time.Equal(r.t0) || u.Username != "ada" || u.GithubLogin != "Ada" {
 		t.Fatalf("%+v", u)
+	}
+}
+
+func TestNewLearnerStoresConfiguredTermsVersion(t *testing.T) {
+	r := newRig(t)
+	c, state := r.begin(t, startPath, bothTicks)
+	r.callback(c, "code=c&state="+state)
+	if got := r.st.upserts[0].TermsVersion; got != "2026-11-20" {
+		t.Fatalf("terms version %q", got)
+	}
+}
+
+func TestReturningLearnerKeepsItsTermsVersion(t *testing.T) {
+	r := newRig(t)
+	r.st.known = &repo.Learner{Username: "ada", TermsVersion: "2025-01-01"}
+	c, state := r.begin(t, startPath, "")
+	r.callback(c, "code=c&state="+state)
+	if got := r.st.upserts[0].TermsVersion; got != "2025-01-01" {
+		t.Fatalf("terms version %q", got)
+	}
+}
+
+func TestParseTermsVersion(t *testing.T) {
+	tests := []struct {
+		name, in string
+		ok       bool
+	}{
+		{"missing", "", false},
+		{"date", "2026-11-20", true},
+		{"semver", "v1.2.0", true},
+		{"upper case", "V1", false},
+		{"space", "2026 11", false},
+		{"newline", "v1\n", false},
+		{"32 chars", strings.Repeat("a", 32), true},
+		{"33 chars", strings.Repeat("a", 33), false},
+		{"reserved backfill marker", "unrecorded", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseTermsVersion(tt.in)
+			if (err == nil) != tt.ok || (tt.ok && got != tt.in) {
+				t.Fatalf("got %q, %v", got, err)
+			}
+		})
 	}
 }
 

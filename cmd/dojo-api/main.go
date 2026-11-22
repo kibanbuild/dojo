@@ -55,6 +55,10 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	termsVersion, err := server.ParseTermsVersion(os.Getenv("TERMS_VERSION"))
+	if err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -66,7 +70,7 @@ func run(args []string) error {
 
 	auth := server.Auth{Store: store.Queries(), Secure: secure}
 	signin := &server.SignIn{GitHub: github.New(ghCfg), Store: store.Queries(), Auth: auth,
-		Origin: strings.TrimRight(os.Getenv("PUBLIC_ORIGIN"), "/"), Key: stateKey}
+		Origin: strings.TrimRight(os.Getenv("PUBLIC_ORIGIN"), "/"), Key: stateKey, TermsVersion: termsVersion}
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           server.New(store, auth, server.NewRateLimits(hops), signin),

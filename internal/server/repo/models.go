@@ -23,6 +23,7 @@ type Learner struct {
 	UsageStats       bool
 	AnalyticsConsent pgtype.Bool
 	SuspendedAt      pgtype.Timestamptz
+	TermsVersion     string
 }
 
 type Org struct {

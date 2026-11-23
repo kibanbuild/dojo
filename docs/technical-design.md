@@ -582,7 +582,11 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   (`local`, `pre` or `pro`). The cookie value is 32 random bytes in unpadded base64url (43
   characters); the API stores and looks up the sha256 of that string, and a value of any other
   length never reaches the database. The sliding expiry is written at most once a minute per session.
-  GitHub may return no usable email; `learners.email` is then empty until the learner adds one.
+  GitHub may return no usable email; `learners.email` is then empty until GitHub returns one.
+  GitHub is the only source of the email for now: every sign-in (web or CLI) replaces the stored
+  email with a non-empty GitHub one and keeps it when GitHub returns none. There is no learner
+  email setting yet; when one arrives (M9), a learner-set email stops being overwritten (decided
+  2026-11-23, issue 69).
 - **Sign-out:** `POST /v1/auth/logout` (no body, `Content-Type: application/json` and `X-Dojo-Csrf`)
   needs a cookie session that the session middleware resolved; it sets `revoked_at` on that session,
   clears `dojo_session` with the attributes it was set with and answers `204`. No cookie principal

@@ -1,10 +1,9 @@
 package server
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -14,8 +13,7 @@ import (
 
 const (
 	usernameTries = 5
-	// baseMax leaves room for "-" and a 6-character suffix inside the 30-character limit.
-	baseMax = 23
+	usernameMax   = 30
 )
 
 var usernameRE = regexp.MustCompile(`^[a-z0-9-]{3,30}$`)
@@ -37,7 +35,8 @@ func defaultUsername(login string) (string, bool) {
 	return n, usernameRE.MatchString(n) && !reservedUsernames[n]
 }
 
-// fallbackUsername always fits the CHECK: the sanitized login, cut to baseMax, plus "-" and the suffix.
+// fallbackUsername always fits the CHECK: the sanitized login, cut so the whole name stays within
+// usernameMax, plus "-" and the suffix. The suffix is at most 15 characters, so a base of 14 survives.
 func fallbackUsername(login, suffix string) string {
 	base := strings.Map(func(r rune) rune {
 		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' {
@@ -45,8 +44,8 @@ func fallbackUsername(login, suffix string) string {
 		}
 		return -1
 	}, strings.ToLower(login))
-	if len(base) > baseMax {
-		base = base[:baseMax]
+	if max := usernameMax - 1 - len(suffix); len(base) > max {
+		base = base[:max]
 	}
 	if base = strings.Trim(base, "-"); base == "" {
 		base = "learner"
@@ -54,18 +53,26 @@ func fallbackUsername(login, suffix string) string {
 	return base + "-" + suffix
 }
 
-func randSuffix() string {
-	b := make([]byte, 3)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+// usernameSuffix is stable for one GitHub account: its id in base 36 (at most 13 characters), and from
+// the second try on "-<try>" after it. Two accounts never share the id part.
+func usernameSuffix(githubID int64, try int) string {
+	s := strconv.FormatInt(githubID, 36)
+	if try > 1 {
+		s += "-" + strconv.Itoa(try)
+	}
+	return s
 }
 
-// createWithUsername tries the default name, then random suffixes, retrying only a unique violation.
-func createWithUsername(login string, insert func(name string) (repo.Learner, error)) (repo.Learner, error) {
-	for i := 0; i < usernameTries; i++ {
+// createWithUsername is deterministic: the lowercased login when it fits and is not reserved, else
+// "<base>-<id36>", and when a name is taken (a unique violation, the only error retried) the same
+// with "-2", "-3"... after the id. The same input always gives the same sequence of names.
+func createWithUsername(login string, githubID int64, insert func(name string) (repo.Learner, error)) (repo.Learner, error) {
+	for try := 0; try < usernameTries; try++ {
 		name, ok := defaultUsername(login)
-		if i > 0 || !ok {
-			name = fallbackUsername(login, randSuffix())
+		if !ok {
+			name = fallbackUsername(login, usernameSuffix(githubID, try+1))
+		} else if try > 0 {
+			name = fallbackUsername(login, usernameSuffix(githubID, try))
 		}
 		l, err := insert(name)
 		var pg *pgconn.PgError

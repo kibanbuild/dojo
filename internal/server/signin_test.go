@@ -657,6 +657,83 @@ func TestUsernames(t *testing.T) {
 	}
 }
 
+// The names createWithUsername offers, in order, while `taken` is a set of names that answer 23505.
+func offeredNames(t *testing.T, login string, id int64, taken map[string]bool) (got []string, err error) {
+	t.Helper()
+	_, err = createWithUsername(login, id, func(name string) (repo.Learner, error) {
+		got = append(got, name)
+		if !usernameRE.MatchString(name) || reservedUsernames[name] {
+			t.Errorf("offered %q, which the CHECK or the reserved list refuses", name)
+		}
+		if taken[name] {
+			return repo.Learner{}, &pgconn.PgError{Code: "23505"}
+		}
+		return repo.Learner{Username: name}, nil
+	})
+	return got, err
+}
+
+func TestCreateWithUsernameIsDeterministicAndAlwaysFits(t *testing.T) {
+	id36 := strconv.FormatInt(1234567, 36)
+	tests := []struct {
+		name, login string
+		taken       []string
+		want        []string
+	}{
+		{"1 char", "a", nil, []string{"a-" + id36}},
+		{"2 chars", "ab", nil, []string{"ab-" + id36}},
+		{"3 chars", "abc", nil, []string{"abc"}},
+		{"30 chars", strings.Repeat("a", 30), nil, []string{strings.Repeat("a", 30)}},
+		{"31 chars", strings.Repeat("a", 31), nil, []string{strings.Repeat("a", 30-1-len(id36)) + "-" + id36}},
+		{"39 chars", strings.Repeat("b", 39), nil, []string{strings.Repeat("b", 30-1-len(id36)) + "-" + id36}},
+		{"reserved", "admin", nil, []string{"admin-" + id36}},
+		{"reserved upper", "Admin", nil, []string{"admin-" + id36}},
+		{"uppercase", "Ada", nil, []string{"ada"}},
+		{"cut leaves a trailing hyphen", strings.Repeat("c", 30-1-len(id36)) + "-" + strings.Repeat("d", 10), nil,
+			[]string{strings.Repeat("c", 30-1-len(id36)) + "-" + id36}},
+		{"no usable characters", "_.", nil, []string{"learner-" + id36}},
+		{"hyphen edges", "-ab-", nil, []string{"-ab-"}},
+		{"collision", "ada", []string{"ada"}, []string{"ada", "ada-" + id36}},
+		{"collision twice", "ada", []string{"ada", "ada-" + id36}, []string{"ada", "ada-" + id36, "ada-" + id36 + "-2"}},
+		{"short collision", "ab", []string{"ab-" + id36}, []string{"ab-" + id36, "ab-" + id36 + "-2"}},
+	}
+	for _, tt := range tests {
+		taken := map[string]bool{}
+		for _, n := range tt.taken {
+			taken[n] = true
+		}
+		got, err := offeredNames(t, tt.login, 1234567, taken)
+		if err != nil || !slices.Equal(got, tt.want) {
+			t.Errorf("%s: offered %q, %v; want %q", tt.name, got, err, tt.want)
+		}
+		if again, _ := offeredNames(t, tt.login, 1234567, taken); !slices.Equal(again, got) {
+			t.Errorf("%s: not deterministic: %q then %q", tt.name, got, again)
+		}
+	}
+}
+
+func TestCreateWithUsernameExhaustionFailsAndOtherErrorsStop(t *testing.T) {
+	always := map[string]bool{}
+	for _, l := range []string{"ada"} {
+		always[l] = true
+		for try := 1; try < usernameTries; try++ {
+			always[fallbackUsername(l, usernameSuffix(7, try))] = true
+		}
+	}
+	if got, err := offeredNames(t, "ada", 7, always); err == nil || len(got) != usernameTries {
+		t.Fatalf("offered %q, %v", got, err)
+	}
+	boom := errors.New("boom")
+	calls := 0
+	if _, err := createWithUsername("ada", 7, func(string) (repo.Learner, error) { calls++; return repo.Learner{}, boom }); !errors.Is(err, boom) || calls != 1 {
+		t.Fatalf("err %v after %d calls", err, calls)
+	}
+	// The largest id still fits the CHECK with the longest suffix.
+	if n := fallbackUsername(strings.Repeat("z", 39), usernameSuffix(1<<63-1, usernameTries-1)); !usernameRE.MatchString(n) {
+		t.Fatalf("%q", n)
+	}
+}
+
 func TestParseStateKey(t *testing.T) {
 	tests := []struct {
 		name, key string

@@ -76,6 +76,11 @@ func DefaultUsers() []User {
 			Emails: []Email{{"bob@example.test", true, true}}},
 		{ID: 1003, Login: "cy", Name: "Cy Noemail", TwoFA: true,
 			Emails: []Email{{"cy@example.test", true, false}}},
+		// Logins the username CHECK refuses as they are: 1 and 39 characters (design 3.1).
+		{ID: 1004, Login: "z", Name: "Zed Short", Email: "z@example.test", TwoFA: true,
+			Emails: []Email{{"z@example.test", true, true}}},
+		{ID: 1005, Login: "a-very-long-github-login-of-39-chars-xx", Name: "Long Login", Email: "long@example.test", TwoFA: true,
+			Emails: []Email{{"long@example.test", true, true}}},
 	}
 }
 

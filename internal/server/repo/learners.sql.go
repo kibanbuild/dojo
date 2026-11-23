@@ -11,6 +11,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deleteLearner = `-- name: DeleteLearner :one
+SELECT delete_learner($1::uuid)::boolean AS deleted
+`
+
+// Erases one learner through the SECURITY DEFINER function (design 3.5); false means no such learner.
+func (q *Queries) DeleteLearner(ctx context.Context, id pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, deleteLearner, id)
+	var deleted bool
+	err := row.Scan(&deleted)
+	return deleted, err
+}
+
 const getLearnerByGithubID = `-- name: GetLearnerByGithubID :one
 SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version FROM learners WHERE github_id = $1
 `

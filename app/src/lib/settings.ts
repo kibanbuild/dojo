@@ -59,7 +59,7 @@ export async function patchMe(body: { username?: string; language?: Language }):
   return { ok: false, reason: 'failed' };
 }
 
-async function errorCode(res: Response): Promise<string> {
+export async function errorCode(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as { error?: unknown };
     return typeof body.error === 'string' ? body.error : '';

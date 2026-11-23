@@ -62,7 +62,7 @@ jobs:
           fi
           # A failed diff must fail the step, not skip the tests.
           files=$(git diff --name-only "$BASE_SHA"...HEAD)
-          if printf '%s\n' "$files" | grep -E '^(cmd/dojo-api/|internal/server/|db/|sqlc\.yaml$|Dockerfile$|\.dockerignore$|compose\.yaml$|caddy/|web/|app/|\.env\.example$|go\.mod$|go\.sum$|Makefile$|\.github/workflows/api-tests\.yml$)' > /dev/null; then
+          if printf '%s\n' "$files" | grep -E '^(cmd/dojo-api/|cmd/dojo-admin/|internal/server/|internal/admin/|db/|sqlc\.yaml$|Dockerfile$|\.dockerignore$|compose\.yaml$|compose\.it\.yaml$|caddy/|web/|app/|\.env\.example$|go\.mod$|go\.sum$|Makefile$|\.github/workflows/api-tests\.yml$)' > /dev/null; then
             echo "api=true" >> "$GITHUB_OUTPUT"
           else
             echo "api=false" >> "$GITHUB_OUTPUT"

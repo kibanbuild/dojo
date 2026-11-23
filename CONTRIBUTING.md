@@ -43,6 +43,10 @@ table PR adds its grant rows (allowed and refused) to `grantCases` in `internal/
 - To run the stack by hand, `cp .env.example .env` and `docker compose up -d --build --wait`. The API
   listens on a free port on `127.0.0.1` (`docker compose port api 8080`); set `API_PORT` to pin it.
   Postgres is not published to the host.
+- The operator service (`cmd/dojo-admin`, code in `internal/admin/`, ADR 0002) is the `admin` compose service,
+  published only on `127.0.0.1:8090` and never behind Caddy. It answers only requests whose `Host` is
+  `127.0.0.1:8090` (421 otherwise); set `ADMIN_PORT` to move the host port. `make dev` and
+  `make test-integration` start it. A test in `internal/admin` fails if `cmd/dojo-api` imports it.
 - The single local origin is Caddy (`edge`) on `http://localhost:8080`: `/v1/*` goes to the API,
   everything else to the built site. `make test-integration` also checks both through it.
 - Database access goes through sqlc: after editing `db/migrations/` or `internal/server/repo/queries/`,

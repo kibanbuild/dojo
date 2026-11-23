@@ -9,6 +9,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy .env.example to .env}
     volumes:
       - db-data:/var/lib/postgresql
+    networks: [default, operator]
     healthcheck:
       # -h 127.0.0.1: the init-time server listens on the socket only.
       test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "dojo", "-d", "dojo"]
@@ -93,6 +94,28 @@ services:
       retries: 15
     restart: unless-stopped
 
+  # The operator service (ADR 0002, design 3.7): published on loopback only, never behind the edge.
+  # Unset ADMIN_PORT = 8090; set but empty = a random free port (the integration run).
+  admin:
+    build:
+      context: .
+      target: dojo-admin
+    environment:
+      DATABASE_URL: postgres://dojo_admin:${DOJO_ADMIN_DB_PASSWORD:?copy .env.example to .env}@db:5432/dojo?sslmode=disable&application_name=dojo-admin
+    ports:
+      - "127.0.0.1:${ADMIN_PORT-8090}:8090"
+    # Its own network: the edge and the API cannot reach it, it reaches only the database.
+    networks: [operator]
+    depends_on:
+      db-roles:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/dojo-admin", "healthcheck"]
+      interval: 2s
+      timeout: 4s
+      retries: 15
+    restart: unless-stopped
+
   fake-github:
     build:
       context: .
@@ -134,6 +157,9 @@ services:
       timeout: 4s
       retries: 15
     restart: unless-stopped
+
+networks:
+  operator:
 
 volumes:
   db-data:

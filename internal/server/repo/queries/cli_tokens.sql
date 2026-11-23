@@ -18,3 +18,16 @@ WHERE id = $1 AND revoked_at IS NULL;
 -- name: RevokeCLIToken :exec
 UPDATE cli_tokens SET revoked_at = now(), updated_at = now()
 WHERE id = $1 AND revoked_at IS NULL;
+
+-- S2 lists a learner's devices, most recently used first. The hash never leaves the database.
+-- name: ListLearnerCLITokens :many
+SELECT id, device_name, os, cli_version, created_at, last_used_at
+FROM cli_tokens
+WHERE learner_id = $1
+  AND revoked_at IS NULL
+ORDER BY last_used_at DESC, id DESC;
+
+-- Revokes one of the learner's own tokens; zero rows means unknown, foreign or already revoked.
+-- name: RevokeLearnerCLIToken :execrows
+UPDATE cli_tokens SET revoked_at = now(), updated_at = now()
+WHERE id = $1 AND learner_id = $2 AND revoked_at IS NULL;

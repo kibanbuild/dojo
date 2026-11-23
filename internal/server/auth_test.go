@@ -35,6 +35,9 @@ type fakeSessions struct {
 	cliTouched int
 	cliRevoked []pgtype.UUID
 
+	devs   []*fakeDevice
+	devErr error
+
 	updates   []repo.UpdateLearnerProfileParams
 	updateErr error
 }

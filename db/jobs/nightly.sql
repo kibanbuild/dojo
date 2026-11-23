@@ -4,3 +4,5 @@ SELECT prune_telemetry() AS telemetry_events_deleted \gset
 \echo prune: telemetry_events deleted :telemetry_events_deleted
 SELECT prune_admin_audit() AS admin_audit_deleted \gset
 \echo prune: admin_audit deleted :admin_audit_deleted
+SELECT prune_events() AS events_deleted \gset
+\echo prune: events deleted :events_deleted

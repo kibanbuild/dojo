@@ -82,6 +82,25 @@ type EmailOutbox struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type Event struct {
+	ID            pgtype.UUID
+	OrgID         pgtype.UUID
+	LearnerID     pgtype.UUID
+	ClientEventID pgtype.UUID
+	Type          string
+	Payload       []byte
+	At            pgtype.Timestamptz
+	ClientAt      pgtype.Timestamptz
+}
+
+type HintOpen struct {
+	OrgID     pgtype.UUID
+	LearnerID pgtype.UUID
+	ItemID    string
+	N         int16
+	OpenedAt  pgtype.Timestamptz
+}
+
 type Learner struct {
 	ID               pgtype.UUID
 	OrgID            pgtype.UUID
@@ -171,4 +190,27 @@ type TelemetryEvent struct {
 	DurationMs int32
 	CliVersion string
 	Os         string
+}
+
+type TicketProgress struct {
+	OrgID           pgtype.UUID
+	LearnerID       pgtype.UUID
+	ItemID          string
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	State           string
+	Lab             pgtype.Text
+	LabState        pgtype.Text
+	LabStateAt      pgtype.Timestamptz
+	FirstStartedAt  pgtype.Timestamptz
+	LastSeenAt      pgtype.Timestamptz
+	CheckCount      int32
+	LastCheckAt     pgtype.Timestamptz
+	LastCheckOk     pgtype.Bool
+	LastCheckPassed pgtype.Int4
+	LastCheckTotal  pgtype.Int4
+	LastCheckOutput pgtype.Text
+	FirstPassedAt   pgtype.Timestamptz
+	PassedSeconds   pgtype.Int4
+	PassedCommit    pgtype.Text
 }

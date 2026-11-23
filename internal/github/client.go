@@ -64,8 +64,12 @@ func NewPKCE() (verifier, challenge string, err error) {
 
 // AuthorizeURL is the page the browser is sent to.
 func (c *Client) AuthorizeURL(state, codeChallenge, redirectURI string) string {
+	scope := c.cfg.Scopes
+	if scope == "" {
+		scope = Scopes
+	}
 	q := url.Values{
-		"client_id": {c.cfg.ClientID}, "redirect_uri": {redirectURI}, "scope": {Scopes}, "state": {state},
+		"client_id": {c.cfg.ClientID}, "redirect_uri": {redirectURI}, "scope": {scope}, "state": {state},
 		"code_challenge": {codeChallenge}, "code_challenge_method": {"S256"},
 	}
 	return c.cfg.AuthorizeURL + "/login/oauth/authorize?" + q.Encode()
@@ -128,6 +132,9 @@ type User struct {
 	Name   string
 	Email  string
 	Scopes []string // from X-OAuth-Scopes
+	// TwoFactor is the two_factor_authentication field: nil when GitHub omitted it or sent null
+	// (it is only present with the read:user or user scope).
+	TwoFactor *bool
 }
 
 // User reads the account the token belongs to.
@@ -144,11 +151,12 @@ func (c *Client) User(ctx context.Context, token string) (User, error) {
 		Login string `json:"login"`
 		Name  string `json:"name"`
 		Email string `json:"email"`
+		TwoFA *bool  `json:"two_factor_authentication"`
 	}
 	if json.Unmarshal(body, &out) != nil || out.ID == 0 || out.Login == "" {
 		return User{}, fmt.Errorf("user: %w: unusable body", ErrUnavailable)
 	}
-	return User{out.ID, out.Login, out.Name, out.Email, splitScopes(h.Get("X-OAuth-Scopes"))}, nil
+	return User{out.ID, out.Login, out.Name, out.Email, splitScopes(h.Get("X-OAuth-Scopes")), out.TwoFA}, nil
 }
 
 // Emails returns the primary verified email, or "" when there is none; an unverified one is never returned.

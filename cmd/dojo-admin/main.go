@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kibanbuild/dojo/internal/admin"
+	"github.com/kibanbuild/dojo/internal/github"
 )
 
 func main() {
@@ -37,6 +38,12 @@ func run(args []string) error {
 	if dbURL == "" {
 		return errors.New("DATABASE_URL is required")
 	}
+	// The operator service has its own OAuth App, so the public app's credentials never mint an admin session.
+	ghCfg, err := github.LoadConfig(os.Getenv, os.Getenv("DOJO_ENV") == "local")
+	if err != nil {
+		return err
+	}
+	ghCfg.Scopes = admin.Scope
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -48,7 +55,7 @@ func run(args []string) error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           admin.New(pingReady{pool}),
+		Handler:           admin.New(pingReady{pool}, admin.Deps{GitHub: github.New(ghCfg), Store: admin.PGStore{Pool: pool}}),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

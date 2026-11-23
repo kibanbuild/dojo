@@ -62,6 +62,26 @@ services:
         condition: service_completed_successfully
     restart: "no"
 
+  # `dojo-admin bootstrap <login>` (design 3.7), run on demand with `make admin-bootstrap LOGIN=<login>`.
+  # The migration role writes the first operator; the dojo_admin service role never does. It holds no
+  # OAuth credentials: the login lookup is a public GitHub call.
+  admin-bootstrap:
+    profiles: ["jobs"]
+    build:
+      context: .
+      target: dojo-admin
+    environment:
+      DOJO_ENV: local
+      GITHUB_API_URL: ${DOJO_ADMIN_GITHUB_API_URL:-http://fake-github:8081}
+      BOOTSTRAP_DATABASE_URL: postgres://dojo:${POSTGRES_PASSWORD}@db:5432/dojo?sslmode=disable&application_name=dojo-admin-bootstrap
+    networks: [operator]
+    depends_on:
+      db-roles:
+        condition: service_completed_successfully
+      fake-github:
+        condition: service_healthy
+    restart: "no"
+
   api:
     build:
       context: .

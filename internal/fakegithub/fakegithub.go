@@ -115,6 +115,7 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("POST /login/oauth/access_token", s.accessToken)
 	mux.HandleFunc("GET /user", s.user)
 	mux.HandleFunc("GET /user/emails", s.emails)
+	mux.HandleFunc("GET /users/{login}", s.publicUser)
 	mux.HandleFunc("POST /login/device/code", s.deviceCode)
 	mux.HandleFunc("GET /login/device", s.devicePage)
 	mux.HandleFunc("POST /login/device", s.deviceDecide)
@@ -343,6 +344,18 @@ func (s *server) user(w http.ResponseWriter, r *http.Request) {
 		out["two_factor_authentication"] = u.TwoFA
 	}
 	writeJSON(w, out)
+}
+
+// publicUser is GET /users/{login}: no token, case-insensitive, the public fields only.
+func (s *server) publicUser(w http.ResponseWriter, r *http.Request) {
+	want := r.PathValue("login")
+	for _, u := range s.users {
+		if strings.EqualFold(u.Login, want) {
+			writeJSON(w, map[string]any{"id": u.ID, "login": u.Login, "type": "User"})
+			return
+		}
+	}
+	apiError(w, http.StatusNotFound, "Not Found")
 }
 
 func (s *server) emails(w http.ResponseWriter, r *http.Request) {

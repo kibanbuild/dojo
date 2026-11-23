@@ -1,4 +1,4 @@
-.PHONY: build verify lint test test-integration e2e vuln tools sqlc sqlc-check dev down prune
+.PHONY: build verify lint test test-integration e2e vuln tools sqlc sqlc-check dev down prune admin-bootstrap
 
 # Pinned tool versions, installed into the repo (never a shared bin) so the local gate and CI
 # run exactly the same ones. They are built for this machine; GOOS only changes what they check.
@@ -65,6 +65,7 @@ test:
 	go test -race -count=1 -cover ./...
 
 # Needs Docker. Starts the stack from a clean state, tests it, and always tears it down.
+# -p 1: the packages share one database (the operators table is global), so they run one at a time.
 test-integration:
 	@$(COMPOSE) down -v --remove-orphans
 	@set -e; trap '$(COMPOSE) down -v --remove-orphans' EXIT; \
@@ -74,7 +75,7 @@ test-integration:
 	fake=$$($(COMPOSE) port fake-github 8081 | sed 's/.*://'); \
 	admin=$$($(COMPOSE) port admin 8090 | sed 's/.*://'); \
 	DOJO_ADMIN_URL=http://127.0.0.1:$$admin DOJO_API_URL=http://127.0.0.1:$$port DOJO_EDGE_URL=http://127.0.0.1:$$edge DOJO_FAKE_GITHUB_URL=http://127.0.0.1:$$fake DOJO_COMPOSE_PROJECT=$(IT_PROJECT) \
-		go test -tags integration -count=1 -v ./internal/server/ ./internal/github/ ./internal/admin/ \
+		go test -tags integration -count=1 -p 1 -v ./internal/server/ ./internal/github/ ./internal/admin/ \
 		|| { rc=$$?; $(COMPOSE) logs --no-color --tail=100 api admin fake-github; exit $$rc; }
 
 # Starts the stack in the background, then the SPA's Vite dev server (background, its own pid in app/.dev.pid)
@@ -106,6 +107,12 @@ down:
 # Runs the nightly job (db/jobs/nightly.sql: telemetry and audit retention) against the dev stack, as the migration role.
 prune:
 	$(DEV_COMPOSE) --profile jobs run --rm prune
+
+# Makes LOGIN the first operator of the dev stack (`dojo-admin bootstrap`, migration role), e.g.
+# `make admin-bootstrap LOGIN=ada`; the fake GitHub knows ada, bob and cy. Refuses once an operator exists.
+admin-bootstrap:
+	@test -n "$$LOGIN" || { echo "usage: make admin-bootstrap LOGIN=<github-login>"; exit 2; }
+	$(DEV_COMPOSE) --profile jobs run --rm admin-bootstrap bootstrap "$$LOGIN"
 
 # Boots a real Lima VM and takes minutes: not part of verify.
 e2e:

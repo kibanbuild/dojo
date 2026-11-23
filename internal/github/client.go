@@ -159,6 +159,41 @@ func (c *Client) User(ctx context.Context, token string) (User, error) {
 	return User{out.ID, out.Login, out.Name, out.Email, splitScopes(h.Get("X-OAuth-Scopes")), out.TwoFA}, nil
 }
 
+// ErrNoSuchUser means GitHub has no user account with that login (an organization does not count).
+var ErrNoSuchUser = errors.New("no such github user")
+
+// UserByLogin reads the public profile of a login, without a token: only the id and the canonical
+// login are used. An unknown login and an organization are ErrNoSuchUser.
+func (c *Client) UserByLogin(ctx context.Context, login string) (User, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.APIURL+"/users/"+url.PathEscape(login), nil)
+	if err != nil {
+		return User{}, err
+	}
+	setAPIHeaders(req)
+	status, _, body, err := c.do(req)
+	if err != nil {
+		return User{}, fmt.Errorf("user lookup: %w", err)
+	}
+	if status == http.StatusNotFound {
+		return User{}, fmt.Errorf("user lookup: %w", ErrNoSuchUser)
+	}
+	if status != http.StatusOK {
+		return User{}, fmt.Errorf("user lookup: %w: status %d", ErrUnavailable, status)
+	}
+	var out struct {
+		ID    int64  `json:"id"`
+		Login string `json:"login"`
+		Type  string `json:"type"`
+	}
+	if json.Unmarshal(body, &out) != nil || out.ID == 0 || out.Login == "" {
+		return User{}, fmt.Errorf("user lookup: %w: unusable body", ErrUnavailable)
+	}
+	if out.Type != "" && out.Type != "User" {
+		return User{}, fmt.Errorf("user lookup: %w: not a user account", ErrNoSuchUser)
+	}
+	return User{ID: out.ID, Login: out.Login}, nil
+}
+
 // Emails returns the primary verified email, or "" when there is none; an unverified one is never returned.
 func (c *Client) Emails(ctx context.Context, token string) (string, error) {
 	status, _, body, err := c.api(ctx, http.MethodGet, "/user/emails", token)

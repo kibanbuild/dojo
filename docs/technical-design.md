@@ -960,7 +960,17 @@ pass, a plan, the pass gate. It gets its own binary, database role and network p
   AWS). Restoring an account from backup is a written runbook, not a screen.
 - **First operator.** `dojo-admin bootstrap <github-login>` runs once as a one-off task with the
   migration role and writes the first `operators` row and its audit row. Later operators are added
-  from the service itself.
+  from the service itself. The command reads the migration role's DSN from `BOOTSTRAP_DATABASE_URL`
+  (never the service's `DATABASE_URL`, and it refuses to run without it), checks the login's shape
+  before any network call, and resolves it to a GitHub id with the public `GET /users/{login}`, so
+  it holds no OAuth credentials. In one transaction it refuses if an active operator exists (exit
+  non-zero, nothing written), inserts the operator (`added_by` NULL) and writes the audit row
+  (`operator.bootstrap`, target the new operator, `after` markers `"changed"` for `github_id` and
+  `github_login`, never the values). When only revoked operators remain (the sole operator was
+  revoked), bootstrapping a different account is the intended recovery path; bootstrapping a
+  revoked account itself is refused, because revocation is one-way. It prints the operator id and a success line only. Locally,
+  `make admin-bootstrap LOGIN=ada` runs it as the one-off `admin-bootstrap` compose service
+  (profile `jobs`) against the dev stack.
 
 ## 4. Accessibility carried into the build
 

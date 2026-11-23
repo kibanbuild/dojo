@@ -33,7 +33,7 @@ func New(ready Readiness, d Deps) http.Handler {
 		mux.HandleFunc("POST "+startPath, s.start)
 		mux.HandleFunc("GET "+callbackPath, s.callback)
 		mux.HandleFunc("GET /{$}", s.authenticated(s.landing))
-		mux.HandleFunc("POST /signout", s.signout)
+		mux.HandleFunc("POST /signout", s.authenticated(s.signout))
 	}
 	return onlyHost(Host, secureHeaders(mux))
 }

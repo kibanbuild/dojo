@@ -854,7 +854,19 @@ pass, a plan, the pass gate. It gets its own binary, database role and network p
   is used on `127.0.0.1` while the public app is on `localhost`. The operator check runs on every
   request, not only at sign-in, so a revoked operator is out at the next click. The
   screens are plain HTML forms, so every state-changing form carries a per-session CSRF token
-  checked on submit, on top of `SameSite=Lax`.
+  checked on submit, on top of `SameSite=Lax`. The token is HMAC-SHA256 keyed by the raw session token
+  (which only the cookie holds) over a fixed label: nothing is stored, it dies with the session, and it is
+  sent as the `csrf_token` form field or the `X-CSRF-Token` header. A request whose `Sec-Fetch-Site` is
+  not same-origin or whose `Origin` is not the service's own is refused first; both answer `403` with an
+  empty body, and the session is left alone. `admin.WithAudit` runs an action and its audit row in one
+  transaction (rolled back on an error or a panic; the action must write only through the given
+  transaction) and refuses, before writing, an entry that breaks the audit shape: before and after are
+  flat maps of nil, bool, number or string values (no map, slice or struct) whose keys are 1 to 64
+  ASCII letters, digits, `_`, `.` or `-` (so no lookalike or invisible character hides a word); only changed fields appear
+  (a key with the same value on both sides is refused); a key whose name, lower-cased with `_ - .` and
+  spaces removed, contains email, mail, username, login, handle, address or phone, or is or ends in
+  name, may hold only `changed` or nil (so `last_login_at` and `hostname` are refused too, on purpose);
+  and no string value under any other key may look like an email address.
 - **Database roles.** The migration role owns every table. Grants are column-level for both
   `INSERT` and `UPDATE`, so a column that is not granted keeps its default on insert. Migrations
   create `dojo_api` and `dojo_admin` as `NOLOGIN` roles and never hold a password; a one-off

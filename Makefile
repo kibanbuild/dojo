@@ -1,4 +1,4 @@
-.PHONY: build verify lint test test-integration e2e vuln tools sqlc sqlc-check dev down
+.PHONY: build verify lint test test-integration e2e vuln tools sqlc sqlc-check dev down prune
 
 # Pinned tool versions, installed into the repo (never a shared bin) so the local gate and CI
 # run exactly the same ones. They are built for this machine; GOOS only changes what they check.
@@ -101,6 +101,10 @@ down:
 	$(DEV_COMPOSE) down
 	-@if $(SPA_UP); then kill $$(cat $(SPA_PID)); fi; rm -f $(SPA_PID)
 	-@cd web && corepack pnpm exec astro dev stop 2>/dev/null
+
+# Runs the nightly job (db/jobs/nightly.sql: telemetry retention) against the dev stack, as the migration role.
+prune:
+	$(DEV_COMPOSE) --profile jobs run --rm prune
 
 # Boots a real Lima VM and takes minutes: not part of verify.
 e2e:

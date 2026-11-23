@@ -11,7 +11,7 @@ import (
 	"github.com/kibanbuild/dojo/internal/state"
 )
 
-const noTicket = "No ticket is in progress. Ask the learner to run `dojo start <id>` (`dojo list` shows the ids)."
+const noTicket = "No ticket is in progress. Ask the learner to run `dojo start <id>`."
 
 // mcp serves the mentor tools over stdin and stdout; logs go to stderr only.
 func (a *App) mcp(ctx context.Context) error {

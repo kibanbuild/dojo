@@ -414,10 +414,15 @@ only for the role exam and for laptops that cannot run labs.
 | `dojo mcp` | MCP server over stdio for the learner's own AI: current ticket, last check, hints opened, docs links; never a solution (PR 6e, hand-rolled JSON-RPC). | Does not run while an exam is open (a courtesy). |
 | `dojo telemetry [on\|off\|status]` | Local switch for CLI usage stats (file `telemetry.json` in `DOJO_HOME`; on by default); mirrored to the account's `usage_stats` through `PATCH /v1/me` when logged in. `off` also drops the queue. The first command prints the notice on stderr ("Dojo shares usage stats ... When you are logged in they are tied to your account ... Turn it off any time with: dojo telemetry off") and neither it nor any earlier command sends; sending starts with the next one. The dispatcher records the command name, a result (`ok`, `failed`, `error`, `canceled`) and `duration_ms`, never arguments; `mcp` and `telemetry` are not recorded. Events queue in `telemetry-queue.json` (0600, atomic writes, at most 100) and flush in batches of at most 20 within 2 s at the end of a command: `204` or `400` drop the batch, `429` and other failures keep it and hold sending (Retry-After or one minute, at most an hour), a `401` on the bearer drops the batch and holds sending, never resending it anonymously (the account may have usage stats off) and never logging the learner out. `DOJO_TELEMETRY=off` or `DO_NOT_TRACK=1` always wins, and the environment can only turn it off. At `dojo login` (and when already logged in) the CLI reads `usage_stats` from `/v1/me`: an account that is off turns the local switch off. | API unreachable on `off`: the local switch stays off and the command says the account setting was not changed. |
 
-The CLI today has `list`, `hint` (written), `shell`, `clean` and `ssh-config`; v1 renames `shell`
-to `ssh`, `clean` to `stop`, drops `list` (the web lists tickets), repoints `hint`, folds
-`ssh-config` into `start` and `doctor`, and adds `login`, `exam`, `mcp`, `telemetry`. Each is its
-own small PR.
+The CLI was `list`, `hint` (written), `shell`, `clean` and `ssh-config`; v1 renames `shell` to
+`ssh`, `clean` to `stop`, drops `list` (the web lists tickets), repoints `hint`, folds `ssh-config`
+into `start` (`dojo start [--key PATH] <id>` writes the `ssh dojo` entry and remembers the key; a key
+that cannot be used stops `start` before the lab is touched, a lab that refuses it only warns) and
+`doctor` (which names the fix), and adds `login`, `exam`, `mcp`, `telemetry`. Each is its own small
+PR. M2.4a landed `ssh`, `stop`, `start --key` and the removals, with no deprecated aliases (no users
+yet): `shell`, `clean`, `ssh-config` and `list` answer "unknown command" with a hint to the new verb,
+and are never recorded in usage stats. Until the catalog comes from the API (M2.4b), `start` reads
+the local kata tree and the web is where a learner finds the ids.
 
 ### 2.6 Hints
 

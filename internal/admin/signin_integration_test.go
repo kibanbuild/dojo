@@ -57,7 +57,8 @@ func envExample(t *testing.T, key string) string {
 // seedOperator starts the test from no operators and no sessions of the fixture ids, and cleans up.
 func seedOperator(t *testing.T, githubID, login string, revoked bool) {
 	t.Helper()
-	reset := "DELETE FROM admin_sessions WHERE operator_id IN (SELECT id FROM operators WHERE github_id IN (1001, 1002)); " +
+	reset := "DELETE FROM admin_audit WHERE operator_id IN (SELECT id FROM operators WHERE github_id IN (1001, 1002)); " +
+		"DELETE FROM admin_sessions WHERE operator_id IN (SELECT id FROM operators WHERE github_id IN (1001, 1002)); " +
 		"DELETE FROM operators WHERE github_id IN (1001, 1002)"
 	psqlAsOwner(t, reset)
 	t.Cleanup(func() { psqlAsOwner(t, reset) })
@@ -165,7 +166,7 @@ func TestOperatorSignInEndToEnd(t *testing.T) {
 	}
 
 	// Sign out ends it.
-	if resp, _ := b.admin(http.MethodPost, "/signout"); resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/signin" {
+	if resp := b.postForm("/signout", url.Values{"csrf_token": {b.csrf()}}, nil); resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/signin" {
 		t.Fatalf("signout: %d %q", resp.StatusCode, resp.Header.Get("Location"))
 	}
 	if resp, _ := b.admin(http.MethodGet, "/"); resp.StatusCode != http.StatusSeeOther {

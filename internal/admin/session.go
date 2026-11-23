@@ -36,8 +36,9 @@ func operatorFrom(ctx context.Context) Operator {
 // authenticated runs next only for a live session: not revoked, not expired, operator not revoked.
 // Anything else clears the cookie and goes to the sign-in page.
 //
-// 12d seam: the per-request operator check, the per-session CSRF token on state-changing forms and
-// the audit helper hang off this wrapper.
+// Every request re-reads the session and its operator (ActiveSession joins operators.revoked_at), so
+// a revoked operator or session is out at the next request. Every non-GET request must then carry
+// the session's CSRF token (csrfProtect). Handlers read the token with csrfFrom.
 func (s *signIn) authenticated(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie(sessionCookie)
@@ -54,7 +55,9 @@ func (s *signIn) authenticated(next http.HandlerFunc) http.HandlerFunc {
 			toSignin(w, r, "")
 			return
 		}
-		next(w, r.WithContext(context.WithValue(r.Context(), operatorKey{}, op)))
+		csrf := csrfTokenFor(c.Value)
+		ctx := context.WithValue(context.WithValue(r.Context(), operatorKey{}, op), csrfKey{}, csrf)
+		csrfProtect(csrf, next)(w, r.WithContext(ctx))
 	}
 }
 
@@ -63,17 +66,17 @@ var landingPage = template.Must(template.New("landing").Parse(`<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1"></head>
 <body><main><h1>Dojo operator</h1>
 <p>Signed in as {{.Login}}</p>
-<form method="post" action="/signout"><button type="submit">Sign out</button></form>
+<form method="post" action="/signout"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button type="submit">Sign out</button></form>
 </main></body></html>
 `))
 
 func (s *signIn) landing(w http.ResponseWriter, r *http.Request) {
-	render(w, http.StatusOK, landingPage, map[string]string{"Login": operatorFrom(r.Context()).Login})
+	render(w, http.StatusOK, landingPage, map[string]string{"Login": operatorFrom(r.Context()).Login, "CSRF": csrfFrom(r.Context())})
 }
 
-// signout revokes the session that made the request. Lax stops cross-site POSTs but not a page on
-// another 127.0.0.1 port (same site), so today a forced sign-out is possible; the CSRF token of 12d
-// closes it and must land before any other state-changing form.
+// signout revokes the session that made the request. It is behind authenticated, so it needs the
+// CSRF token: a page on another 127.0.0.1 port (same site, Lax does not stop it) cannot force it.
+// Without a live session the request is redirected to the sign-in page before it gets here.
 func (s *signIn) signout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
 		if err := s.Store.RevokeSession(r.Context(), hashToken(c.Value)); err != nil {

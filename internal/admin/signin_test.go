@@ -470,7 +470,7 @@ func TestLandingRefusals(t *testing.T) {
 func TestSignout(t *testing.T) {
 	e := newEnv(t)
 	s := signedIn(t, e)
-	rec := e.do(http.MethodPost, "/signout", s)
+	rec := e.post("/signout", url.Values{csrfField: {pageToken(t, e, s)}}, nil, s)
 	wantRedirect(t, rec, "/signin")
 	if c := cookieNamed(rec, sessionCookie); c == nil || c.MaxAge >= 0 {
 		t.Fatalf("cookie not cleared: %+v", c)

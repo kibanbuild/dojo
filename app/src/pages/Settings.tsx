@@ -1,12 +1,10 @@
 import { useId, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router';
-import { AppFrame } from '../components/AppFrame';
+import { SettingsLayout } from '../components/SettingsLayout';
 import { ME_KEY, type Me } from '../lib/me';
 import { PATCH_MESSAGES, patchMe, usernameProblem, type Language, type PatchFailure } from '../lib/settings';
 
 const card = 'flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5';
-const navItem = 'flex h-11 items-center rounded-[10px] px-3 text-sm font-semibold no-underline md:h-10';
 
 /** Applies a PATCH result to the cache: the response body replaces the cached learner; a 401 signs out. */
 function useMeCache() {
@@ -186,27 +184,10 @@ function GithubCard({ me }: { me: Me }) {
 
 export function Settings({ me }: { me: Me }) {
   return (
-    <AppFrame me={me}>
-      <div className="flex flex-col gap-6">
-        <div className="flex flex-col gap-2">
-          <Link to="/" className="inline-flex min-h-11 items-center text-[13px] font-bold text-accentink no-underline md:min-h-6">
-            &larr; Back to Today
-          </Link>
-          <h1 className="m-0 text-[32px] leading-[1.06] font-extrabold tracking-[-1px] md:text-[44px] md:tracking-[-1.5px]">Settings</h1>
-        </div>
-        <div className="grid items-start gap-4 md:grid-cols-[220px_1fr] md:gap-6">
-          <nav aria-label="Settings sections" className="flex gap-1 overflow-x-auto md:flex-col">
-            <Link to="/settings" aria-current="page" className={`${navItem} bg-accentsoft text-accentink`}>
-              Account
-            </Link>
-          </nav>
-          <div className="flex min-w-0 flex-col gap-4">
-            <GithubCard me={me} />
-            <UsernameCard me={me} />
-            <LanguageCard me={me} />
-          </div>
-        </div>
-      </div>
-    </AppFrame>
+    <SettingsLayout me={me}>
+      <GithubCard me={me} />
+      <UsernameCard me={me} />
+      <LanguageCard me={me} />
+    </SettingsLayout>
   );
 }

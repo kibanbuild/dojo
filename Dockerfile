@@ -19,6 +19,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd/dojo-admin ./cmd/dojo-admin
 COPY internal/admin ./internal/admin
+COPY internal/github ./internal/github
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/dojo-admin ./cmd/dojo-admin
 
 FROM ${GO_IMAGE} AS build-fake-github

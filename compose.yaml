@@ -101,14 +101,25 @@ services:
       context: .
       target: dojo-admin
     environment:
+      DOJO_ENV: local
+      # The operator's own OAuth App (the fake's dojo-admin-local client), not the web app's. The browser
+      # reaches the fake at localhost:8081, this container as fake-github. DOJO_ADMIN_ prefix on the host
+      # side: it keeps the web app's DOJO_GITHUB_* overrides apart, and GitHub Actions' own GITHUB_* out.
+      GITHUB_CLIENT_ID: ${DOJO_ADMIN_GITHUB_CLIENT_ID:-dojo-admin-local}
+      GITHUB_CLIENT_SECRET: ${DOJO_ADMIN_GITHUB_CLIENT_SECRET:-admin-local-only}
+      GITHUB_AUTHORIZE_URL: ${DOJO_ADMIN_GITHUB_AUTHORIZE_URL:-http://localhost:8081}
+      GITHUB_OAUTH_URL: ${DOJO_ADMIN_GITHUB_OAUTH_URL:-http://fake-github:8081}
+      GITHUB_API_URL: ${DOJO_ADMIN_GITHUB_API_URL:-http://fake-github:8081}
       DATABASE_URL: postgres://dojo_admin:${DOJO_ADMIN_DB_PASSWORD:?copy .env.example to .env}@db:5432/dojo?sslmode=disable&application_name=dojo-admin
     ports:
       - "127.0.0.1:${ADMIN_PORT-8090}:8090"
-    # Its own network: the edge and the API cannot reach it, it reaches only the database.
+    # Its own network: the edge and the API cannot reach it; it reaches the database and the fake GitHub.
     networks: [operator]
     depends_on:
       db-roles:
         condition: service_completed_successfully
+      fake-github:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "/dojo-admin", "healthcheck"]
       interval: 2s
@@ -120,6 +131,8 @@ services:
     build:
       context: .
       target: fake-github
+    # default for the API, operator so the admin service can reach it server side for sign-in.
+    networks: [default, operator]
     environment:
       # id:secret:redirect_uri|redirect_uri;... The web client and the operator client (design 3.7).
       FAKE_GITHUB_CLIENTS: ${FAKE_GITHUB_CLIENTS:-dojo-web-local:web-local-only:http://localhost:8080/v1/auth/github/callback;dojo-admin-local:admin-local-only:http://127.0.0.1:8090/auth/github/callback}

@@ -30,6 +30,8 @@ type Config struct {
 	AuthorizeURL string // origin the browser is sent to (https://github.com)
 	OAuthURL     string // origin of the server-side token exchange (https://github.com)
 	APIURL       string // origin of the REST API (https://api.github.com)
+	// Scopes is the space-separated scope list asked for at sign-in; empty means the public app's Scopes.
+	Scopes string
 }
 
 // String and LogValue keep the secret out of logs and error output.

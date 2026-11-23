@@ -1,5 +1,7 @@
-import { useId, useState, type FormEvent } from 'react';
+import { useId, useRef, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router';
+import { DeleteAccountDialog } from '../components/DeleteAccountDialog';
 import { SettingsLayout } from '../components/SettingsLayout';
 import { ME_KEY, type Me } from '../lib/me';
 import { analytics } from '../lib/measure';
@@ -12,6 +14,11 @@ function useMeCache() {
   const queryClient = useQueryClient();
   return {
     set: (me: Me | null) => queryClient.setQueryData(ME_KEY, me),
+    /** After a delete nothing cached belongs to anyone: drop every query, then mark the learner signed out. */
+    clearAll: () => {
+      queryClient.clear();
+      queryClient.setQueryData(ME_KEY, null);
+    },
     /** Puts `previous` back only if the cache still holds this optimistic value; true when it did. */
     rollbackConsent: (optimistic: boolean, previous: boolean | null) => {
       const cur = queryClient.getQueryData<Me | null>(ME_KEY);
@@ -248,6 +255,55 @@ function GithubCard({ me }: { me: Me }) {
   );
 }
 
+function DangerCard({ me }: { me: Me }) {
+  const cache = useMeCache();
+  const navigate = useNavigate();
+  const titleId = useId();
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  function close() {
+    setOpen(false);
+    // The dialog unmounts this tick; return focus once the button is the only thing left to take it.
+    queueMicrotask(() => buttonRef.current?.focus());
+  }
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-bad bg-surface" aria-labelledby={titleId}>
+      <h2 id={titleId} className="m-0 bg-badsoft px-5 py-3 text-[15px] font-extrabold text-bad">
+        Danger zone
+      </h2>
+      <div className="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between md:gap-6">
+        <div className="flex flex-col gap-1">
+          <span className="text-sm font-bold">Delete your account</span>
+          <span className="text-[13px] leading-normal text-muted">
+            Removes your progress and story from Dojo. Your GitHub repo and its commits stay yours. You type your GitHub username to confirm.
+          </span>
+        </div>
+        <button
+          ref={buttonRef}
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex h-11 w-full flex-none items-center justify-center rounded-[10px] border-0 bg-badsoft px-4 text-[15px] font-bold text-bad md:w-auto"
+        >
+          Delete account
+        </button>
+      </div>
+      {open && (
+        <DeleteAccountDialog
+          login={me.github_login}
+          onClose={close}
+          onDeleted={() => {
+            void navigate('/signin?deleted=1', { replace: true });
+            cache.clearAll();
+          }}
+          onSignedOut={() => cache.set(null)}
+        />
+      )}
+    </section>
+  );
+}
+
 export function Settings({ me }: { me: Me }) {
   return (
     <SettingsLayout me={me}>
@@ -255,6 +311,7 @@ export function Settings({ me }: { me: Me }) {
       <UsernameCard me={me} />
       <LanguageCard me={me} />
       <AnalyticsCard me={me} />
+      <DangerCard me={me} />
     </SettingsLayout>
   );
 }

@@ -1,0 +1,18 @@
+# The example catalog shipped with the CLI: one ticket that shows the format.
+# The real catalog lives in a private repository.
+paths:
+  - slug: example
+    title: Example
+    position: 1
+    status: available
+
+roles:
+  - slug: example
+    title: Example
+    kind: role
+    has_exam: false
+
+path_roles:
+  - path: example
+    role: example
+    position: 1

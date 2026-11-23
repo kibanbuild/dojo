@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kibanbuild/dojo/internal/kata"
+	"github.com/kibanbuild/dojo/internal/catalog"
 	"github.com/kibanbuild/dojo/internal/mcp"
 	"github.com/kibanbuild/dojo/internal/mentor"
 	"github.com/kibanbuild/dojo/internal/state"
@@ -39,13 +39,13 @@ func (a *App) mcpServer() *mcp.Server {
 	}
 }
 
-// mcpCurrent returns the progress and the current kata, or a nil kata when none started.
-func (a *App) mcpCurrent() (*state.State, *kata.Kata, error) {
+// mcpCurrent returns the progress and the current ticket, or a nil ticket when none started.
+func (a *App) mcpCurrent() (*state.State, *catalog.Ticket, error) {
 	st, err := a.load()
 	if err != nil || st.Current == "" {
 		return st, nil, err
 	}
-	k, err := kata.Load(a.Catalog, st.Current)
+	k, err := catalog.LoadTicket(a.Catalog, st.Current)
 	return st, k, err
 }
 

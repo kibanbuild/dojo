@@ -1,4 +1,4 @@
-// Package dojo embeds the kata catalog shipped with the CLI.
+// Package dojo embeds the example catalog shipped with the CLI.
 package dojo
 
 import (
@@ -8,7 +8,7 @@ import (
 
 // Only what the CLI runs is embedded: solutions and wrong fixes never reach the binary.
 //
-//go:embed katas/*/*/kata.yaml katas/*/*/setup.sh katas/*/*/check.sh
+//go:embed katas/catalog.yaml katas/*/*/ticket.yaml katas/*/*/setup.sh katas/*/*/check.sh
 var embedded embed.FS
 
 // Katas returns the embedded catalog rooted at the katas directory.

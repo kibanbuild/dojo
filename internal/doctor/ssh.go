@@ -70,7 +70,7 @@ func sshChecks(m Machine) []Result {
 		rs = append(rs, Result{Warn, "no SSH key found (needed for ssh dojo, GitHub and signed commits)", keygen})
 	default:
 		rs = append(rs, Result{Warn, fmt.Sprintf("could not use an SSH key: %v", m.SSHKeyErr),
-			"fix or replace it, or pick another with dojo start --key <path> <kata>"})
+			"fix or replace it, or pick another with dojo start --key <path> <role>/<ticket>"})
 	}
 	if !m.HasSSHKeygen {
 		rs = append(rs, Result{Warn, "`ssh-keygen` not found (git needs it to sign commits)", keygenAdvice(m.OS)})

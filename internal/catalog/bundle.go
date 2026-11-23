@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -475,12 +476,14 @@ func writeEntries(entries []entry, dst string) (err error) {
 		if err == nil {
 			return
 		}
+		// Windows cannot delete a directory that has an open handle: release os.Root first.
+		_ = root.Close()
 		if created {
 			_ = os.RemoveAll(dst)
 			return
 		}
 		for _, name := range mustNames(dst) {
-			_ = root.RemoveAll(name)
+			_ = os.RemoveAll(filepath.Join(dst, name))
 		}
 	}()
 	return writeAll(root, entries)

@@ -9,7 +9,9 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -241,6 +243,15 @@ func TestBuildBundleRefusesSolutionsAndWrongFixes(t *testing.T) {
 	}
 }
 
+// A backslash cannot be a file name on Windows, so this case is built in memory.
+func TestBuildBundleRefusesBackslashNames(t *testing.T) {
+	m := fixtureTree()
+	m["support-l1/perms-01/files/a\\b"] = &fstest.MapFile{Data: []byte("x")}
+	if _, err := catalog.BuildBundle(m, fixtureID); err == nil {
+		t.Error("a name with a backslash was bundled")
+	}
+}
+
 func TestBuildBundleRefusals(t *testing.T) {
 	// A real directory is needed for links.
 	copyTicket := func(t *testing.T) (string, string) {
@@ -284,10 +295,6 @@ func TestBuildBundleRefusals(t *testing.T) {
 			real := filepath.Join(dir, "real")
 			must(t, os.Rename(tk, real))
 			must(t, os.Symlink(real, tk))
-		},
-		"name with a backslash": func(t *testing.T, _, tk string) {
-			must(t, os.MkdirAll(filepath.Join(tk, "files"), 0o755))
-			must(t, os.WriteFile(filepath.Join(tk, "files", `a\b`), []byte("x"), 0o644))
 		},
 		"non-ASCII name": func(t *testing.T, _, tk string) {
 			must(t, os.MkdirAll(filepath.Join(tk, "files"), 0o755))
@@ -409,18 +416,20 @@ func TestExtractRoundTrip(t *testing.T) {
 		t.Errorf("ticket = %+v", tk)
 	}
 	for _, f := range []string{"ticket.yaml", "setup.sh", "check.sh", "files/seed.sh", "files/notes/readme.txt"} {
-		want, err := fs.ReadFile(fixtureFS(), filepath.Join(fixtureID, f))
+		want, err := fs.ReadFile(fixtureFS(), path.Join(fixtureID, f)) // io/fs paths use forward slashes
 		must(t, err)
 		got, err := os.ReadFile(filepath.Join(dst, f))
 		if err != nil || !bytes.Equal(got, want) {
 			t.Errorf("%s: %v, %q", f, err, got)
 		}
 	}
-	if fi, err := os.Stat(filepath.Join(dst, "files/seed.sh")); err != nil || fi.Mode().Perm()&0o100 == 0 {
-		t.Errorf("seed.sh should be executable: %v %v", fi, err)
-	}
-	if fi, err := os.Stat(filepath.Join(dst, "files/notes/readme.txt")); err != nil || fi.Mode().Perm()&0o111 != 0 {
-		t.Errorf("readme.txt should not be executable: %v %v", fi, err)
+	if runtime.GOOS != "windows" { // Windows has no execute bit
+		if fi, err := os.Stat(filepath.Join(dst, "files", "seed.sh")); err != nil || fi.Mode().Perm()&0o100 == 0 {
+			t.Errorf("seed.sh should be executable: %v %v", fi, err)
+		}
+		if fi, err := os.Stat(filepath.Join(dst, "files", "notes", "readme.txt")); err != nil || fi.Mode().Perm()&0o111 != 0 {
+			t.Errorf("readme.txt should not be executable: %v %v", fi, err)
+		}
 	}
 	// Not into a used directory.
 	if _, err := catalog.ExtractBundle(b.Data, b.SHA256, dst); err == nil {

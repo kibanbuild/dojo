@@ -92,6 +92,22 @@ func TestPatchMeRenameAndLanguage(t *testing.T) {
 		t.Fatalf("a conflict renamed: %v", me)
 	}
 
+	// Another learner is untouched by all of it.
+	if _, me := bob.me(); me["username"] != "bob" || me["language"] != "en" {
+		t.Fatalf("bob changed: %v", me)
+	}
+	if code, _ := (&browser{t: t, c: &http.Client{Transport: ipTransport{"10.99.0.1"}}}).patch(`{"username":"zed"}`, true); code != http.StatusUnauthorized {
+		t.Fatalf("anonymous: %d", code)
+	}
+}
+
+// Its own learner: the per-learner write budget (10 a minute) would not fit these calls on top of the rename test.
+func TestPatchMeRejectsInvalidBodies(t *testing.T) {
+	resetLearners(t, "1001")
+	ada := newBrowser(t)
+	if resp := ada.signIn("ada", "", "age=on&terms=on", false); resp.Header.Get("Location") != "/app" {
+		t.Fatalf("ada sign-in: %q", resp.Header.Get("Location"))
+	}
 	for _, tt := range []struct{ body, want string }{
 		{`{"username":"admin"}`, "invalid_username"},
 		{`{"username":"ab"}`, "invalid_username"},
@@ -106,14 +122,6 @@ func TestPatchMeRenameAndLanguage(t *testing.T) {
 	}
 	if n := asOwner(t, "SELECT count(*) FROM learners WHERE username = 'admin'"); n != "0" {
 		t.Fatalf("reserved name stored: %s", n)
-	}
-
-	// Another learner is untouched by all of it.
-	if _, me := bob.me(); me["username"] != "bob" || me["language"] != "en" {
-		t.Fatalf("bob changed: %v", me)
-	}
-	if code, _ := (&browser{t: t, c: &http.Client{Transport: ipTransport{"10.99.0.1"}}}).patch(`{"username":"zed"}`, true); code != http.StatusUnauthorized {
-		t.Fatalf("anonymous: %d", code)
 	}
 }
 

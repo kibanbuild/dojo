@@ -20,6 +20,10 @@ const (
 	telemetryPer   = time.Minute
 	// Authenticated CLI events, per learner across all devices: a valid token is no longer unlimited.
 	telemetryAuthBurst = 120
+	// Other authenticated writes (PATCH /v1/me, DELETE /v1/me, DELETE /v1/me/devices/{id}), one budget per
+	// learner across routes and devices: a PATCH /v1/me 409 tells whether a username is taken.
+	writeBurst = 10
+	writePer   = time.Minute
 
 	maxKeys    = 50_000
 	sweepEvery = 30 * time.Second
@@ -116,6 +120,8 @@ type RateLimits struct {
 	Auth, Telemetry Limiter
 	// TelemetryAuth is keyed by learner id, so one learner's devices share it.
 	TelemetryAuth Limiter
+	// Write is keyed by learner id and covers the other authenticated writes.
+	Write Limiter
 	// Callback is taken inside the sign-in callback, after the state cookie checks out and before any GitHub call.
 	Callback Limiter
 	Hops     int
@@ -127,6 +133,7 @@ func NewRateLimits(hops int) *RateLimits {
 		Auth:          newMemLimiter(authBurst, authPer, maxKeys, time.Now),
 		Telemetry:     newMemLimiter(telemetryBurst, telemetryPer, maxKeys, time.Now),
 		TelemetryAuth: newMemLimiter(telemetryAuthBurst, telemetryPer, maxKeys, time.Now),
+		Write:         newMemLimiter(writeBurst, writePer, maxKeys, time.Now),
 		Callback:      newMemLimiter(authBurst, authPer, maxKeys, time.Now),
 		Hops:          hops,
 	}
@@ -139,6 +146,11 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 		_, pattern := mux.Handler(r)
 		var lim Limiter
 		key := ""
+		// A second, per-learner check for authenticated writes, taken after the IP one passes.
+		var writeKey string
+		if p, authed := principalOf(r.Context()); authed && rl.Write != nil && isLearnerWrite(pattern) {
+			writeKey = "learner:" + p.learner.String()
+		}
 		isStart := pattern == "POST "+startPath && r.URL.Path == startPath
 		switch {
 		// The callback has its own limiter inside the handler, taken once the state cookie checks out.
@@ -152,23 +164,41 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 				lim = rl.Telemetry
 			}
 		}
+		refuse := func(retry time.Duration) {
+			secs := max(1, int(math.Ceil(retry.Seconds())))
+			w.Header().Set("Retry-After", strconv.Itoa(secs))
+			if isStart { // a browser form post: show O1, not JSON
+				redirectSignin(w, r, "error=rate_limited")
+				return
+			}
+			writeError(w, http.StatusTooManyRequests, "rate_limited")
+		}
 		if lim != nil {
 			if key == "" {
 				key = clientKey(r, rl.Hops)
 			}
 			if ok, retry := lim.Allow(key); !ok {
-				secs := max(1, int(math.Ceil(retry.Seconds())))
-				w.Header().Set("Retry-After", strconv.Itoa(secs))
-				if isStart { // a browser form post: show O1, not JSON
-					redirectSignin(w, r, "error=rate_limited")
-					return
-				}
-				writeError(w, http.StatusTooManyRequests, "rate_limited")
+				refuse(retry)
+				return
+			}
+		}
+		if writeKey != "" {
+			if ok, retry := rl.Write.Allow(writeKey); !ok {
+				refuse(retry)
 				return
 			}
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isLearnerWrite reports the routed patterns that take the per-learner write budget.
+func isLearnerWrite(pattern string) bool {
+	switch pattern {
+	case "PATCH /v1/me", "DELETE /v1/me", "DELETE /v1/me/devices/{id}":
+		return true
+	}
+	return false
 }
 
 func matches(pattern string, r *http.Request, is func(string) bool) bool {

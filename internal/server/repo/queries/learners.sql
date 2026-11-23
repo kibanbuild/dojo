@@ -28,3 +28,7 @@ RETURNING *;
 UPDATE learners
 SET analytics_consent = $2, updated_at = now()
 WHERE id = $1 AND analytics_consent IS NULL;
+
+-- Erases one learner through the SECURITY DEFINER function (design 3.5); false means no such learner.
+-- name: DeleteLearner :one
+SELECT delete_learner(sqlc.arg('id')::uuid)::boolean AS deleted;

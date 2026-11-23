@@ -189,6 +189,7 @@ func testLimits(burst int) *RateLimits {
 		Auth:          newMemLimiter(burst, time.Minute, 100, c.now),
 		Telemetry:     newMemLimiter(burst, time.Minute, 100, c.now),
 		TelemetryAuth: newMemLimiter(burst, time.Minute, 100, c.now),
+		Write:         newMemLimiter(burst, time.Minute, 100, c.now),
 		Callback:      newMemLimiter(burst, time.Minute, 100, c.now),
 		Hops:          1,
 	}

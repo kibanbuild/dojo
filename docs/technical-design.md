@@ -601,7 +601,7 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   is kept before the 14-or-older confirmation, and no session exists for a half-created account.
   A returning learner signs in without ticking them again.
 - **Rate limit:** every `/v1/auth/*` route, and anonymous `POST /v1/telemetry` (60 a minute), is limited per
-  client IP; authenticated `POST /v1/telemetry` is limited per learner (120 a minute, shared by the learner's devices), so one valid token is not unlimited. The general per-learner limit for the other authenticated writes is a separate piece (issue 83). The client IP is the address `TRUSTED_PROXY_HOPS` entries from the right of
+  client IP; authenticated `POST /v1/telemetry` is limited per learner (120 a minute, shared by the learner's devices), so one valid token is not unlimited. The other authenticated writes (`PATCH /v1/me`, `DELETE /v1/me`, `DELETE /v1/me/devices/{id}`) share one budget of 10 a minute per learner, whatever the route, session or device (a `409 username_taken` is a one-guess-per-request enumeration signal, so renames are capped); `DELETE /v1/me` also keeps the per-IP limit above. Sign-out routes stay on the per-IP limit only: they reveal nothing and end the caller's own credential. The per-learner limits are taken after authentication (a request with no valid credential is a `401` and never spends a learner's budget; an authenticated write refused later, by the CSRF check or validation, still spends one, the safe side for a guessing signal), refuse with `429 rate_limited` and `Retry-After`, and are held in memory per API task with bounded size (full buckets are swept, the stalest evicted at the cap, a new learner is never refused). The client IP is the address `TRUSTED_PROXY_HOPS` entries from the right of
   `X-Forwarded-For` (1 locally, behind Caddy; 2 in AWS, behind CloudFront and the ALB), or the
   connection address when the header is shorter; the header is never trusted further.
 - **CLI login:** `dojo login` uses the GitHub device flow with our client id (the same OAuth App as
@@ -690,7 +690,7 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   `GET /v1/me`, and sets `updated_at`. Errors, all `{"error": "<code>"}`: `400 invalid_username`,
   `400 invalid_language`, `400 bad_request`, `401 unauthenticated`, `403 csrf_rejected`,
   `403 account_suspended`, `409 username_taken` (the unique index decides, so two racing renames
-  cannot both win), `500 server_error`. Re-sending the current values is a `200`. It writes only the
+  cannot both win), `429 rate_limited` (10 writes a minute per learner, section 3.1), `500 server_error`. Re-sending the current values is a `200`. It writes only the
   columns `dojo_api` may update (3.3). There is no availability-check route in M1: it would let a
   signed-in learner enumerate usernames for little gain, and S1 shows the `409` at save instead.
 - **Account deletion (S1):** `DELETE /v1/me`, by the cookie session only, with the CSRF header and a
@@ -703,7 +703,7 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   an account, and a `401` would make the CLI ask for a new login. Errors, all `{"error": "<code>"}`:
   `400 bad_request`, `400 confirm_mismatch`, `401 unauthenticated` (no session, or the learner was
   already gone, so a repeat call queues no second E8), `403 forbidden`, `403 csrf_rejected`,
-  `429 rate_limited` (the same per-IP limit as the auth routes), `500 server_error`. Nothing personal
+  `429 rate_limited` (the per-IP limit of the auth routes, and the per-learner write budget), `500 server_error`. Nothing personal
   is logged.
 - **Age:** a self-declared confirmation of 14 or older at first sign-in. No other check.
 - **Exam SSH access:** the learner's public key is registered for one machine; no lookup by GitHub

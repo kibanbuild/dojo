@@ -261,7 +261,8 @@ func (a *App) login(ctx context.Context, f *loginFlags) error {
 	if err := state.SaveToken(out.Token); err != nil {
 		return fmt.Errorf("logged in, but the token could not be saved: %w (fix DOJO_HOME and run dojo login again)", err)
 	}
-	name, _, err := a.whoAmI(ctx, api, out.Token)
+	name, meReply, err := a.whoAmI(ctx, api, out.Token)
+	a.alignUsageStats(meReply)
 	if err != nil || name == "" {
 		fmt.Fprintln(a.Out, "Logged in.")
 		return nil
@@ -293,6 +294,7 @@ func (a *App) alreadyLoggedIn(ctx context.Context, api string) (bool, error) {
 	case err != nil:
 		return false, netErr("could not check the saved login (dojo login --force logs in again anyway)", err)
 	case name != "":
+		a.alignUsageStats(r)
 		fmt.Fprintf(a.Out, "Already logged in as %s. Run dojo logout first to switch accounts.\n", name)
 		return true, nil
 	case r.status == http.StatusForbidden && r.code == "account_suspended":

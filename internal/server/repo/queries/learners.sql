@@ -18,6 +18,7 @@ SELECT * FROM learners WHERE github_id = $1;
 UPDATE learners
 SET username = COALESCE(sqlc.narg('username'), username),
     language = COALESCE(sqlc.narg('language'), language),
+    usage_stats = COALESCE(sqlc.narg('usage_stats'), usage_stats),
     updated_at = now()
 WHERE id = $1
 RETURNING *;

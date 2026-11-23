@@ -149,3 +149,42 @@ func TestPatchMeWithBearer(t *testing.T) {
 		t.Fatalf("suspended learner renamed: %s", n)
 	}
 }
+
+func TestPatchMeUsageStats(t *testing.T) {
+	resetLearners(t, "1001")
+	ada := newBrowser(t)
+	if resp := ada.signIn("ada", "", "age=on&terms=on", false); resp.Header.Get("Location") != "/app" {
+		t.Fatalf("ada sign-in: %q", resp.Header.Get("Location"))
+	}
+	if _, me := ada.me(); me["usage_stats"] != true {
+		t.Fatalf("default: %v", me)
+	}
+	if code, _ := ada.patch(`{"usage_stats":false}`, false); code != http.StatusForbidden {
+		t.Fatalf("without CSRF: %d", code)
+	}
+	code, body := ada.patch(`{"usage_stats":false}`, true)
+	var got map[string]any
+	if code != http.StatusOK || json.Unmarshal([]byte(body), &got) != nil || got["usage_stats"] != false {
+		t.Fatalf("cookie off: %d %q", code, body)
+	}
+	if _, me := ada.me(); me["usage_stats"] != false || me["username"] != "ada" || me["language"] != "en" {
+		t.Fatalf("me after: %v", me)
+	}
+	for _, bad := range []string{`{"usage_stats":"false"}`, `{"usage_stats":0}`, `{"usage_stats":null}`} {
+		if code, _ := ada.patch(bad, true); code != http.StatusBadRequest {
+			t.Fatalf("%s: %d", bad, code)
+		}
+	}
+	if _, me := ada.me(); me["usage_stats"] != false {
+		t.Fatalf("a refused patch changed it: %v", me)
+	}
+
+	c := newCLIClient(t)
+	tok := cliToken(t, c, "ada")
+	if code, body := c.call(http.MethodPatch, "/v1/me", tok, map[string]bool{"usage_stats": true}); code != http.StatusOK || !strings.Contains(body, `"usage_stats":true`) {
+		t.Fatalf("bearer on: %d %q", code, body)
+	}
+	if _, me := ada.me(); me["usage_stats"] != true {
+		t.Fatalf("cookie sees: %v", me)
+	}
+}

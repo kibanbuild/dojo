@@ -69,19 +69,26 @@ const updateLearnerProfile = `-- name: UpdateLearnerProfile :one
 UPDATE learners
 SET username = COALESCE($2, username),
     language = COALESCE($3, language),
+    usage_stats = COALESCE($4, usage_stats),
     updated_at = now()
 WHERE id = $1
 RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version
 `
 
 type UpdateLearnerProfileParams struct {
-	ID       pgtype.UUID
-	Username pgtype.Text
-	Language pgtype.Text
+	ID         pgtype.UUID
+	Username   pgtype.Text
+	Language   pgtype.Text
+	UsageStats pgtype.Bool
 }
 
 func (q *Queries) UpdateLearnerProfile(ctx context.Context, arg UpdateLearnerProfileParams) (Learner, error) {
-	row := q.db.QueryRow(ctx, updateLearnerProfile, arg.ID, arg.Username, arg.Language)
+	row := q.db.QueryRow(ctx, updateLearnerProfile,
+		arg.ID,
+		arg.Username,
+		arg.Language,
+		arg.UsageStats,
+	)
 	var i Learner
 	err := row.Scan(
 		&i.ID,

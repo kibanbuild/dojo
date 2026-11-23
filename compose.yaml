@@ -82,12 +82,58 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # The S3 stand-in (design 1.7): ticket bundles live here, as in S3 in production. RustFS, not MinIO:
+  # MinIO's community repo is archived and its images are gone from Docker Hub and Quay. The API reaches it
+  # as s3:9000 on the compose network; the published port is loopback only, for the presigned URLs the CLI
+  # downloads from. Unset DOJO_S3_PORT = 9000; set but empty = a random free port (the integration run).
+  s3:
+    image: rustfs/rustfs:1.0.6@sha256:ee717072290bec9b11abfc0365f8310b00df1cd9b3639943edae47bdef05044a
+    environment:
+      RUSTFS_ACCESS_KEY: ${DOJO_S3_ACCESS_KEY:?copy .env.example to .env}
+      RUSTFS_SECRET_KEY: ${DOJO_S3_SECRET_KEY:?copy .env.example to .env}
+      RUSTFS_CONSOLE_ENABLE: "false"
+    volumes:
+      - s3-data:/data
+    ports:
+      - "127.0.0.1:${DOJO_S3_PORT-9000}:9000"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:9000/health"]
+      interval: 2s
+      timeout: 4s
+      retries: 30
+    restart: unless-stopped
+
+  # One-off: creates the private catalog bucket (idempotent). Production creates it in Terraform.
+  s3-init:
+    image: amazon/aws-cli:2.42.1@sha256:b0102d2269f87d8531d931c1a59e248101ace586886e6c077058d94c1c37b846
+    entrypoint: ["sh", "-c", 'aws s3api head-bucket --bucket "$$BUCKET" || aws s3api create-bucket --bucket "$$BUCKET"']
+    environment:
+      AWS_ENDPOINT_URL: http://s3:9000
+      AWS_ACCESS_KEY_ID: ${DOJO_S3_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${DOJO_S3_SECRET_KEY}
+      AWS_DEFAULT_REGION: ${DOJO_S3_REGION:-us-east-1}
+      AWS_PAGER: ""
+      BUCKET: ${DOJO_S3_BUCKET:-dojo-catalog}
+    depends_on:
+      s3:
+        condition: service_healthy
+    restart: "no"
+
   api:
     build:
       context: .
       target: api
     environment:
       DOJO_ENV: local
+      # Object store (internal/storage). The API signs URLs for DOJO_S3_PUBLIC_ENDPOINT, the address the
+      # host (the CLI) reaches the published port on; it connects to s3:9000 itself.
+      DOJO_S3_ENDPOINT: http://s3:9000
+      DOJO_S3_PUBLIC_ENDPOINT: ${DOJO_S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      DOJO_S3_REGION: ${DOJO_S3_REGION:-us-east-1}
+      DOJO_S3_BUCKET: ${DOJO_S3_BUCKET:-dojo-catalog}
+      DOJO_S3_ACCESS_KEY: ${DOJO_S3_ACCESS_KEY:?copy .env.example to .env}
+      DOJO_S3_SECRET_KEY: ${DOJO_S3_SECRET_KEY:?copy .env.example to .env}
+      DOJO_S3_PATH_STYLE: "true"
       # Caddy is the one proxy in front of the API (design 3.1).
       TRUSTED_PROXY_HOPS: "1"
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
@@ -106,6 +152,8 @@ services:
       - "127.0.0.1:${API_PORT:-}:8080"
     depends_on:
       db-roles:
+        condition: service_completed_successfully
+      s3-init:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "/dojo-api", "healthcheck"]
@@ -196,3 +244,4 @@ networks:
 
 volumes:
   db-data:
+  s3-data:

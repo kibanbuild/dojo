@@ -2,6 +2,7 @@ import { useId, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { SettingsLayout } from '../components/SettingsLayout';
 import { ME_KEY, type Me } from '../lib/me';
+import { analytics } from '../lib/measure';
 import { PATCH_MESSAGES, patchMe, usernameProblem, type Language, type PatchFailure } from '../lib/settings';
 
 const card = 'flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5';
@@ -11,6 +12,13 @@ function useMeCache() {
   const queryClient = useQueryClient();
   return {
     set: (me: Me | null) => queryClient.setQueryData(ME_KEY, me),
+    /** Puts `previous` back only if the cache still holds this optimistic value; true when it did. */
+    rollbackConsent: (optimistic: boolean, previous: boolean | null) => {
+      const cur = queryClient.getQueryData<Me | null>(ME_KEY);
+      if (!cur || cur.analytics_consent !== optimistic) return false;
+      queryClient.setQueryData<Me | null>(ME_KEY, (c) => (c && c.analytics_consent === optimistic ? { ...c, analytics_consent: previous } : c));
+      return true;
+    },
     setLanguage: (language: Me['language']) =>
       queryClient.setQueryData<Me | null>(ME_KEY, (cur) => (cur ? { ...cur, language } : cur)),
   };
@@ -166,6 +174,64 @@ function LanguageCard({ me }: { me: Me }) {
   );
 }
 
+function AnalyticsCard({ me }: { me: Me }) {
+  const cache = useMeCache();
+  const noteId = useId();
+  const [pending, setPending] = useState(false);
+  const [failure, setFailure] = useState<PatchFailure | null>(null);
+
+  async function onToggle(next: boolean) {
+    if (pending) return;
+    const previous = me.analytics_consent;
+    setPending(true);
+    setFailure(null);
+    cache.set({ ...me, analytics_consent: next });
+    analytics.setAccountConsent(next);
+    const result = await patchMe({ analytics_consent: next });
+    setPending(false);
+    if (result.ok) {
+      cache.set(result.me);
+    } else if (result.reason === 'signed_out') {
+      cache.set(null);
+    } else {
+      if (cache.rollbackConsent(next, previous)) analytics.setAccountConsent(previous);
+      setFailure(result.reason);
+    }
+  }
+
+  return (
+    <section className={card} aria-labelledby={`${noteId}-title`}>
+      <h2 id={`${noteId}-title`} className="m-0 text-base font-extrabold">
+        Analytics
+      </h2>
+      <label className="flex min-h-11 cursor-pointer items-center justify-between gap-4 border-t border-line py-3.5">
+        <span className="flex flex-col gap-0.5">
+          <span className="text-sm font-bold">Count which pages are used</span>
+          <span className="text-[13px] text-muted">Through PostHog in the EU. Nothing is sent unless this is on</span>
+        </span>
+        <input
+          type="checkbox"
+          role="switch"
+          name="analytics_consent"
+          checked={me.analytics_consent !== null ? me.analytics_consent : analytics.consent() === 'granted'}
+          onChange={(e) => void onToggle(e.target.checked)}
+          aria-describedby={noteId}
+          className="peer sr-only"
+        />
+        <span
+          aria-hidden="true"
+          className="relative h-6 w-10 flex-none rounded-full bg-line transition-colors peer-checked:bg-accent peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accentink peer-checked:[&>span]:translate-x-4"
+        >
+          <span className="absolute top-[3px] left-[3px] h-[18px] w-[18px] rounded-full bg-white transition-transform" />
+        </span>
+      </label>
+      <p id={noteId} role="status" aria-live="polite" className="m-0 text-[13px] font-semibold text-bad empty:hidden">
+        {failure ? PATCH_MESSAGES[failure] : ''}
+      </p>
+    </section>
+  );
+}
+
 function GithubCard({ me }: { me: Me }) {
   return (
     <section className={card} aria-labelledby="gh-title">
@@ -188,6 +254,7 @@ export function Settings({ me }: { me: Me }) {
       <GithubCard me={me} />
       <UsernameCard me={me} />
       <LanguageCard me={me} />
+      <AnalyticsCard me={me} />
     </SettingsLayout>
   );
 }

@@ -35,7 +35,7 @@ export const PATCH_MESSAGES: Record<PatchFailure, string> = {
 };
 
 /** PATCH /v1/me with a partial body; maps every failure to a reason the UI can word. */
-export async function patchMe(body: { username?: string; language?: Language }): Promise<PatchResult> {
+export async function patchMe(body: { username?: string; language?: Language; analytics_consent?: boolean }): Promise<PatchResult> {
   let res: Response;
   try {
     res = await apiFetch('/v1/me', { method: 'PATCH', body: JSON.stringify(body) });

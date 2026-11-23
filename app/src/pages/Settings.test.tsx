@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '../routes';
+import { analytics } from '../lib/measure';
 import { usernameProblem } from '../lib/settings';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -68,7 +69,7 @@ afterEach(() => {
 
 const input = () => container.querySelector<HTMLInputElement>('input[name=username]')!;
 const saveBtn = () => [...container.querySelectorAll('button')].find((b) => /^Sav/.test(b.textContent ?? ''))!;
-const toggle = () => container.querySelector<HTMLInputElement>('input[role=switch]')!;
+const toggle = () => container.querySelector<HTMLInputElement>('input[role=switch]:not([name=analytics_consent])')!;
 const notes = () => [...container.querySelectorAll('[role=status]')].map((n) => n.textContent).join(' | ');
 
 async function type(value: string) {
@@ -258,5 +259,60 @@ describe('language switch', () => {
     await settle();
     expect(calls.find((c) => c.method === 'PATCH')!.body).toBe('{"language":"en"}');
     expect(toggle().checked).toBe(false);
+  });
+});
+
+describe('analytics switch', () => {
+  beforeEach(() => {
+    document.cookie = 'dojo_analytics_consent=; Path=/; Max-Age=0';
+    analytics.setAccountConsent(null);
+  });
+
+  const sw = () => container.querySelector<HTMLInputElement>('input[name=analytics_consent]')!;
+
+  it('is a real switch bound to analytics_consent', async () => {
+    stubApi(() => me, { ...me, analytics_consent: true });
+    await mount();
+    expect(sw().type).toBe('checkbox');
+    expect(sw().getAttribute('role')).toBe('switch');
+    expect(sw().checked).toBe(true);
+  });
+
+  it('is off when undecided or denied', async () => {
+    stubApi(() => me);
+    await mount();
+    expect(sw().checked).toBe(false);
+  });
+
+  it('toggles optimistically and sends analytics_consent', async () => {
+    stubApi(() => 'hold');
+    await mount();
+    await click(sw());
+    await settle();
+    expect(sw().checked).toBe(true);
+    expect(calls.find((c) => c.method === 'PATCH')!.body).toBe('{"analytics_consent":true}');
+    await act(async () => pending!(Response.json({ ...me, analytics_consent: true })));
+    await settle();
+    expect(sw().checked).toBe(true);
+  });
+
+  it('rolls back and says so when the save fails', async () => {
+    stubApi(() => 500, { ...me, analytics_consent: false });
+    await mount();
+    await click(sw());
+    await settle();
+    expect(sw().checked).toBe(false);
+    expect(notes()).toContain('Could not save');
+  });
+
+  it('reads on for a null account with a granted cookie', async () => {
+    document.cookie = 'dojo_analytics_consent=granted; Path=/';
+    try {
+      stubApi(() => me);
+      await mount();
+      expect(sw().checked).toBe(true);
+    } finally {
+      document.cookie = 'dojo_analytics_consent=; Path=/; Max-Age=0';
+    }
   });
 });

@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import { Outlet, useMatches } from 'react-router';
-import { analytics } from '../lib/analytics';
+import { analytics } from '../lib/measure';
 import { useMe } from '../lib/me';
+import { ConsentBanner } from './ConsentBanner';
 
 /** Route `handle` for a page that gets a page view: its route pattern. */
 export interface PageHandle {
@@ -37,5 +38,10 @@ export function AnalyticsLayout() {
     analytics.identify(learner.id);
   }, [learner]);
 
-  return <Outlet />;
+  return (
+    <>
+      <Outlet />
+      <ConsentBanner />
+    </>
+  );
 }

@@ -40,6 +40,10 @@ type fakeSessions struct {
 
 	updates   []repo.UpdateLearnerProfileParams
 	updateErr error
+
+	telemetry    []repo.InsertTelemetryEventsParams
+	telemetryErr error
+	learnerErr   error
 }
 
 func (f *fakeSessions) GetActiveSession(_ context.Context, h []byte) (repo.GetActiveSessionRow, error) {
@@ -86,6 +90,9 @@ func (f *fakeSessions) RevokeCLIToken(_ context.Context, id pgtype.UUID) error {
 }
 
 func (f *fakeSessions) GetLearnerByID(context.Context, pgtype.UUID) (repo.Learner, error) {
+	if f.learnerErr != nil {
+		return repo.Learner{}, f.learnerErr
+	}
 	return f.learner, nil
 }
 

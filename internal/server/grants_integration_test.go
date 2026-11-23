@@ -108,6 +108,22 @@ var grantCases = []struct {
 	{"dojo_admin", "UPDATE cli_tokens SET revoked_at = now() WHERE false", false},
 	{"dojo_admin", "INSERT INTO cli_tokens (org_id, learner_id, token_hash, device_name, os, cli_version) SELECT org_id, id, '\\x00'::bytea, 'd', 'linux', '1' FROM learners WHERE false", false},
 	{"dojo_admin", "DELETE FROM cli_tokens WHERE false", false},
+
+	// telemetry_events: the API only inserts (no SELECT, UPDATE or DELETE; rows go by cascade or
+	// prune_telemetry() as owner); the operator service has no access. `at` and `id` keep defaults.
+	{"dojo_api", "INSERT INTO telemetry_events (org_id, learner_id, command, result, duration_ms, cli_version, os) SELECT id, NULL, 'check', 'ok', 1, 'v1', 'linux' FROM orgs WHERE false", true},
+	{"dojo_api", "INSERT INTO telemetry_events (org_id, command, result, duration_ms, cli_version, os) SELECT id, 'check', 'ok', 1, 'v1', 'linux' FROM orgs WHERE false", true},
+	{"dojo_api", "INSERT INTO telemetry_events (org_id, command, result, duration_ms, cli_version, os, at) SELECT id, 'check', 'ok', 1, 'v1', 'linux', now() FROM orgs WHERE false", false},
+	{"dojo_api", "INSERT INTO telemetry_events (id, org_id, command, result, duration_ms, cli_version, os) SELECT gen_random_uuid(), id, 'check', 'ok', 1, 'v1', 'linux' FROM orgs WHERE false", false},
+	{"dojo_api", "SELECT count(*) FROM telemetry_events", false},
+	{"dojo_api", "SELECT learner_id FROM telemetry_events", false},
+	{"dojo_api", "UPDATE telemetry_events SET result = 'x' WHERE false", false},
+	{"dojo_api", "UPDATE telemetry_events SET learner_id = NULL WHERE false", false},
+	{"dojo_api", "DELETE FROM telemetry_events WHERE false", false},
+	{"dojo_admin", "SELECT count(*) FROM telemetry_events", false},
+	{"dojo_admin", "INSERT INTO telemetry_events (org_id, command, result, duration_ms, cli_version, os) SELECT id, 'check', 'ok', 1, 'v1', 'linux' FROM orgs WHERE false", false},
+	{"dojo_admin", "UPDATE telemetry_events SET result = 'x' WHERE false", false},
+	{"dojo_admin", "DELETE FROM telemetry_events WHERE false", false},
 }
 
 // Connects by the container address: the image trusts loopback, other addresses use scram.

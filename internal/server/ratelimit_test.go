@@ -28,7 +28,7 @@ func (c *clock) add(d time.Duration) {
 // The production limits must include the callback limiter; allowCallback admits everything without it.
 func TestNewRateLimitsHasEveryLimiter(t *testing.T) {
 	l := NewRateLimits(1)
-	if l.Auth == nil || l.Telemetry == nil || l.Callback == nil {
+	if l.Auth == nil || l.Telemetry == nil || l.TelemetryAuth == nil || l.Callback == nil {
 		t.Fatalf("missing limiter: %+v", l)
 	}
 }
@@ -186,10 +186,11 @@ func limitedChain(auth Auth, rl *RateLimits, calls *atomic.Int64) http.Handler {
 func testLimits(burst int) *RateLimits {
 	c := &clock{t: time.Unix(1000, 0)}
 	return &RateLimits{
-		Auth:      newMemLimiter(burst, time.Minute, 100, c.now),
-		Telemetry: newMemLimiter(burst, time.Minute, 100, c.now),
-		Callback:  newMemLimiter(burst, time.Minute, 100, c.now),
-		Hops:      1,
+		Auth:          newMemLimiter(burst, time.Minute, 100, c.now),
+		Telemetry:     newMemLimiter(burst, time.Minute, 100, c.now),
+		TelemetryAuth: newMemLimiter(burst, time.Minute, 100, c.now),
+		Callback:      newMemLimiter(burst, time.Minute, 100, c.now),
+		Hops:          1,
 	}
 }
 
@@ -267,13 +268,10 @@ func TestLimiterKeysByClientIPOnly(t *testing.T) {
 	}
 }
 
-func TestTelemetryLimitedOnlyWhenAnonymous(t *testing.T) {
-	var calls atomic.Int64
-	row := activeRow(time.Now(), false)
-	auth := Auth{Store: &fakeSessions{row: row}}
-	h := limitedChain(auth, testLimits(1), &calls)
-	post := func(cookie bool) int {
+func TestTelemetryLimits(t *testing.T) {
+	post := func(h http.Handler, ip string, cookie bool) int {
 		req := httptest.NewRequest("POST", "/v1/telemetry", nil)
+		req.Header.Set("X-Forwarded-For", ip)
 		if cookie {
 			req.AddCookie(&http.Cookie{Name: SessionCookie, Value: goodToken})
 			req.Header.Set("Content-Type", "application/json")
@@ -283,14 +281,29 @@ func TestTelemetryLimitedOnlyWhenAnonymous(t *testing.T) {
 		h.ServeHTTP(rec, req)
 		return rec.Code
 	}
-	if post(false) != 204 || post(false) != 429 {
-		t.Fatal("anonymous telemetry is not limited")
-	}
-	for i := 0; i < 5; i++ {
-		if c := post(true); c != 204 {
-			t.Fatalf("authenticated telemetry got %d", c)
+	t.Run("anonymous is limited per IP", func(t *testing.T) {
+		var calls atomic.Int64
+		h := limitedChain(Auth{Store: &fakeSessions{}}, testLimits(1), &calls)
+		if post(h, "1.1.1.1", false) != 204 || post(h, "1.1.1.1", false) != 429 {
+			t.Fatal("anonymous telemetry is not limited")
 		}
-	}
+		if post(h, "2.2.2.2", false) != 204 {
+			t.Fatal("another IP shares the budget")
+		}
+	})
+	t.Run("authenticated is limited per learner, whatever the IP", func(t *testing.T) {
+		var calls atomic.Int64
+		h := limitedChain(Auth{Store: &fakeSessions{row: activeRow(time.Now(), false)}}, testLimits(2), &calls)
+		if post(h, "1.1.1.1", true) != 204 || post(h, "2.2.2.2", true) != 204 {
+			t.Fatal("the burst was refused early")
+		}
+		if c := post(h, "3.3.3.3", true); c != 429 {
+			t.Fatalf("third call from a third IP got %d, want 429 (per learner, not per IP)", c)
+		}
+		if c := post(h, "1.1.1.1", false); c != 204 {
+			t.Fatalf("an anonymous call shares the learner's budget: %d", c)
+		}
+	})
 }
 
 func TestParallelRequestsAdmitExactlyTheBurst(t *testing.T) {

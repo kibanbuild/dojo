@@ -18,6 +18,8 @@ const (
 	// Anonymous CLI events before login.
 	telemetryBurst = 60
 	telemetryPer   = time.Minute
+	// Authenticated CLI events, per learner across all devices: a valid token is no longer unlimited.
+	telemetryAuthBurst = 120
 
 	maxKeys    = 50_000
 	sweepEvery = 30 * time.Second
@@ -108,9 +110,12 @@ func (l *memLimiter) sweep(now time.Time) {
 	}
 }
 
-// RateLimits limits the auth routes and anonymous telemetry per client IP (design 3.1).
+// RateLimits limits the auth routes and anonymous telemetry per client IP, and authenticated
+// telemetry per learner (design 3.1).
 type RateLimits struct {
 	Auth, Telemetry Limiter
+	// TelemetryAuth is keyed by learner id, so one learner's devices share it.
+	TelemetryAuth Limiter
 	// Callback is taken inside the sign-in callback, after the state cookie checks out and before any GitHub call.
 	Callback Limiter
 	Hops     int
@@ -119,10 +124,11 @@ type RateLimits struct {
 // NewRateLimits returns the in-memory limits with the production constants.
 func NewRateLimits(hops int) *RateLimits {
 	return &RateLimits{
-		Auth:      newMemLimiter(authBurst, authPer, maxKeys, time.Now),
-		Telemetry: newMemLimiter(telemetryBurst, telemetryPer, maxKeys, time.Now),
-		Callback:  newMemLimiter(authBurst, authPer, maxKeys, time.Now),
-		Hops:      hops,
+		Auth:          newMemLimiter(authBurst, authPer, maxKeys, time.Now),
+		Telemetry:     newMemLimiter(telemetryBurst, telemetryPer, maxKeys, time.Now),
+		TelemetryAuth: newMemLimiter(telemetryAuthBurst, telemetryPer, maxKeys, time.Now),
+		Callback:      newMemLimiter(authBurst, authPer, maxKeys, time.Now),
+		Hops:          hops,
 	}
 }
 
@@ -132,6 +138,7 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, pattern := mux.Handler(r)
 		var lim Limiter
+		key := ""
 		isStart := pattern == "POST "+startPath && r.URL.Path == startPath
 		switch {
 		// The callback has its own limiter inside the handler, taken once the state cookie checks out.
@@ -139,12 +146,17 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 		case matches(pattern, r, isAuthPath):
 			lim = rl.Auth
 		case matches(pattern, r, isTelemetryPath):
-			if _, authed := principalOf(r.Context()); !authed {
+			if p, authed := principalOf(r.Context()); authed {
+				lim, key = rl.TelemetryAuth, "learner:"+p.learner.String()
+			} else {
 				lim = rl.Telemetry
 			}
 		}
 		if lim != nil {
-			if ok, retry := lim.Allow(clientKey(r, rl.Hops)); !ok {
+			if key == "" {
+				key = clientKey(r, rl.Hops)
+			}
+			if ok, retry := lim.Allow(key); !ok {
 				secs := max(1, int(math.Ceil(retry.Seconds())))
 				w.Header().Set("Retry-After", strconv.Itoa(secs))
 				if isStart { // a browser form post: show O1, not JSON

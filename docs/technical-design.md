@@ -84,7 +84,7 @@ Each row says why for this project. Nothing is here because another Kiban projec
 | Database | Postgres on RDS (`db.t4g.micro`, single AZ, daily backups, 30-day retention) | Constraints do real work here: one open exam per learner, unique usernames, a role pass needs a passed exam. RDS, not Aurora: Aurora is blocked on a Free-plan account and costs more than we need. One task fans live updates out with `LISTEN/NOTIFY`, so no cache or broker is needed. |
 | Public pages | Astro, static output, Tailwind 4, shadcn/ui tokens | The distribution plan rests on search ("prácticas ASIR/SMR"), so public pages must be real HTML with no JavaScript needed to read them. |
 | Signed-in app | One React SPA, its own Vite build in `app/` served by Caddy at `/app` with an index.html fallback (it shares only the design tokens with Astro, no mounting), React Router, TanStack Query, xterm.js | The app keeps state across screens: the command palette (K1), the inbox bell (N1), the live check mirror and the exam clock must survive navigation. Per-page islands would reload them on every move. No SEO is needed behind sign-in. |
-| Live updates | Server-sent events (`GET /v1/stream`) from the API, `LISTEN/NOTIFY` between tasks | The web mirrors what the CLI reports (O3 "this page updates while you run it", L3 check results, H1 progress). One-way push is all that is needed; SSE passes CloudFront and the ALB without extra setup. Fallback: polling every 5 s. |
+| Live updates | Server-sent events (`GET /v1/stream`) from the API, `LISTEN/NOTIFY` between tasks | The web mirrors what the CLI reports (O3 "this page updates while you run it", L3 check results, H1 progress). One-way push is all that is needed; SSE passes CloudFront and the ALB without extra setup. Fallback: polling every 10 s. |
 | Browser terminal | xterm.js, WebSocket to the runner, the runner opens SSH to the machine | Brief and design decision 2026-11-20. The runner holds the only route to the private machines. |
 | Hosting, web and API | CloudFront in front of S3 (static) and an ALB (`/v1/*`, WebSocket); API on ECS Fargate (ARM) | All-in on AWS (decided 2026-11-20). Fargate: no host to patch. Not Lambda or App Runner: the API holds SSE and long-lived connections. One origin for site and API: no CORS, `SameSite` cookies just work, and the domain choice no longer constrains the design. The ALB accepts only CloudFront (managed prefix list plus a secret header). This choice does not depend on the parked one-shared-platform decision: everything here is Dojo's own account and is easy to move. |
 | Region | `eu-south-2` (Spain) for both accounts, if Bedrock (and SES) are available there | Learners are in Spain; prices from the research (2026-11-19) match between the two regions for `t3.small`. Availability of the Bedrock model and SES in `eu-south-2` is not verified: M0b checks it. Fallback, decided now: Bedrock (and SES if needed) in `eu-west-1`, or the EU cross-region inference profile, with everything else staying in `eu-south-2`. |
@@ -234,13 +234,15 @@ depend on its being public:
   is not used. There is no Homebrew tap in v1.
 - The API tells the CLI the minimum version it supports (`min_cli_version`); `dojo doctor` and
   `dojo exam check` report an outdated CLI.
-- Ticket bundles (`ticket.yaml`, `setup.sh`, `check.sh`, no solutions) are built from the private
-  catalog repo (`kibanbuild/dojo-katas`) into S3 and fetched by `dojo start` through the API, with
-  a `catalog_version`. A ticket can be fixed without a CLI release. Solutions, wrong-fix tests,
-  the exam pool and exam checks stay in the private repo and on the runner, never in a bundle.
-  The hint guard patterns travel the other way: the deploy job reads them from the private catalog
-  repo and writes them to `catalog_secrets` (API-only, section 3.3) in the same step that loads
-  `catalog_items`; they are not in S3 and no endpoint serves them.
+- Ticket bundles (`ticket.yaml`, `setup.sh`, `check.sh`, an optional `files/` directory, no
+  solutions) are built from the private catalog repo (`kibanbuild/dojo-katas`) into S3 and fetched
+  by `dojo start` through the API with the CLI token, with a `catalog_version` (format in section
+  3.8). A ticket can be fixed without a CLI release. Solutions, wrong-fix tests, the exam pool and
+  exam checks stay in the private repo and on the runner, never in a bundle. The hint guard
+  patterns travel the other way: from M7 the deploy job reads them from the private catalog repo
+  and writes them to `catalog_secrets` (API-only, section 3.3) in the same step that loads
+  `catalog_items`; they are not in S3 and no endpoint serves them. Until M7 nothing reads them, so
+  the table does not exist and the deploy job loads `catalog_items` only.
 - **`check.sh` ships.** It is in every bundle and on hosted labs, so a practice ticket's expected
   end state is readable by the learner and by their AI. That is an accepted limit of practice,
   which is self-reported anyway (section 3.2). Exams never ship checks.
@@ -265,7 +267,7 @@ configuration and the adapter implementation chosen, never in the code that call
 | API | ECS Fargate | The same container image | Fargate limits |
 | Operator service | ECS Fargate in a private subnet, desired count 0, reached by SSM port-forward | The same image as a compose service published only on `127.0.0.1:8090`, not behind Caddy, with its own fake-GitHub OAuth client | SSM, IAM and MFA, scaling to 0 |
 | Database | RDS Postgres | Postgres in a container, same major version, migrations run by a one-off service | RDS backups, failover |
-| Installer, binaries, ticket bundles | S3 over CloudFront | MinIO (S3 API, so the same adapter and presigned URLs) | CloudFront signing |
+| Installer, binaries, ticket bundles | S3 over CloudFront | RustFS (S3 API, so the same adapter and presigned URLs) | CloudFront signing |
 | Email (E1 to E8) | SES over SMTP | Mailpit (SMTP in, web inbox to read) | Deliverability, DKIM, SNS bounce delivery (tests post a signed bounce payload to the endpoint) |
 | Payments | Stripe | `stripe-mock` (Stripe's own mock API) for Checkout and Portal calls. Webhooks are sent by a small test helper that signs them with a local signing secret, so the handler verifies signatures exactly as in production. The Stripe CLI forwarder is not used: it needs a Stripe account and the network | Real Stripe behaviour, Tax, 3-D Secure |
 | AI hints and reviews | Bedrock | The same adapter pointed at a deterministic stand-in (fixed replies keyed on the ticket and the hint number, used by every test). An optional compose profile points it at Ollama with a small local model to try real wording | Real model quality, quotas, Bedrock spend |
@@ -304,7 +306,9 @@ and the avatar menu (Settings S1-S4). Exam screens drop the nav for the on-call 
 parts as a status strip, "no hints, no AI", the shift clock, Pause and Leave.
 
 A signed-out visit to an app route redirects to sign-in and returns. A signed-in learner with no
-role progress lands on O0 (no path) or the first unfinished onboarding step.
+role progress lands on O0 (no path) or the first unfinished onboarding step. O0 arrives in M3;
+before it, a learner with no `chosen_path_id` is treated as being on the only available path, so
+Today and Path work without a pick.
 
 ### 2.2 Screens
 
@@ -313,12 +317,12 @@ error cases the page must draw. Status is the Map's.
 
 | Code | Route | Primary action | States |
 |---|---|---|---|
-| P1 Home | `/` | Pick your path (to O0); copyable install command | Static. |
+| P1 Home | `/` | Pick your path (to O0); copyable install command | Static. The install command is a placeholder until the installer is served in M0b. |
 | P2 How it works | `/how-it-works` | Start Support L1 (to O0) | Static. Ends with the FAQ as a section of this page (no page of its own). |
 | P3 Paths and roles | `/paths` | Pick your path | Static. Four paths drawn; only Systems and DevOps is open, the others say "coming soon" (section 2.3). |
 | P4 The story | `/story` | Pick your path | Static. |
 | P6 Pricing | `/pricing` | Become a supporter (to sign-in, then Stripe Checkout); Buy hours | Monthly and yearly toggle. Signed-in learners see their own plan. Teams: "Contact us" mailto only. |
-| LG1 Privacy, terms, conduct | `/privacy`, `/terms`, `/conduct` | none | Names the hint button, usage stats and what survives account deletion. Legal text written and reviewed before launch (NEEDS-DECISION for the reviewer). |
+| LG1 Privacy, terms, conduct | `/privacy`, `/terms`, `/conduct` | none | Names the hint button, usage stats and what survives account deletion. Legal text written and reviewed before launch (NEEDS-DECISION for the reviewer). Ships in M2 as a draft with `noindex`, and stays that way until the M9 legal review. |
 | O0 Pick your path | `/start` | Continue: stores the chosen path in a short-lived cookie, applied at first sign-in | Reachable signed out. Security, Backend and Frontend show "coming soon" with "Tell me when" (the waitlist, section 2.3). |
 | O1 Sign in | `/app/signin` (in the SPA) | Continue with GitHub (web flow, section 3.1) | Asks for age (14 or older) and terms on first sign-in. Error: GitHub refused or the state check failed, retry. |
 | O2 Install | `/start/install` | Copy the install command per OS (Windows with WSL, macOS, Linux), then `dojo login` | Waits for `login` via SSE ("Waiting for dojo login on your computer"). Shows the usage-stats notice and `dojo telemetry off`. Error: code expired, show a new one. |
@@ -344,7 +348,7 @@ error cases the page must draw. Status is the Map's.
 | Public record | `/r/:token` | none | Only when the learner opted in; the token is long, random and unguessable, and the learner can revoke it or regenerate it (the old link then dies). Shows verified work and the items they chose, nothing else, `noindex`, not listed. There is no per-name record URL and no username namespace. This is not a public portfolio. |
 | L7 / L8 Belt mark, belt | `/celebrate/:id` | Next ticket | Shown once, then in the inbox. L8 only when the four white marks are done. |
 | A1 Review queue | `dojo-admin` `/review` (never on the public origin) | Confirm a pass; Override a part with a note; Resolve an appeal | Operator only, served by the operator service (section 3.7); canvas v108 A1 (desktop only). Section 2.7. |
-| A2 Learner lookup | `dojo-admin` `/learners` | Give hours or Supporter, take a gift back; void an attempt; suspend; delete (GDPR) | Operator only, section 3.7; canvas v108 A2 and the delete confirm (desktop only). |
+| A2 Learner lookup | `dojo-admin` `/learners` | Give hours or Supporter, take a gift back; void an attempt; suspend or unsuspend; delete (GDPR) | Operator only, section 3.7; canvas v108 A2 and the delete confirm (desktop only). |
 | A3 System switches | `dojo-admin` `/flags` | Change a flag (confirm and reason) | Operator only, section 3.7; canvas v108 A3 and the switch confirm (desktop only). |
 | Accessibility statement | `/accessibility` | none | New, from the a11y review; linked from the footer. |
 | S1 Account | `/settings/account` | Save; Switch path; Test out; Delete account | Username and language of explanations save through `PATCH /v1/me` (section 3.1); the rest of the list is path, plan, hour packs, extra time, usage stats, danger zone. |
@@ -357,10 +361,10 @@ error cases the page must draw. Status is the Map's.
 
 **Ticket page (L3) states:** starting (progress while the lab boots), in progress, lab did not
 start (for example not enough disk: offers `dojo doctor` and a hosted lab), lab expired (after
-7 days without a dojo command, work is in the repo, run `dojo start` again), failed check (last
-output mirrored), passed (time, hints, the commit), revisit (a passed ticket; all written hints
+7 days without a report from the CLI, work is in the repo, run `dojo start` again), failed check (last
+output mirrored), passed (time, hints, the commit from M3 on), revisit (a passed ticket; all written hints
 open; `dojo start <id>` again restarts the same ticket, with no new variant and no change to
-progress).
+progress). The states come from `ticket_progress.state` and `lab_state` (section 3.8).
 
 ### 2.3 Paths in v1
 
@@ -404,13 +408,13 @@ only for the role exam and for laptops that cannot run labs.
 | `dojo doctor` | Checks the computer can run labs and, for O4, the SSH key, signing, practice repo and ruleset; a fix to copy per problem; reports results to the API when logged in. | Offline works, results queue. Outdated CLI is reported. |
 | `dojo login` | GitHub device flow (section 3.1), stores the CLI token in the OS keychain or `DOJO_HOME` (file `token`, 0600; the keychain is a later card). `--force` logs in again. Address, GitHub host and client id come from flags or `DOJO_API_URL`, `DOJO_GITHUB_URL`, `DOJO_GITHUB_CLIENT_ID`; the API address and client id have no built-in default until the domain exists. | Code expired (`expired_token` or `token_expired`): retry. Denied on GitHub: retry. No account yet: sign up on the website first. Already logged in: says who. |
 | `dojo logout` | `DELETE /v1/auth/cli`, then deletes the token file (also on `401`, the token was already dead). | API unreachable: the file stays, the command fails and points to `--local`, which only forgets the token on this computer. |
-| `dojo start <id>` | Fetches the ticket bundle (a ticket already started or passed restarts the same ticket, `--again` is not a variant), starts the lab (or a hosted machine when the laptop cannot, `--hosted` to force it), runs the ticket's `setup.sh`, writes `AGENTS.md` and `CLAUDE.md` (`@AGENTS.md`) into the lab and repo (PR 6d), reports `ticket.started`. | Not enough disk or memory: says how much and offers a hosted lab. Offline: starts from a cached bundle if present, else says it needs the network once. Out of hosted hours: on Free, names the pack and Supporter options; a Supporter at the 100 h hard stop is told the fair-use limit is reached and the date it resets. |
+| `dojo start <id>` | Fetches the ticket bundle from the API with the CLI token, so the first start of a ticket needs `dojo login`; a bundle already cached on this computer starts logged out or offline, and its events queue and send after the next login (section 3.8; a ticket already started or passed restarts the same ticket, `--again` is not a variant), starts the lab (or a hosted machine when the laptop cannot, `--hosted` to force it), runs the ticket's `setup.sh`, writes `AGENTS.md` and `CLAUDE.md` (`@AGENTS.md`) into the lab and repo (PR 6d), reports `ticket.started`, then `lab.started` or `lab.failed`. `DOJO_KATAS=<dir>` stays as a local development override: it reads the catalog from that directory, skips the API and sends no ticket events. | Not logged in and no cached bundle: says `dojo login`. Not enough disk or memory: says how much and offers a hosted lab. Offline: starts from a cached bundle if present (the first fetch needs the network once), else says so. Out of hosted hours: on Free, names the pack and Supporter options; a Supporter at the 100 h hard stop is told the fair-use limit is reached and the date it resets. |
 | `dojo ssh` | Opens a root shell on the lab (local, or through the gateway for a hosted one). | No lab running: says `dojo start <id>`. |
-| `dojo check` | Reboots the lab so only persistent fixes pass, runs the checks, keeps the last output (PR 6d), reports pass or fail and the output, and on a pass writes a signed commit into the practice repo. | `--quick` skips the reboot. Offline: result saved and sent later. |
-| `dojo stop` | Stops the lab, frees memory. Hosted: ends the machine and the session. | Work stays in the repo. |
+| `dojo check` | Reboots the lab so only persistent fixes pass, runs the checks, keeps the last output (PR 6d), reports pass or fail and the output as a `check.run` event, and from M3 on a pass writes a signed commit into the practice repo (the repo is set up in O4, so M2 reports the pass without a commit and `passed_commit` stays empty). | `--quick` skips the reboot. Offline: result saved and sent later. |
+| `dojo stop` | Stops the lab, frees memory, reports `lab.stopped`. Hosted: ends the machine and the session. | Work stays in the repo. |
 | `dojo status` | What is running and the current ticket id; `--quota` shows hosted hours (E4). | Nothing running: says so. |
 | `dojo exam` | `check` runs preflight; bare `exam` connects to the hosted exam machine over SSH; `submit` ends the exam. | Refuses with the missing rule (section 2.7). No AI, no hints on this machine. |
-| `dojo hint` | The AI hint for the current ticket (section 1.4). Written hints stay on the web. | Needs a failed check; shows hints left; offline or capped says so. |
+| `dojo hint` | The AI hint for the current ticket (section 1.4), from M7. Until then it prints the L3 URL of the current ticket, where the written hints are. Written hints stay on the web. | Needs a failed check; shows hints left; offline or capped says so. |
 | `dojo mcp` | MCP server over stdio for the learner's own AI: current ticket, last check, hints opened, docs links; never a solution (PR 6e, hand-rolled JSON-RPC). | Does not run while an exam is open (a courtesy). |
 | `dojo telemetry [on\|off\|status]` | Local switch for CLI usage stats (file `telemetry.json` in `DOJO_HOME`; on by default); mirrored to the account's `usage_stats` through `PATCH /v1/me` when logged in. `off` also drops the queue. The first command prints the notice on stderr ("Dojo shares usage stats ... When you are logged in they are tied to your account ... Turn it off any time with: dojo telemetry off") and neither it nor any earlier command sends; sending starts with the next one. The dispatcher records the command name, a result (`ok`, `failed`, `error`, `canceled`) and `duration_ms`, never arguments; `mcp` and `telemetry` are not recorded. Events queue in `telemetry-queue.json` (0600, atomic writes, at most 100) and flush in batches of at most 20 within 2 s at the end of a command: `204` or `400` drop the batch, `429` and other failures keep it and hold sending (Retry-After or one minute, at most an hour), a `401` on the bearer drops the batch and holds sending, never resending it anonymously (the account may have usage stats off) and never logging the learner out. `DOJO_TELEMETRY=off` or `DO_NOT_TRACK=1` always wins, and the environment can only turn it off. At `dojo login` (and when already logged in) the CLI reads `usage_stats` from `/v1/me`: an account that is off turns the local switch off. | API unreachable on `off`: the local switch stays off and the command says the account setting was not changed. |
 
@@ -426,9 +430,9 @@ the local kata tree and the web is where a learner finds the ids.
 
 ### 2.6 Hints
 
-- **Written hints** (three per ticket, in the catalog): shown on the web only after the learner
-  opens them (`hint.opened` event). Hint 3 needs hint 2. It is a nudge, not a lock: they ship in
-  the bundle, which is fine for practice.
+- **Written hints** (one to three per ticket, in the catalog): shown on the web only after the
+  learner opens them (`hint.opened` event, section 3.8). Hint 3 needs hint 2. It is a nudge, not a
+  lock: they ship in the bundle, which is fine for practice.
 - **AI hint:** the button on L3 ("Ask Carmen") opens after a failed check and works as in 1.4,
   with the same limits from `dojo hint`. It shows hints left and the answer in place. No chat.
 - Hints are counted for the learner, never gate anything.
@@ -610,7 +614,7 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   is kept before the 14-or-older confirmation, and no session exists for a half-created account.
   A returning learner signs in without ticking them again.
 - **Rate limit:** every `/v1/auth/*` route, and anonymous `POST /v1/telemetry` (60 a minute), is limited per
-  client IP; authenticated `POST /v1/telemetry` is limited per learner (120 a minute, shared by the learner's devices), so one valid token is not unlimited. The other authenticated writes (`PATCH /v1/me`, `DELETE /v1/me`, `DELETE /v1/me/devices/{id}`) share one budget of 10 a minute per learner, whatever the route, session or device (a `409 username_taken` is a one-guess-per-request enumeration signal, so renames are capped); `DELETE /v1/me` also keeps the per-IP limit above. Sign-out routes stay on the per-IP limit only: they reveal nothing and end the caller's own credential. The per-learner limits are taken after authentication (a request with no valid credential is a `401` and never spends a learner's budget; an authenticated write refused later, by the CSRF check or validation, still spends one, the safe side for a guessing signal), refuse with `429 rate_limited` and `Retry-After`, and are held in memory per API task with bounded size (full buckets are swept, the stalest evicted at the cap, a new learner is never refused). The client IP is the address `TRUSTED_PROXY_HOPS` entries from the right of
+  client IP; authenticated `POST /v1/telemetry` is limited per learner (120 a minute, shared by the learner's devices), so one valid token is not unlimited. `POST /v1/events` has its own budget of 60 requests a minute per learner, `GET /v1/stream` one of 30 connections a minute, the bundle route 30 a minute, and the catalog, path, today and ticket reads share 120 a minute (section 3.8). The other authenticated writes (`PATCH /v1/me`, `DELETE /v1/me`, `DELETE /v1/me/devices/{id}`) share one budget of 10 a minute per learner, whatever the route, session or device (a `409 username_taken` is a one-guess-per-request enumeration signal, so renames are capped); `DELETE /v1/me` also keeps the per-IP limit above. Sign-out routes stay on the per-IP limit only: they reveal nothing and end the caller's own credential. The per-learner limits are taken after authentication (a request with no valid credential is a `401` and never spends a learner's budget; an authenticated write refused later, by the CSRF check or validation, still spends one, the safe side for a guessing signal), refuse with `429 rate_limited` and `Retry-After`, and are held in memory per API task with bounded size (full buckets are swept, the stalest evicted at the cap, a new learner is never refused). The client IP is the address `TRUSTED_PROXY_HOPS` entries from the right of
   `X-Forwarded-For` (1 locally, behind Caddy; 2 in AWS, behind CloudFront and the ALB), or the
   connection address when the header is shorter; the header is never trusted further.
 - **CLI login:** `dojo login` uses the GitHub device flow with our client id (the same OAuth App as
@@ -740,7 +744,7 @@ tickets are practice. Only the role exam is authoritative, and it runs on our ma
 The CLI sends events to `POST /v1/events` (batched, idempotent by a client-generated id) after each
 command; offline it queues them in `DOJO_HOME`. The API stores them, updates `ticket_progress`, and
 pushes the change to any open page over SSE ("mirrored from your laptop" is the last check and lab
-state the CLI reported, not a live stream).
+state the CLI reported, not a live stream). The exact contracts are in section 3.8.
 
 ### 3.3 Tables
 
@@ -754,10 +758,14 @@ each migration states the grants for `dojo_api` and `dojo_admin` (section 3.7).
 | `orgs` | `slug`, `name` | One row, `public`. |
 | `learners` | `github_id` (unique), `github_login`, `username` (unique), `email`, `language` (en, es: explanations), `extra_time`, `hosted_default`, `age_confirmed_at`, `terms_accepted_at`, `terms_version`, `usage_stats` (bool), `analytics_consent` (null, true, false), `chosen_path_id`, `record_shared` (default false), `record_token_hash` (null when not shared), `suspended_at` | `extra_time` applies to every exam. `terms_version` is the API's required `TERMS_VERSION` at creation (1 to 32 of `a-z 0-9 . -`), insert-only like `terms_accepted_at`; rows from before the column read `unrecorded`. `record_shared` is the opt-in for the share link; the token is shown once, stored hashed, and regenerating replaces the hash. |
 | `sessions`, `cli_tokens` | `learner_id`, `token_hash`, `last_used_at`, `revoked_at`; tokens add `device_name`, `os`, `cli_version`, `ssh_public_key` | Hashes only. M1 creates `cli_tokens` without `ssh_public_key` (the exam milestone adds it). `dojo_api` reads, inserts the device row and updates `last_used_at`, `revoked_at` and `updated_at`; no `DELETE`, and `dojo_admin` has no grant. No expiry: a token ends when revoked or when the learner is deleted (cascade). |
-| `paths`, `roles`, `path_roles` | `slug`, `title`, `status` (available, planned); roles add `kind` (foundations, role), `has_exam`, `advanced`; join has `position` | Content, loaded at deploy. v1 data: one available path. |
-| `catalog_items` | `id` (for example `support-l1/perms-03`), `role_id` (null for practice), `kind` (ticket, writing, quiz, story, feedback, practice), `position`, `title`, `est_minutes`, `tags`, `awards_mark`, `catalog_version`, `bundle_key` | Loaded from the catalog at deploy; the API never parses YAML per request. |
-| `ticket_progress` | `learner_id`, `item_id`, `state` (started, passed), `lab` (local, hosted), `check_count`, `written_hints_opened` (int array), `last_check_at`, `last_check_pass`, `last_check_total`, `last_check_output`, `first_passed_at`, `passed_seconds`, `passed_commit` | One row per learner and item. Revisits never change `first_passed_at`. |
-| `events` | `learner_id`, `client_id` (unique per learner), `type`, `payload` (jsonb), `at` | Append-only audit behind `ticket_progress`. |
+| `paths` | `slug`, `title`, `status` (available, planned), `position` | Content, loaded at deploy from `catalog.yaml`. v1 data: one available path. |
+| `roles` | `slug`, `title`, `kind` (foundations, role), `has_exam`, `advanced` (default false) | Content. A role has no home path and no order of its own: membership and order live in `path_roles`, so Foundations is one row shared by every path. |
+| `path_roles` | `path_id`, `role_id`, `position` | Content. Unique `(path_id, role_id)`. |
+| `catalog_state` | `id` (always 1, `CHECK (id = 1)`), `catalog_version` | One row, upserted on `id = 1` by every successful catalog load (section 3.8) in the same transaction; before the first load there is no row and `GET /v1/catalog` answers `catalog_version: null` with empty lists. It is where `GET /v1/catalog` reads the top-level version; `catalog_items.catalog_version` keeps the version each item was last loaded with. |
+| `catalog_items` | `id` (for example `support-l1/perms-03`), `role_id` (null for practice), `kind` (ticket, writing, quiz, story, feedback, practice), `position`, `title`, `est_minutes`, `tags` (text array), `brief` (markdown), `hints` (text array, one to three), `awards_mark`, `catalog_version`, `bundle_key`, `bundle_sha256`, `bundle_bytes` | Loaded from the catalog at deploy; the API never parses YAML per request. Tickets fill `brief`, `hints` and the bundle columns (section 3.8); other kinds leave them null until their milestone. |
+| `ticket_progress` | `learner_id`, `item_id`, `state` (started, passed, revisit), `lab` (local, hosted; null when an event other than `ticket.started` made the row), `lab_state` (starting, running, failed, stopped, expired; null until a lab event), `lab_state_at`, `first_started_at`, `last_seen_at`, `check_count`, `last_check_at`, `last_check_ok` (null before the first check), `last_check_passed`, `last_check_total`, `last_check_output`, `first_passed_at`, `passed_seconds`, `passed_commit` | One row per learner and item; no row means not started. Written by the events projection in the same transaction (section 3.8). `lab_state_at` and `last_check_at` are the CLI's `client_at` of the event that set the field, so an older event cannot overwrite a newer one; `first_started_at` is a `client_at` too, and `created_at` is the server's. Revisits never change `first_passed_at`. `passed_commit` stays null until M3. The record is kept for the life of the account. |
+| `hint_opens` | `learner_id`, `item_id`, `n` (1 to 3), `opened_at` | Written hints the learner opened, one row each; primary key `(learner_id, item_id, n)`, `learner_id` cascades on delete, `dojo_api` grants as for `ticket_progress`. Kept apart from `ticket_progress` so opening a hint never creates a row or marks a ticket started. The count and list are read from here. |
+| `events` | `learner_id`, `client_event_id` (unique with `learner_id`; the wire field `id`), `type`, `payload` (jsonb), `at` (server clock), `client_at` | Append-only audit behind `ticket_progress`. `at` is the server's; `client_at` is what the CLI said and orders only the per-field rules of section 3.8. A `check.run` payload keeps no output (it lives in `last_check_output`). Deleted after 12 months by `prune_events()`, run by the nightly job like `prune_telemetry()`. |
 | `quiz_answers`, `writing_drafts`, `story_choices` | learner, item, answers or `body`, `review` (jsonb), `submitted_at` | Feedback records. |
 | `belt_marks`, `belt_awards` | mark `slug`, `belt`, `title`; award `learner_id`, `mark_id`, `source_ref`, `awarded_at` | Maturity, from writing, simulated feedback rounds and exam artifacts. The white belt has four marks; none unlocks or blocks a role. The fourth, a feedback round, is a simulated one: Carmen or a team lead sends feedback in a `feedback` item (drawn like a story moment, L4) and the learner replies, reviewed by rubric. No peer is involved. |
 | `exam_defs`, `exam_items` | def: role, `version`, `duration_s` (10800), `pause_s` (900), `pass_items` (4), `parts` (the four parts); item `code` (fixes, reply, brief, update, handoff), `kind` (machine, rubric), `part`, `title`, `rubric` | Content. The five items are data. |
@@ -777,7 +785,7 @@ each migration states the grants for `dojo_api` and `dojo_admin` (section 3.7).
 | `path_waitlist` | `learner_id`, `path_id` (unique together) | The "Tell me when" list for planned paths. |
 | `record_items` | `learner_id`, `ref` (ticket or practice item), `shown` | What the learner chose to show on a shared record. |
 | `system_flags` | `key`, `value` | `maintenance`, `ai_enabled`, `ai_reviews_enabled`, `pass_review_required`, `min_cli_version`, `max_concurrent_machines`, `max_free_lab_machines`, `supporter_soft_cap_h` (60), `supporter_hard_cap_h` (100), `ai_cap_month`. No org. Seeded by migrations (`pass_review_required` seeded on); changed only from A3 (M5b on) or `trip_ai_cap()`. |
-| `catalog_secrets` | `item_id`, `hint_guard` (patterns), `catalog_version` | API only: no endpoint returns it, never in a bundle, never readable by a learner or a CLI. Loaded at deploy from the private catalog repo (section 1.6). |
+| `catalog_secrets` | `item_id`, `hint_guard` (patterns), `catalog_version` | API only: no endpoint returns it, never in a bundle, never readable by a learner or a CLI. Loaded at deploy from the private catalog repo (section 1.6). Created in M7 with the output guard that is its only reader; M2 does not create it. |
 | `teardown_jobs` | `resources` (machine, volume and snapshot ids), `attempts`, `done_at` | No learner id. Also used at the normal end of an exam. |
 | `operators` | `github_id` (unique), `github_login`, `added_by`, `added_at`, `revoked_at` | Operator service only; `dojo_api` has no grant. No `org_id` (platform level, like `system_flags`); migration 00008. `dojo_admin` inserts `github_id`, `github_login`, `added_by` and updates only `revoked_at`, which is one-way (a trigger refuses any change once it is set); no service role deletes. The audit FK keeps an operator row, and so its `github_login`, until that operator's audit rows are pruned after 2 years (flag for the legal review). The first row is written by `dojo-admin bootstrap` with the migration role. |
 | `admin_sessions` | `operator_id`, `token_hash`, `created_at`, `expires_at` (created plus 1 hour, no sliding), `revoked_at` | Operator service only. Migration 00008: a CHECK pins `expires_at` to `created_at` plus 1 hour; `dojo_admin` inserts `operator_id` and `token_hash` and updates only `revoked_at`, one-way like `operators.revoked_at`. |
@@ -813,8 +821,8 @@ request within 30 days is a manual backup restore, not a soft delete.
 
 ### 3.6 API groups
 
-`/v1/auth/*`, `/v1/me` and prefs, `/v1/path` and `/v1/catalog`, `/v1/events`, `/v1/stream` (SSE),
-`/v1/tickets/:id/*` (start, progress, hints), `/v1/hints/ai`, `/v1/quiz`, `/v1/writing`,
+`/v1/auth/*`, `/v1/me` and prefs, `/v1/path`, `/v1/today` and `/v1/catalog`, `/v1/events`, `/v1/stream` (SSE),
+`/v1/tickets/:id/*` (bundle, progress, written hints; M2 routes in section 3.8), `/v1/hints/ai`, `/v1/quiz`, `/v1/writing`,
 `/v1/labs` (hosted start, stop, terminal ticket), `/v1/exams/*`, `/v1/billing/*`, `/v1/inbox`,
 `/v1/push`, `/v1/reports`, `/v1/telemetry`, `/v1/webhooks/{stripe,ses}`, `/v1/health`.
 
@@ -936,7 +944,7 @@ pass, a plan, the pass gate. It gets its own binary, database role and network p
       scales the operator service to 0), and by a compose job locally. `prune_telemetry()`
       (section 3.3, built) runs in the same job: locally the `prune` compose service (`make prune`)
       runs `db/jobs/nightly.sql` on demand; the AWS schedule (EventBridge and an ECS scheduled task
-      running the same SQL with the migration role) is M0b. `prune_admin_audit()` is added to that file.
+      running the same SQL with the migration role) is M0b. `prune_admin_audit()` and `prune_events()` (section 3.3, M2: a fixed 12 months, granted to no service role) are added to that file.
   - `dojo_admin` may, beyond selecting what the screens show: execute `admin_publish_attempt`, `resolve_appeal`, `void_attempt` and
     `delete_learner`; set the override columns of `exam_item_results` (`override_passed`,
     `overridden_by`, `override_note`); insert `comp_grants` and set their `revoked_at` and
@@ -957,7 +965,7 @@ pass, a plan, the pass gate. It gets its own binary, database role and network p
     refused, including inserting a published attempt and a decided appeal. Every new table's
     migration states the grants for both roles.
 - **Audit.** Every action writes an `admin_audit` row in the same transaction as the change.
-  Destructive actions (void, delete, suspend, revoke an operator, any flag) show what will change
+  Destructive actions (void, delete, suspend, unsuspend, revoke an operator, any flag) show what will change
   and need a written reason before the confirm button works.
 - **Screens in v1:**
   - A1 review queue (section 2.7): passes to confirm and appeals. Confirm a pass, override an
@@ -966,7 +974,11 @@ pass, a plan, the pass gate. It gets its own binary, database role and network p
     exam attempts, last doctor report. Actions: give hours or Supporter and take them back
     (`comp_grants`), void an attempt (it drops the result and the retry date, so the learner can
     start again at once, for example after a machine failure), suspend (the API refuses that
-    learner's sessions and CLI tokens), delete (the S1 path, section 3.5). No rename: the learner
+    learner's sessions and CLI tokens), unsuspend (clears `suspended_at`, with a written reason,
+    audited like suspend), delete (the S1 path, section 3.5). Reading is audited too: a search
+    writes a `learner.search` row (the field searched by, never the query, which may be an email)
+    and opening a learner writes a `learner.view` row naming the learner, in the same request, with
+    the reason optional. No rename: the learner
     renames in S1, and an abusive name is a suspend. No separate retry-date edit: voiding covers
     the case it was for.
   - A3 system switches: every `system_flags` key, its current value and the last change from the
@@ -988,6 +1000,332 @@ pass, a plan, the pass gate. It gets its own binary, database role and network p
   revoked account itself is refused, because revocation is one-way. It prints the operator id and a success line only. Locally,
   `make admin-bootstrap LOGIN=ada` runs it as the one-off `admin-bootstrap` compose service
   (profile `jobs`) against the dev stack.
+
+### 3.8 Ticket, bundle, event and stream contracts (M2)
+
+Decided 2026-11-23 (issue 109). Each contract is small on purpose: later milestones add fields and
+event types and do not rewrite these. Everything here is checked by integration tests on the local
+stack (section 1.7): RustFS (S3 API) for bundles, Caddy in front for the stream.
+
+**`ticket.yaml`.** One file per ticket in the catalog repo, at `<role-slug>/<ticket-slug>/`. It
+replaces the old `kata.yaml` (`belt` and `summary` go; `role`, `order`, `est_minutes`, `tags` come
+in). The decoder stays strict: an unknown key is an error, so a typo like `hint:` cannot drop the
+hints.
+
+| Field | Rule |
+|---|---|
+| `id` | `<role-slug>/<ticket-slug>`, each part `[a-z0-9]+(-[a-z0-9]+)*`, 3 to 64 characters in all. Equals the directory path. |
+| `title` | 1 to 80 characters, one line. |
+| `role` | A role slug listed in `catalog.yaml`. Equals the first part of `id`. |
+| `order` | Integer 1 to 999, unique within the role. Becomes `catalog_items.position`. |
+| `est_minutes` | Integer 1 to 240. |
+| `tags` | 0 to 8 distinct values of `[a-z0-9-]{1,24}`. |
+| `brief` | Markdown, 1 to 8,192 bytes. Raw HTML is not rendered. |
+| `hints` | 1 to 3 strings, each 1 to 1,000 characters, least specific first. |
+
+There is no field for the wrong-fix test. It lives in the private repo next to the ticket (a
+`wrong-fix/` directory the catalog's CI runs against `check.sh`, which must fail) and the bundle
+build never copies it. The deploy job and the CLI validate with the same Go code. At deploy, `title`,
+`order`, `est_minutes`, `tags`, `brief` and `hints` are copied into `catalog_items` (`position`,
+`est_minutes`, `tags`, `brief`, `hints`), so the API never parses YAML per request and the CLI
+reads its copy from the bundle.
+
+**Catalog source.** The catalog repo has a top-level `catalog.yaml` with three lists, decoded as
+strictly as `ticket.yaml`: `paths` (`slug`, `title`, `position`, `status` of `available` or
+`planned`), `roles` (`slug`, `title`, `kind` of `foundations` or `role`, `has_exam`, optional
+`advanced`, default false) and `path_roles` (`path`, `role`, `position`; a role that several paths
+share, like Foundations, appears once in `roles` and once per path here, and this list alone says
+which roles a path has and in what order). The load fills `paths`, `roles`, `path_roles` and
+`catalog_state` from it, validates every `ticket.yaml` `role` against it, and sets `kind` to
+`ticket` on every item it reads from a `ticket.yaml`. It runs as a one-off task with the migration
+role and its own S3 credentials, which can only put objects under `bundles/` (the API's credentials
+can only read them). It is one transaction: it upserts everything, then refuses and rolls back
+if any `catalog_items` row that has `ticket_progress` or `hint_opens` rows would disappear, found
+by a `NOT EXISTS` check inside that transaction (so a concurrent first start cannot slip past it).
+
+**Bundle.** A `tar.gz` with `ticket.yaml`, `setup.sh`, `check.sh` and an optional `files/` tree at
+the archive root (no leading directory). Solutions, wrong-fix tests and anything else in the
+ticket's directory are left out.
+
+- **Reproducible:** entries sorted bytewise by path, only regular files and directories (a
+  symlink, hard link or device fails the build), mtime 0, uid and gid 0, empty user and group
+  names, mode 0755 for directories and `.sh` files and 0644 for the rest, gzip header with no
+  name and mtime 0, one fixed compression level, built by the pinned Go tool in the deploy job
+  using only the standard library. The same ticket built twice gives the same bytes. A change of
+  the build tool may change every hash; it is recorded, never assumed.
+- **Caps:** at most 1 MiB compressed, 4 MiB unpacked, 64 entries. The build fails over a cap; the
+  CLI checks them again before it unpacks and refuses a path that is absolute, holds `..` or a
+  backslash, or any link.
+- **Key and hash:** the object key is `bundles/<role-slug>/<ticket-slug>/<sha256>.tar.gz`, the
+  sha256 of the archive in lower-case hex. Keys are immutable (content addressed), so a ticket
+  that did not change keeps its object across loads and a rollback is a new `catalog_items` row
+  pointing at an old key. `catalog_items` records `bundle_key`, `bundle_sha256` and `bundle_bytes`.
+- **`catalog_version`:** the first 12 characters of the catalog repo commit the load was built
+  from, written on every row the load touched and in `catalog_state` (the load itself is described
+  above). It reaches a client in the bundle answer, in `GET /v1/catalog` (from `catalog_state`, the
+  last successful load) and in the `ticket.started` payload. `ticket_progress` has no column for
+  it, on purpose: a row never claims a version the learner may no longer have.
+- **Fetch:** `GET /v1/tickets/{id}/bundle`, bearer or cookie, any active learner, any ticket (no
+  gating in v1). It answers `200` with `Cache-Control: no-store` and
+  `{"item_id", "catalog_version", "sha256", "bytes", "url", "expires_at"}`, where `url` is a
+  presigned `GET` valid 10 minutes. The CLI downloads it, checks size and sha256, and keeps the
+  file as `DOJO_HOME/bundles/<sha256>.tar.gz` for offline starts, with a sidecar
+  `DOJO_HOME/bundles/<sha256>.json` holding `item_id`, `sha256`, `bytes` and the `catalog_version`
+  of the answer; `ticket.started` reads its `catalog_version` from the sidecar. An online
+  `dojo start` always asks this route (it is cheap) and downloads again when the `sha256` is not
+  the cached one, so a corrected ticket reaches learners; it rewrites the sidecar from every answer
+  (a new `catalog_version` with the same `sha256` included) and deletes the older bundle and sidecar
+  of that item after a new download, so one item has one cached bundle. An offline start uses the
+  cached bundle and its sidecar as they are; a bundle without a readable sidecar counts as not
+  cached. Errors: `401 unauthenticated`,
+  `403 account_suspended`, `404 not_found` (unknown id, or a kind that has no bundle),
+  `429 rate_limited` (30 a minute per learner), `500 server_error`. An offline `dojo start`, or one
+  logged out, does not call it (section 2.5).
+
+**`POST /v1/events`.** Bearer only: a cookie or no credential is `401 unauthenticated`, a suspended
+learner `403 account_suspended`. Body `Content-Type: application/json`, at most 1 MB:
+
+```json
+{"events": [
+  {"id": "0194f0f2-6c1e-7d3a-9b7e-2f4a1c8e5d10", "type": "ticket.started",
+   "at": "2026-11-23T10:15:02Z", "item_id": "support-l1/perms-03", "lab": "local",
+   "catalog_version": "a1b2c3d4e5f6"},
+  {"id": "0194f0f2-9a40-7b11-8c02-51d3e7a9f6b2", "type": "check.run",
+   "at": "2026-11-23T10:31:40Z", "item_id": "support-l1/perms-03", "result": "fail",
+   "passed": 3, "total": 5, "duration_ms": 2210, "output": "..."}
+]}
+```
+
+- **Batch:** 1 to 50 events, each at most 64 KB of JSON as sent on the wire, `output` included;
+  the 1 MB body limit is the outer bound. Unknown fields are refused. The
+  validation covers the whole batch before anything is written, and the write is one transaction,
+  so a batch is stored whole or not at all.
+- **Common fields:** `id` is a UUID in the canonical 8-4-4-4-12 form, generated by the CLI when it
+  records the event (the queue keeps it, so a retry resends the same id). `type` is one of the
+  table below. `at` is an RFC 3339 UTC time. The server stamps its own clock in `events.at`; the
+  client time goes to `events.client_at`. It is used for exactly two things, both under
+  `ticket_progress` below: ordering the lab state and the last check, and `passed_seconds`. It is
+  stored as sent, but those rules clamp it to the server time at which the event arrived.
+- **Types accepted from the CLI:**
+
+| `type` | Fields besides `item_id` | Sent by |
+|---|---|---|
+| `ticket.started` | `lab` (`local` or `hosted`), `catalog_version` | `dojo start`, before the lab boots |
+| `lab.started` | none | `dojo start`, once `setup.sh` has run |
+| `lab.failed` | `reason` (`disk`, `memory`, `vm`, `setup`, `other`; M2.4c maps the errors of `internal/lab` to it, and anything unmapped is `other`), optional `detail` (at most 512 characters) | `dojo start` |
+| `lab.stopped` | none | `dojo stop` |
+| `check.run` | `result` (`pass` or `fail`), `duration_ms` (0 to 86400000), optional `passed` and `total` (integers 0 to 1000, both or neither, `passed` at most `total`), `output` (UTF-8, at most 16,384 bytes) | `dojo check` |
+
+- **Output:** the CLI keeps the last 16 KB of the check output, cut on a character boundary, and
+  cuts further, still keeping the tail, if the whole event would pass 64 KB. The API refuses a
+  longer `output` rather than cut it. It is stored only in `ticket_progress.last_check_output`;
+  the `events` row keeps the payload without it, and the API never writes it to a log.
+- **`hint.opened` is server-side only.** It is written by `POST /v1/tickets/{id}/hints/{n}` (below)
+  and a CLI that sends it gets `400 bad_request`, as does any other unknown type.
+- **Idempotency:** `(learner_id, client_event_id)` is unique (the wire field `id`). A repeated id is counted as a duplicate and
+  projects nothing, so a retry after a timeout never counts a check twice.
+- **Unknown items:** an event whose `item_id` is not a ticket in `catalog_items` (retired, or a
+  `DOJO_KATAS` development ticket) is stored, projects nothing and counts as `ignored`. A
+  `check.run` or `lab.*` event for a ticket with no `ticket_progress` row is not ignored: it
+  creates the row as `started` with `first_started_at` set to that event's `client_at`, so a pass
+  is never lost when an earlier `ticket.started` did not arrive.
+- **Answer:** `200 {"accepted": n, "duplicates": d, "ignored": i}` (`accepted` counts the new
+  events, ignored ones included). Errors, all `{"error": "<code>"}`: `400 bad_request` (not JSON,
+  wrong content type, over a limit, a field out of its rules; it adds `"index"`, the position of
+  the first bad event, when one is to blame), `401 unauthenticated`, `403 account_suspended`,
+  `429 rate_limited` with `Retry-After`, `500 server_error`.
+- **Limits:** `POST /v1/events` takes 60 requests a minute per learner, shared by their devices,
+  and the reads below share 120 a minute, all taken after authentication like the other
+  per-learner limits (section 3.1).
+- **CLI queue:** the same pattern as telemetry (section 2.5), in `events-queue.json` in
+  `DOJO_HOME` (0600, atomic writes, at most 500 events, the oldest dropped past that), flushed in
+  batches of at most 50 events and at most 900 KB of JSON, whichever comes first, within 2 s at
+  the end of a command. `200` and `400` drop the batch;
+  `429` and other failures keep it and hold sending (`Retry-After` or one minute, at most an
+  hour). A `401` keeps the queue and holds sending: these events are progress, so they wait for
+  the next `dojo login`, and a login as a different account drops the queue first. `dojo status`
+  says how many events are waiting.
+
+**`ticket_progress`.** One row per learner and ticket, written by the API in the same transaction
+that inserts the event (the columns are in section 3.3). A per-learner advisory lock
+(`pg_advisory_xact_lock(1, hashtext(learner_id::text))`) serializes a learner's batches, so two
+devices cannot deadlock on rows. Advisory locks use the two-integer form, the first being a
+constant per purpose (1 for a learner's progress, 2 for the expiry sweeper), so purposes never
+collide.
+
+- `state`: no row is not started. `started`, `passed`, and `revisit`, a passed ticket that was
+  started again. `revisit` counts as passed everywhere (the path, the Foundations rule, exam
+  eligibility); it only changes what L3 draws. Setting it never touches `first_passed_at`,
+  `passed_seconds`.
+- `lab_state`: `starting`, `running`, `failed`, `stopped`, `expired`.
+- **Ordering.** A queue replayed after being offline must not overwrite newer state with older.
+  The lab events (`ticket.started`, `lab.started`, `lab.failed`, `lab.stopped`) move `lab_state`
+  only when their `client_at` is at or after `lab_state_at`, and then set it; an older one is
+  stored in `events` and changes nothing. `check.run` does the same for the `last_check_*` fields
+  against `last_check_at`. Counters and transitions that cannot go backwards (`check_count`, a
+  pass) apply whatever the order. A `client_at` later than the server
+  clock at arrival counts as that clock.
+- How an event projects (in array order; `now` is the server clock):
+
+| Event | Effect |
+|---|---|
+| `ticket.started` | No row: insert with `state` started, `first_started_at` the event's `client_at`. A `passed` row becomes `revisit` only when the event's `client_at` is after `first_passed_at`; an older one (replayed from a queue, sent before the pass) updates the lab fields by the ordering rule and nothing else. `started` and `revisit` stay. Sets `lab` and, by the ordering rule, `lab_state` starting. |
+| `lab.started` | `lab_state` running (ordering rule). |
+| `lab.failed` | `lab_state` failed (ordering rule). |
+| `lab.stopped` | `lab_state` stopped (ordering rule). |
+| `check.run` | `check_count` plus 1; sets `last_check_at` (the `client_at`), `last_check_ok`, `last_check_passed`, `last_check_total`, `last_check_output` by the ordering rule. On `pass` with `state` started: `state` passed, `first_passed_at` now, `passed_seconds` as below. On `pass` with `state` revisit: back to passed, nothing else. A `fail` never changes `state`. A late `pass` that was recorded before a revisit start but arrives after it also sets `state` back to passed; this is accepted, L3 then shows passed, and `first_passed_at` is unchanged. |
+| `hint.opened` | Inserts `(learner, item, n)` into `hint_opens` (a repeat changes nothing). Never touches `ticket_progress`: no row is created and `state` and `last_seen_at` stay as they are. |
+
+  Every projected event except `hint.opened` sets `last_seen_at` to now. `passed_seconds` is the pass's `client_at`
+  minus `first_started_at`, clamped to between 0 and the server time since the row was created
+  (`now` minus `created_at`), so an offline pass reads as the learner lived it and a wrong clock
+  cannot report more time than the server saw. It is a rough figure for L3, not a score.
+- **Expiry:** a sweeper in the API (every 10 minutes, one task at a time through
+  `pg_try_advisory_xact_lock(2, 0)`, taken inside the sweep's own transaction) sets `lab_state`
+  expired on rows in `starting` or `running` whose `last_seen_at` is more than 7 days old, and
+  notifies each learner (stream below). It works through the rows in small batches (100 rows),
+  ordered by `(learner_id, item_id)`, and takes that learner's progress lock (class 1) before it
+  touches the learner's rows, so it cannot deadlock with a projection. Only an event
+  counts as a sign of life: a CLI command that reports nothing does not. A later `ticket.started`
+  leaves `expired`. `failed` and `stopped` do not expire.
+- **Foundations rule:** a role with `has_exam` false (Foundations) is passed when every catalog
+  item of that role with `kind` ticket has a `ticket_progress` row in `passed` or `revisit`. It is
+  derived on read, never stored, and `GET /v1/path` returns it as `passed` per role. Quizzes and
+  writing tasks do not count (they never block, section 2.2). Support L1's "passed every ticket"
+  start rule (section 2.7) uses the same predicate.
+- **Written hints:** `GET /v1/tickets/{id}` answers the ticket (`title`, `brief`, `est_minutes`,
+  `tags`, `hint_count`), the learner's own `ticket_progress` row (or null), including
+  `last_check_output`, and the text of the hints already opened, read from `hint_opens` (all of
+  them when `state` is passed or revisit).
+  `POST /v1/tickets/{id}/hints/{n}` (cookie with the CSRF headers, or bearer) opens hint `n`: it
+  answers `200 {"n", "text"}`, and when `n` was not yet open it inserts the `hint_opens` row and
+  writes a `hint.opened` event with a server-made id, in one transaction. A hint never gates
+  anything and nothing gates it: a ticket that was not started can still open its hints, and doing
+  so does not create a `ticket_progress` row or mark the ticket started. Errors: `404 not_found` (unknown ticket, or `n` outside 1 to `hint_count`),
+  `409 hint_locked` (`n` above 1 and hint `n - 1` not open, unless the ticket is passed), plus the
+  usual `401`, `403`, `429` (it shares the events budget) and `500`.
+
+**Read routes.** `GET /v1/catalog`, `/v1/path`, `/v1/today` and `/v1/tickets/{id}` take the cookie
+or the bearer of an active learner and share a budget of 120 reads a minute per learner. Errors,
+all `{"error": "<code>"}`: `401 unauthenticated`, `403 account_suspended`, `404 not_found` (only
+the ticket route), `429 rate_limited` with `Retry-After`, `500 server_error`. Answers are
+`Cache-Control: no-store`. Examples, trimmed to one item:
+
+`GET /v1/catalog` is the public catalog (no brief, no hints, no learner data):
+
+```json
+{"catalog_version": "a1b2c3d4e5f6",
+ "paths": [{"slug": "systems-devops", "title": "Systems and DevOps", "status": "available",
+            "position": 1},
+           {"slug": "security", "title": "Security", "status": "planned", "position": 2}],
+ "roles": [{"slug": "foundations", "title": "Foundations", "kind": "foundations",
+            "has_exam": false, "advanced": false},
+           {"slug": "support-l1", "title": "Support L1", "kind": "role", "has_exam": true,
+            "advanced": false}],
+ "path_roles": [{"path": "systems-devops", "role": "foundations", "position": 1},
+                {"path": "systems-devops", "role": "support-l1", "position": 2}],
+ "items": [{"id": "support-l1/perms-03", "role": "support-l1", "order": 3, "kind": "ticket",
+            "title": "Fix the shared folder", "est_minutes": 20, "tags": ["permissions"]}]}
+```
+
+`GET /v1/path` is the learner's path with their state. With no `chosen_path_id` it returns the only
+available path and `"chosen": false` (section 2.1). A role is `locked` when its path is `planned` or it has no ticket items yet
+(`tickets_total` 0). Foundations' `passed` is the rule above, derived here:
+
+```json
+{"path": "systems-devops", "chosen": false,
+ "roles": [{"slug": "foundations", "title": "Foundations", "locked": false, "passed": false,
+            "tickets_passed": 4, "tickets_total": 6,
+            "items": [{"id": "foundations/terminal-01", "title": "Find the log", "order": 1,
+                       "state": "passed", "lab_state": "stopped"},
+                      {"id": "foundations/terminal-05", "title": "Free the disk", "order": 5,
+                       "state": null, "lab_state": null}]},
+           {"slug": "systems-l2", "title": "Systems L2", "locked": true, "passed": false,
+            "tickets_passed": 0, "tickets_total": 0, "items": []}]}
+```
+
+`GET /v1/today` answers what L1 draws. `current` is the started ticket with the latest
+`last_seen_at` that is not passed (`null` if none); `next` is the first ticket, in path order, with
+no progress or only `started`, other than `current` (`null` if none); `role` is the progress of
+the role that holds `current`, or else `next`. When every ticket of every open role is passed
+(`state` passed or revisit), `current` and `next` are both `null`, `all_passed` is `true` and
+`role` is the last role in path order:
+
+```json
+{"current": {"id": "foundations/terminal-04", "title": "Count the lines", "state": "started",
+             "lab_state": "running"},
+ "next": {"id": "foundations/terminal-05", "title": "Free the disk", "state": null,
+          "lab_state": null},
+ "role": {"slug": "foundations", "title": "Foundations", "tickets_passed": 3, "tickets_total": 6},
+ "all_passed": false}
+```
+
+`GET /v1/tickets/{id}` is L3. `hints` holds only the opened ones, as `{n, text}`; a locked hint is
+absent, and `hint_count` says how many exist. A ticket never started has `"progress": null`:
+
+```json
+{"id": "support-l1/perms-03", "title": "Fix the shared folder", "role": "support-l1",
+ "est_minutes": 20, "tags": ["permissions"], "brief": "Ada cannot write to ...",
+ "hint_count": 3, "hints": [{"n": 1, "text": "Look at who owns the directory."}],
+ "progress": {"state": "started", "lab": "local", "lab_state": "running", "check_count": 2,
+              "last_check_ok": false, "last_check_at": "2026-11-23T10:31:40Z",
+              "last_check_passed": 3, "last_check_total": 5, "last_check_output": "...",
+              "first_passed_at": null, "passed_seconds": null, "passed_commit": null}}
+```
+
+`last_check_output` is returned here and nowhere else, is always rendered escaped, and is never
+written to a log, a trace or an error report.
+
+**`GET /v1/stream` (SSE).** One-way, as chosen in section 1.1.
+
+- **Auth:** the `dojo_session` cookie (an `EventSource` sends it and cannot set headers). No
+  cookie principal is `401 unauthenticated`; a bearer is `403 forbidden` (the CLI has no use for it);
+  a suspended learner `403 account_suspended`. It is a `GET`, so no CSRF header. The API re-checks
+  the session at every heartbeat and closes the stream when it is revoked or the learner is
+  suspended; the page's next connect then gets the `401` and goes to sign-in.
+- **Headers:** `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`,
+  `X-Accel-Buffering: no`, and a first line `retry: 3000`. The handler flushes after every write
+  and clears its write deadline (`http.ResponseController`), so the server's write timeout does
+  not cut it.
+- **Events:** `event: ready` (data `{}`) is sent once, as the first message, after the task has
+  its `LISTEN` in place, so nothing committed after it can be missed. `event: resync` (data `{}`)
+  tells the page its listener lost messages (see Fan-out below). `event: progress` with `data: {"item_id", "state", "lab_state", "lab",
+  "check_count", "last_check_ok", "last_check_at"}` (a null where unset; no output, so the
+  message stays small), sent whenever a projection or the sweeper changes that ticket's row, once
+  per ticket per transaction. `event: heartbeat` with `data: {"at": "<RFC 3339>"}` every 25 s
+  (`STREAM_HEARTBEAT_SECONDS`, 25 by default, shorter in tests): under CloudFront's 30 s origin
+  read timeout and the ALB's 60 s idle timeout. Later milestones add event names (O2's `login` in
+  M3); a page ignores a name it does not know.
+- **Reconnect:** no `id:` and no replay. The payload is the current state, not a log, so the
+  page refetches `GET /v1/path` (and `GET /v1/tickets/{id}` on L3) on `ready`, which comes on
+  every open including the first, and again on `resync`, then carries on; the browser reconnects
+  after 3 s by itself. A page that sees nothing for 60 s
+  closes and reconnects. The 10 s polling fallback of section 1.1 stays for a browser that cannot
+  hold the stream; it fits the 120 reads a minute together with the refetches on `ready` and
+  `resync`.
+- **On the page:** on `progress` the page patches the open L3 from the payload and refetches
+  `GET /v1/path` or `GET /v1/today`, whichever it shows, debounced by 500 ms so a burst makes one
+  read; on `ready` and `resync` it refetches everything it shows. A `429` on a read waits for
+  `Retry-After` before the next read; several tabs under steady checks can reach the read budget,
+  one tab does not.
+- **Fan-out:** `progress` is sent with `pg_notify` on the channel `dojo_learner_<learner id, no
+  dashes>`, at commit, so it carries only committed rows. Each API task keeps one dedicated
+  listener connection (not from the pool): it `LISTEN`s to a learner's channel while that learner
+  has an open stream on the task and `UNLISTEN`s when the last one closes. If that connection
+  drops, the task reconnects, `LISTEN`s to every channel it had, and sends `resync` to all its
+  open streams, because notifications sent meanwhile are gone. A payload is at most 8,000 bytes
+  (Postgres' limit); ours is far smaller.
+- **Limits:** at most 5 open streams per learner per API task; a sixth is refused with
+  `429 too_many_streams` and nothing is evicted, so a tab that was refused falls back to the 10 s
+  polling of section 1.1. At most 30 connections a minute per learner, `429 rate_limited` with
+  `Retry-After`; an `EventSource` does not reconnect after a non-`200`, so the page recreates it
+  after 30 s when it sees that one. Both caps are per API task in M2, with no
+  shared counter; revisit them at M5a when tasks scale out.
+- **Edge:** Caddy proxies `/v1/stream` with `flush_interval -1`; in AWS the `/v1/*` behaviour has
+  caching disabled and forwards the cookie, and CloudFront and the ALB pass the stream through.
+  An edge integration test opens the stream through Caddy, posts an event with the bearer and
+  reads `ready`, then the `progress` message, then a `heartbeat`; a second test kills the
+  listener connection and expects `resync`.
 
 ## 4. Accessibility carried into the build
 
@@ -1100,7 +1438,7 @@ stack (section 1.7); deploying to AWS is the target, not a prerequisite. Content
 parallel (section 5).
 
 - **M0a: Local hello world.** First `compose.yaml` (`docker compose up` brings up Caddy, the web
-  page, the API with `/v1/health`, Postgres and the migrations job; MinIO, Mailpit and the runner
+  page, the API with `/v1/health`, Postgres and the migrations job; RustFS, Mailpit and the runner
   skeleton can follow in later PRs), `make dev`, a first `test:integration` and CI (`Web: Tests`,
   `API: Tests`). Needs no AWS account.
 - **M0b: Public "coming soon".** The AWS Organization with the app account and the machines
@@ -1123,13 +1461,20 @@ parallel (section 5).
   the first email in M3; `publish_attempt`, `admin_publish_attempt`, `void_attempt`
   and the attempt triggers land with the exam tables in M6a, `resolve_appeal` in M6b, `trip_ai_cap()` in
   M7.
-- **M2: Tickets on local labs, mirrored on the web.** Catalog sync and bundles, CLI verb changes
-  (`ssh`, `stop`, `status`, `check` events), `ticket_progress`, SSE, Today, Path, ticket page,
-  written hints, public pages P1 to P4 and LG1. Operator A2 learner lookup with suspend
+- **M2: Tickets on local labs, mirrored on the web.** The contracts are in section 3.8. Catalog
+  sync and bundles (`catalog_items` only; `catalog_secrets` waits for M7), CLI verb changes
+  (`ssh`, `stop`, `status`, `check` events; `dojo start` fetches its bundle with the CLI token, and a cached bundle starts logged out), `ticket_progress`,
+  SSE, Today, Path, ticket page, written hints, public pages P1 to P4 (the P1 install command is a
+  placeholder until M0b) and LG1 as a `noindex` draft. A learner with no chosen path gets the
+  only available one until O0 lands in M3. `dojo check` reports a pass without a signed commit
+  (it comes with the practice repo in M3) and `dojo hint` prints the L3 URL until M7. Operator A2
+  learner lookup (searches and views write `admin_audit` rows) with suspend, unsuspend
   and delete (the E8 row is queued now and sent once its template lands in M9; void comes with the exam tables in M6a, comps with M8's
   entitlements).
 - **M3: Onboarding.** O0 with the waitlist, O1 to O5, `dojo doctor` verifying the O4 steps and
-  reporting, AGENTS.md and `dojo mcp`, E1 over Mailpit and SES, first-run Today, the report form.
+  reporting, AGENTS.md and `dojo mcp`, E1 over Mailpit and SES, first-run Today, the report form,
+  and the signed commit on a pass (`dojo check` writes it into the practice repo from O4, filling
+  `passed_commit`).
 - **M4: Between tickets.** Writing tasks, quizzes and the simulated feedback round with the AI
   review adapter, practice catalogue, inbox, belt marks, settings S3 and S4, PWA W1 to W5.
 - **M5a: Runner and pool.** Packer AMI and the lab image, runner, mTLS to the API, `Backend`
@@ -1149,12 +1494,13 @@ parallel (section 5).
   userspace reading. Then the checker and disk reading, rubric scoring, passes pending with `pass_review_required` on, the
   review queue (A1), appeals and `resolve_appeal`, the exam spend alarm. End-to-end exam run with escape attempts.
 - **M7: AI hint button.** The hint endpoint on the Bedrock adapter from M4, `dojo hint`, caps (20
-  a day, EUR 50 a month), the budget alarm, the output guard with `catalog_secrets`.
+  a day, EUR 50 a month), the budget alarm, the output guard with `catalog_secrets` (the table and
+  its deploy-time load arrive here; nothing reads the patterns before).
 - **M8: Money.** Stripe Checkout and Portal, signed webhooks, Supporter, packs, P6, E5 and E6, plan
   entitlements, operator A2 comps, in Stripe test mode until the tax decision and the GDPR review for 14 to 17 year
   olds are done; live charges switch on only after both. Exams stay free and equal on every plan.
 - **M9: Launch.** Create `pro`, size the warm pool, domain and email, SES production access, legal
-  text, live Stripe keys, a11y and UX fixes, E7 and E8, the first school. Launch checklist (phase 6).
+  text (LG1 leaves draft and `noindex` after the review), live Stripe keys, a11y and UX fixes, E7 and E8, the first school. Launch checklist (phase 6).
 
 M7 and M8 can swap; M5a and M5b must precede M6b.
 

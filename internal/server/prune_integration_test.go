@@ -79,3 +79,92 @@ func TestPruneTelemetryIsNotExecutableByServiceRoles(t *testing.T) {
 		}
 	}
 }
+
+// seedAuditAt writes one audit row of the given age under the marker action, as the owner.
+func seedAuditAt(t *testing.T, marker, age string) {
+	t.Helper()
+	asOwner(t, "INSERT INTO admin_audit (operator_id, operator_login, action, target_type, target_id, at) "+
+		"SELECT id, 'prune-test', '"+marker+"', 'test', 'x', now() - interval '"+age+"' FROM operators WHERE github_login = 'prune-test'")
+}
+
+func auditCount(t *testing.T, marker string) string {
+	t.Helper()
+	return asOwner(t, "SELECT count(*) FROM admin_audit WHERE action = '"+marker+"'")
+}
+
+func TestPruneAdminAuditKeepsTwoYears(t *testing.T) {
+	marker := telemetryMarker(t)
+	asOwner(t, "DELETE FROM admin_audit WHERE at < now() - interval '2 years'")
+	asOwner(t, "INSERT INTO operators (github_id, github_login) VALUES (910000001, 'prune-test') ON CONFLICT (github_id) DO NOTHING")
+	cleanup := "DELETE FROM admin_audit WHERE action = '" + marker + "'"
+	t.Cleanup(func() {
+		asOwner(t, cleanup)
+		asOwner(t, "DELETE FROM operators WHERE github_id = 910000001")
+	})
+	for _, age := range []string{"2 years 1 day", "3 years", "1 year 11 months", "1 hour"} {
+		seedAuditAt(t, marker, age)
+	}
+	out := runPruneJob(t)
+	if !strings.Contains(out, "prune: admin_audit deleted 2") {
+		t.Fatalf("job output: %q, want 2 deleted", out)
+	}
+	if got := auditCount(t, marker); got != "2" {
+		t.Fatalf("rows left: %q, want the 2 newer than 2 years", got)
+	}
+	if got := asOwner(t, "SELECT count(*) FROM admin_audit WHERE action = '"+marker+"' AND at < now() - interval '2 years'"); got != "0" {
+		t.Fatalf("old rows left: %q", got)
+	}
+	if out := runPruneJob(t); !strings.Contains(out, "prune: admin_audit deleted 0") {
+		t.Fatalf("second run: %q, want 0 deleted", out)
+	}
+	if got := auditCount(t, marker); got != "2" {
+		t.Fatalf("rows after second run: %q, want 2", got)
+	}
+}
+
+func TestPruneAdminAuditIsNotExecutableByServiceRoles(t *testing.T) {
+	for _, role := range []string{"dojo_api", "dojo_admin", "public"} {
+		got := asOwner(t, "SELECT has_function_privilege('"+role+"', 'prune_admin_audit()', 'EXECUTE')")
+		if got != "f" {
+			t.Fatalf("%s can execute prune_admin_audit(): %q", role, got)
+		}
+	}
+}
+
+// Revocation is one-way (trigger refuse_revoked_at_change): NULL to a time works, nothing else does.
+// Each statement is its own psql call, so an error never hides behind another one.
+func TestRevokedAtIsOneWay(t *testing.T) {
+	pw := envExample(t, "DOJO_ADMIN_DB_PASSWORD")
+	cleanup := func() {
+		asOwner(t, "DELETE FROM admin_sessions WHERE operator_id IN (SELECT id FROM operators WHERE github_id = 910000002)")
+		asOwner(t, "DELETE FROM operators WHERE github_id = 910000002")
+	}
+	cleanup()
+	t.Cleanup(cleanup)
+	asOwner(t, "INSERT INTO operators (github_id, github_login) VALUES (910000002, 'revoke-test')")
+	asOwner(t, "INSERT INTO admin_sessions (operator_id, token_hash) SELECT id, decode(repeat('00', 32), 'hex') FROM operators WHERE github_id = 910000002")
+	for _, tbl := range []struct{ name, where string }{
+		{"operators", "github_id = 910000002"},
+		{"admin_sessions", "operator_id IN (SELECT id FROM operators WHERE github_id = 910000002)"},
+	} {
+		set := func(v string) (string, error) {
+			return psqlAs(t, "dojo_admin", pw, "UPDATE "+tbl.name+" SET revoked_at = "+v+" WHERE "+tbl.where)
+		}
+		if out, err := set("now()"); err != nil {
+			t.Fatalf("%s: revoke refused: %v %s", tbl.name, err, out)
+		}
+		for _, v := range []string{"NULL", "now() + interval '1 day'"} {
+			out, err := set(v)
+			if err == nil || !strings.Contains(out, "cannot change") {
+				t.Fatalf("%s: revoked_at = %s: want refusal, got %v %q", tbl.name, v, err, out)
+			}
+		}
+		if got := asOwner(t, "SELECT count(*) FROM "+tbl.name+" WHERE "+tbl.where+" AND revoked_at IS NOT NULL AND revoked_at <= now()"); got != "1" {
+			t.Fatalf("%s: revoked row changed: %q", tbl.name, got)
+		}
+		// A write that keeps revoked_at as it is stays allowed.
+		if out, err := set("revoked_at"); err != nil {
+			t.Fatalf("%s: no-op revoked_at refused: %v %s", tbl.name, err, out)
+		}
+	}
+}

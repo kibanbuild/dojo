@@ -20,6 +20,7 @@ bin/dojo clean             # deletes the lab
 bin/dojo mcp               # the mentor server for your AI tool (see below)
 bin/dojo login             # signs in with GitHub (device code); --force logs in again
 bin/dojo logout            # revokes this computer's login; --local only forgets it here
+bin/dojo telemetry         # on, off or status of the usage stats (see Telemetry)
 ```
 
 It needs [Lima](https://lima-vm.io/) on macOS or Linux.
@@ -42,6 +43,31 @@ export DOJO_GITHUB_URL=http://localhost:8081   # the fake GitHub
 export DOJO_GITHUB_CLIENT_ID=dojo-web-local
 bin/dojo login   # approve the code at http://localhost:8081/login/device
 ```
+
+## Telemetry
+
+The CLI shares usage stats, on by default. The first command you run prints a notice on
+stderr saying so, and sends nothing; stats start with the next command.
+
+What is sent, per command: its name (like `check`), its result (`ok`, `failed`, `error` or
+`canceled`) and how long it took in milliseconds, plus the CLI version and your OS once per batch.
+Never arguments, file names, paths, lab output or anything you type. Events are kept 12 months in
+the EU. When you are logged in they are tied to your account; otherwise they are not tied to anyone. `dojo mcp` and
+`dojo telemetry` are not counted. Nothing is sent until an API is configured (`DOJO_API_URL`).
+
+Events wait in a small queue file in `DOJO_HOME` (`telemetry-queue.json`, mode 0600, at most 100) and
+go out in batches of up to 20 when a command ends, within two seconds; a slow or failing API never
+slows or fails the command.
+
+```sh
+dojo telemetry off      # never send, drop the queue; when logged in, also turns it off on your account
+dojo telemetry on       # turn it back on (and on your account when logged in)
+dojo telemetry status   # what it is now and what is sent
+```
+
+`dojo login` reads the account setting: if you turned usage stats off on the website, they are off
+here too. `DOJO_TELEMETRY=off` or `DO_NOT_TRACK=1` in the environment turns them off for that
+run whatever the setting says; the environment can only turn them off, never on.
 
 ## Let your AI mentor you
 

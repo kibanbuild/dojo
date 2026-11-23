@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,9 @@ func (f *fakeSessions) UpdateLearnerProfile(_ context.Context, a repo.UpdateLear
 	}
 	if a.Language.Valid {
 		l.Language = a.Language.String
+	}
+	if a.UsageStats.Valid {
+		l.UsageStats = a.UsageStats.Bool
 	}
 	f.learner = l
 	return l, nil
@@ -72,7 +76,10 @@ func TestPatchMeValidation(t *testing.T) {
 	}{
 		{"empty body", ``, "bad_request"},
 		{"empty object", `{}`, "bad_request"},
-		{"only nulls", `{"username":null,"language":null}`, "bad_request"},
+		{"only nulls", `{"username":null,"language":null,"usage_stats":null}`, "bad_request"},
+		{"usage_stats string", `{"usage_stats":"false"}`, "bad_request"},
+		{"usage_stats number", `{"usage_stats":0}`, "bad_request"},
+		{"usage_stats object", `{"usage_stats":{}}`, "bad_request"},
 		{"not json", `nope`, "bad_request"},
 		{"unknown field", `{"username":"abc","email":"x@y.z"}`, "bad_request"},
 		{"trailing data", `{"username":"abc"}{}`, "bad_request"},
@@ -149,6 +156,27 @@ func TestPatchMeSuccess(t *testing.T) {
 				}
 				if len(f.updates) != 1 || f.updates[0].Username.Valid != tt.wantUserSet || f.updates[0].Language.Valid != tt.wantLangSet ||
 					f.updates[0].ID != (pgtype.UUID{Bytes: [16]byte{1}, Valid: true}) {
+					t.Fatalf("update args %+v", f.updates)
+				}
+			})
+		}
+	}
+}
+
+func TestPatchMeUsageStats(t *testing.T) {
+	for _, mode := range []struct {
+		name   string
+		cookie bool
+	}{{"cookie", true}, {"bearer", false}} {
+		for _, v := range []bool{true, false} {
+			t.Run(mode.name+"/"+strconv.FormatBool(v), func(t *testing.T) {
+				f := newPatchFake()
+				f.learner.UsageStats = !v
+				rec := doPatch(t, f, patchCall{cookie: mode.cookie, csrf: true, body: `{"usage_stats":` + strconv.FormatBool(v) + `}`})
+				if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"usage_stats":`+strconv.FormatBool(v)) {
+					t.Fatalf("got %d %q", rec.Code, rec.Body.String())
+				}
+				if len(f.updates) != 1 || f.updates[0].UsageStats != (pgtype.Bool{Bool: v, Valid: true}) || f.updates[0].Username.Valid || f.updates[0].Language.Valid {
 					t.Fatalf("update args %+v", f.updates)
 				}
 			})

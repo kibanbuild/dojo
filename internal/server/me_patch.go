@@ -23,11 +23,13 @@ const maxPatchBody = 1 << 10
 type patchMeRequest struct {
 	Username *string `json:"username"`
 	Language *string `json:"language"`
+	// UsageStats is the CLI and web usage-stats switch (design 1.7); a JSON null is absent.
+	UsageStats *bool `json:"usage_stats"`
 }
 
 func validLanguage(l string) bool { return l == "en" || l == "es" }
 
-// patchMe updates the signed-in learner's username and language (S1) and answers with the
+// patchMe updates the signed-in learner's username, language and usage-stats switch (S1) and answers with the
 // same body as GET /v1/me. The username is lowercased first, then held to the sign-in rules.
 func (a Auth) patchMe(w http.ResponseWriter, r *http.Request) {
 	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
@@ -37,7 +39,7 @@ func (a Auth) patchMe(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxPatchBody))
 	dec.DisallowUnknownFields()
 	var req patchMeRequest
-	if err := dec.Decode(&req); err != nil || dec.Decode(&struct{}{}) != io.EOF || (req.Username == nil && req.Language == nil) {
+	if err := dec.Decode(&req); err != nil || dec.Decode(&struct{}{}) != io.EOF || (req.Username == nil && req.Language == nil && req.UsageStats == nil) {
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
@@ -56,6 +58,10 @@ func (a Auth) patchMe(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		arg.Language = pgtype.Text{String: *req.Language, Valid: true}
+	}
+
+	if req.UsageStats != nil {
+		arg.UsageStats = pgtype.Bool{Bool: *req.UsageStats, Valid: true}
 	}
 
 	l, err := a.Store.UpdateLearnerProfile(context.WithoutCancel(r.Context()), arg)

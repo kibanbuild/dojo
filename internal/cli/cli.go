@@ -41,6 +41,8 @@ Usage:
   dojo mcp                run the mentor server your AI tool connects to (see the README)
   dojo login [--force]    sign in with GitHub (an account made on the website first)
   dojo logout [--local]   sign out; --local only forgets the token on this computer
+  dojo telemetry [on|off|status]
+                          share usage stats (on by default; see the README)
 
 Environment:
   DOJO_BACKEND     lab backend (default lima)
@@ -49,6 +51,8 @@ Environment:
   DOJO_API_URL     the Dojo API (login, logout)
   DOJO_GITHUB_URL  GitHub's base URL (default https://github.com)
   DOJO_GITHUB_CLIENT_ID  the OAuth App client id login uses
+  DOJO_TELEMETRY=off, DO_NOT_TRACK=1
+                   never share usage stats, whatever dojo telemetry says
 `
 
 // ErrCheckFailed means exit 1; the failure was already explained to the learner.
@@ -74,17 +78,38 @@ type App struct {
 	Login LoginConfig
 	HTTP  *http.Client
 	Sleep func(context.Context, time.Duration) error
+	// Getenv reads DOJO_TELEMETRY and DO_NOT_TRACK; nil means the process environment.
+	Getenv func(string) string
 }
 
-// Run executes one command line (without the program name).
+// commands are the names usage stats may record; anything else (help, a typo) is never counted.
+var commands = map[string]bool{"list": true, "status": true, "hint": true, "doctor": true, "start": true, "shell": true,
+	"ssh-config": true, "check": true, "clean": true, "mcp": true, "login": true, "logout": true, "telemetry": true}
+
+// Run executes one command line (without the program name) and, around it, records the command's
+// name, result and duration for usage stats. Only the name is kept, never an argument.
 func (a *App) Run(ctx context.Context, args []string) error {
+	if len(args) == 0 || !commands[args[0]] {
+		return a.run(ctx, args)
+	}
+	name := args[0]
+	record := a.telemetryBegin(name)
+	t0 := a.now()
+	err := a.run(ctx, args)
+	if record {
+		a.telemetryEnd(ctx, name, a.now().Sub(t0), err)
+	}
+	return err
+}
+
+func (a *App) run(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		fmt.Fprint(a.Out, Usage)
 		return nil
 	}
 	cmd, rest := args[0], args[1:]
 	switch cmd {
-	case "list", "status", "hint", "doctor", "start", "shell", "ssh-config", "check", "clean", "mcp", "login", "logout":
+	case "list", "status", "hint", "doctor", "start", "shell", "ssh-config", "check", "clean", "mcp", "login", "logout", "telemetry":
 	default:
 		return fmt.Errorf("unknown command %q (see dojo help)", cmd)
 	}
@@ -109,6 +134,9 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	want := 0
 	if cmd == "start" {
 		want = 1
+	}
+	if cmd == "telemetry" {
+		return a.telemetryCmd(ctx, fset.Args())
 	}
 	if fset.NArg() != want {
 		if cmd == "start" {

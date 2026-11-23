@@ -30,8 +30,12 @@ func run(args []string) error {
 	switch {
 	case len(args) == 1 && args[0] == "healthcheck":
 		return healthcheck(addr)
+	case len(args) > 0 && args[0] == "bootstrap":
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		return bootstrap(ctx, args[1:], os.Getenv, os.Stdout)
 	case len(args) > 0:
-		return fmt.Errorf("unknown arguments %q: usage: dojo-admin [healthcheck]", args)
+		return fmt.Errorf("unknown arguments %q: usage: dojo-admin [healthcheck | bootstrap <github-login>]", args)
 	}
 
 	dbURL := os.Getenv("DATABASE_URL")

@@ -47,6 +47,10 @@ table PR adds its grant rows (allowed and refused) to `grantCases` in `internal/
   published only on `127.0.0.1:8090` and never behind Caddy. It answers only requests whose `Host` is
   `127.0.0.1:8090` (421 otherwise); set `ADMIN_PORT` to move the host port. `make dev` and
   `make test-integration` start it. A test in `internal/admin` fails if `cmd/dojo-api` imports it.
+- `make admin-bootstrap LOGIN=ada` makes that GitHub login the first operator of the dev stack, so you can
+  sign in to the operator service locally (the fake GitHub knows `ada`, `bob` and `cy`; sign-in needs a
+  user with two-factor on: `ada` or `cy`, not `bob`). It runs `dojo-admin bootstrap` as a one-off with the migration
+  role and refuses once an active operator exists. To start over, `docker compose down -v` drops the data.
 - The single local origin is Caddy (`edge`) on `http://localhost:8080`: `/v1/*` goes to the API,
   everything else to the built site. `make test-integration` also checks both through it.
 - Database access goes through sqlc: after editing `db/migrations/` or `internal/server/repo/queries/`,

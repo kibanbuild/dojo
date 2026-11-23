@@ -75,6 +75,20 @@ func LoadConfig(get func(string) string, local bool) (Config, error) {
 	return c, nil
 }
 
+// LoadAPIConfig reads only GITHUB_API_URL (default: the real GitHub) for the unauthenticated
+// lookups of the bootstrap command, which holds no OAuth credentials.
+func LoadAPIConfig(get func(string) string, local bool) (Config, error) {
+	v := get("GITHUB_API_URL")
+	if v == "" {
+		v = "https://api.github.com"
+	}
+	v = strings.TrimRight(v, "/")
+	if !bareOrigin(v, local) {
+		return Config{}, errors.New("GITHUB_API_URL must be a bare origin (https, or http when local)")
+	}
+	return Config{APIURL: v}, nil
+}
+
 // bareOrigin accepts scheme://host[:port] only: no userinfo, path, query, fragment or empty port.
 func bareOrigin(v string, local bool) bool {
 	u, err := url.Parse(v)

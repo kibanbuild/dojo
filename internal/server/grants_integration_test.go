@@ -194,6 +194,42 @@ var grantCases = []struct {
 	// unknown id is a no-op. Its EXECUTE list is also asserted in delete_learner_integration_test.go.
 	{"dojo_api", "SELECT delete_learner(gen_random_uuid())", true},
 	{"dojo_admin", "SELECT delete_learner(gen_random_uuid())", true},
+
+	// Catalog tables (migration 00012): content written only by the load job as the migration role.
+	// dojo_api reads; dojo_admin has no grant until a screen joins them.
+	{"dojo_api", "SELECT id, slug, title, status, position FROM paths", true},
+	{"dojo_api", "SELECT id, slug, title, kind, has_exam, advanced FROM roles", true},
+	{"dojo_api", "SELECT path_id, role_id, position FROM path_roles", true},
+	{"dojo_api", "SELECT id, role_id, kind, position, title, est_minutes, tags, brief, hints, awards_mark, catalog_version, bundle_key, bundle_sha256, bundle_bytes FROM catalog_items", true},
+	{"dojo_api", "SELECT id, catalog_version FROM catalog_state", true},
+	{"dojo_api", "INSERT INTO paths (org_id, slug, title, status, position) SELECT id, 'x', 'X', 'planned', 1 FROM orgs WHERE false", false},
+	{"dojo_api", "UPDATE paths SET title = 'x' WHERE false", false},
+	{"dojo_api", "DELETE FROM paths WHERE false", false},
+	{"dojo_api", "TRUNCATE paths CASCADE", false},
+	{"dojo_api", "INSERT INTO roles (org_id, slug, title, kind, has_exam) SELECT id, 'x', 'X', 'role', false FROM orgs WHERE false", false},
+	{"dojo_api", "UPDATE roles SET title = 'x' WHERE false", false},
+	{"dojo_api", "DELETE FROM roles WHERE false", false},
+	{"dojo_api", "TRUNCATE roles CASCADE", false},
+	{"dojo_api", "INSERT INTO path_roles (org_id, path_id, role_id, position) SELECT id, gen_random_uuid(), gen_random_uuid(), 1 FROM orgs WHERE false", false},
+	{"dojo_api", "UPDATE path_roles SET position = 2 WHERE false", false},
+	{"dojo_api", "DELETE FROM path_roles WHERE false", false},
+	{"dojo_api", "TRUNCATE path_roles", false},
+	{"dojo_api", "INSERT INTO catalog_items (id, org_id, kind, position, title, est_minutes, catalog_version) SELECT 'a/b', id, 'practice', 1, 'X', 1, '000000000000' FROM orgs WHERE false", false},
+	{"dojo_api", "UPDATE catalog_items SET title = 'x' WHERE false", false},
+	{"dojo_api", "DELETE FROM catalog_items WHERE false", false},
+	{"dojo_api", "TRUNCATE catalog_items", false},
+	{"dojo_api", "INSERT INTO catalog_state (id, org_id, catalog_version) SELECT 1, id, '000000000000' FROM orgs WHERE false", false},
+	{"dojo_api", "UPDATE catalog_state SET catalog_version = '000000000000' WHERE false", false},
+	{"dojo_api", "DELETE FROM catalog_state WHERE false", false},
+	{"dojo_api", "TRUNCATE catalog_state", false},
+	{"dojo_admin", "SELECT count(*) FROM paths", false},
+	{"dojo_admin", "SELECT count(*) FROM roles", false},
+	{"dojo_admin", "SELECT count(*) FROM path_roles", false},
+	{"dojo_admin", "SELECT count(*) FROM catalog_items", false},
+	{"dojo_admin", "SELECT count(*) FROM catalog_state", false},
+	{"dojo_admin", "INSERT INTO paths (org_id, slug, title, status, position) SELECT id, 'x', 'X', 'planned', 1 FROM orgs WHERE false", false},
+	{"dojo_admin", "UPDATE catalog_items SET title = 'x' WHERE false", false},
+	{"dojo_admin", "DELETE FROM catalog_state WHERE false", false},
 }
 
 // Connects by the container address: the image trusts loopback, other addresses use scram.

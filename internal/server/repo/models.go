@@ -30,6 +30,34 @@ type AdminSession struct {
 	RevokedAt  pgtype.Timestamptz
 }
 
+type CatalogItem struct {
+	ID             string
+	OrgID          pgtype.UUID
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+	RoleID         pgtype.UUID
+	Kind           string
+	Position       int32
+	Title          string
+	EstMinutes     int32
+	Tags           []string
+	Brief          pgtype.Text
+	Hints          []string
+	AwardsMark     pgtype.Text
+	CatalogVersion string
+	BundleKey      pgtype.Text
+	BundleSha256   pgtype.Text
+	BundleBytes    pgtype.Int4
+}
+
+type CatalogState struct {
+	ID             int16
+	OrgID          pgtype.UUID
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+	CatalogVersion string
+}
+
 type CliToken struct {
 	ID         pgtype.UUID
 	OrgID      pgtype.UUID
@@ -87,6 +115,39 @@ type Org struct {
 	Name      string
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
+}
+
+type Path struct {
+	ID        pgtype.UUID
+	OrgID     pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+	Slug      string
+	Title     string
+	Status    string
+	Position  int32
+}
+
+type PathRole struct {
+	ID        pgtype.UUID
+	OrgID     pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+	PathID    pgtype.UUID
+	RoleID    pgtype.UUID
+	Position  int32
+}
+
+type Role struct {
+	ID        pgtype.UUID
+	OrgID     pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+	Slug      string
+	Title     string
+	Kind      string
+	HasExam   bool
+	Advanced  bool
 }
 
 type Session struct {

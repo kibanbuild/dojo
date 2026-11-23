@@ -124,6 +124,9 @@ var grantCases = []struct {
 	{"dojo_admin", "INSERT INTO telemetry_events (org_id, command, result, duration_ms, cli_version, os) SELECT id, 'check', 'ok', 1, 'v1', 'linux' FROM orgs WHERE false", false},
 	{"dojo_admin", "UPDATE telemetry_events SET result = 'x' WHERE false", false},
 	{"dojo_admin", "DELETE FROM telemetry_events WHERE false", false},
+	// prune_telemetry() is owner-only: no service role executes it, so none gains DELETE through it.
+	{"dojo_api", "SELECT prune_telemetry()", false},
+	{"dojo_admin", "SELECT prune_telemetry()", false},
 }
 
 // Connects by the container address: the image trusts loopback, other addresses use scram.

@@ -44,6 +44,23 @@ services:
         condition: service_completed_successfully
     restart: "no"
 
+  # The nightly job (db/jobs/nightly.sql), run on demand locally with `make prune`; AWS schedules it (M0b).
+  prune:
+    profiles: ["jobs"]
+    image: postgres:18.7-alpine3.24@sha256:ff64c9e3bdf8e2120107d3559de8db314e8305f7e38c5105903c6295876738ff
+    entrypoint: ["psql", "--no-psqlrc", "-f", "/nightly.sql"]
+    environment:
+      PGHOST: db
+      PGUSER: dojo
+      PGDATABASE: dojo
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./db/jobs/nightly.sql:/nightly.sql:ro
+    depends_on:
+      db-roles:
+        condition: service_completed_successfully
+    restart: "no"
+
   api:
     build:
       context: .

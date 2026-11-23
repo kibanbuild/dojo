@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/kata"
+	"github.com/kibanbuild/dojo/internal/catalog"
 	"github.com/kibanbuild/dojo/internal/lab"
 )
 
@@ -45,19 +45,20 @@ func TestKatasEndToEnd(t *testing.T) {
 	if err := backend.Available(); err != nil {
 		t.Fatal(err)
 	}
-	catalog := os.DirFS(katasDir(t))
-	katas, err := kata.List(catalog)
+	tree := os.DirFS(katasDir(t))
+	cat, err := catalog.Load(tree)
 	if err != nil {
 		t.Fatal(err)
 	}
+	katas := cat.Tickets
 	if len(katas) == 0 {
-		t.Fatal("the catalog has no katas")
+		t.Fatal("the catalog has no tickets")
 	}
 	t.Cleanup(func() { _ = backend.Delete(context.Background()) })
 
 	for _, k := range katas {
 		t.Run(k.ID, func(t *testing.T) {
-			solution, err := fs.ReadFile(catalog, path.Join(k.ID, "solution.sh"))
+			solution, err := fs.ReadFile(tree, path.Join(k.ID, "solution.sh"))
 			if err != nil {
 				t.Fatalf("every kata needs a solution.sh for this test: %v", err)
 			}
@@ -73,10 +74,10 @@ func TestKatasEndToEnd(t *testing.T) {
 			mustRun(t, ctx, backend, "check", k.Check, 0)
 
 			// Every wrong-*.sh is a plausible fix that must not pass.
-			wrongs, _ := fs.Glob(catalog, path.Join(k.ID, "wrong-*.sh"))
+			wrongs, _ := fs.Glob(tree, path.Join(k.ID, "wrong-*.sh"))
 			for _, w := range wrongs {
 				t.Run(path.Base(w), func(t *testing.T) {
-					wrong, err := fs.ReadFile(catalog, w)
+					wrong, err := fs.ReadFile(tree, w)
 					if err != nil {
 						t.Fatal(err)
 					}

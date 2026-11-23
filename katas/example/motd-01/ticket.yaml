@@ -1,8 +1,9 @@
 id: example/motd-01
 title: Hello, lab
-belt: example
-summary: Example kata that shows the format; write a welcome message.
-
+role: example
+order: 1
+est_minutes: 10
+tags: [files, permissions]
 brief: |
   Ticket OPS-000, from IT:
 

@@ -1,0 +1,23 @@
+paths:
+  - slug: systems-devops
+    title: Systems and DevOps
+    position: 1
+    status: available
+
+roles:
+  - slug: foundations
+    title: Foundations
+    kind: foundations
+    has_exam: false
+  - slug: support-l1
+    title: Support L1
+    kind: role
+    has_exam: true
+
+path_roles:
+  - path: systems-devops
+    role: foundations
+    position: 1
+  - path: systems-devops
+    role: support-l1
+    position: 2

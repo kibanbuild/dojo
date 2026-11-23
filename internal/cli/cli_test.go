@@ -96,10 +96,10 @@ func (f *fakeLab) Run(_ context.Context, script []byte) ([]byte, int, error) {
 	return nil, 99, errors.New("unexpected script")
 }
 
-var catalog = fstest.MapFS{
-	"white/a/kata.yaml": {Data: []byte("id: white/a\ntitle: Kata A\nbelt: white\nsummary: first\nbrief: Fix A.\nhints: [one, two]\n")},
-	"white/a/setup.sh":  {Data: []byte("SETUP")},
-	"white/a/check.sh":  {Data: []byte("CHECK")},
+var testCatalog = fstest.MapFS{
+	"white/a/ticket.yaml": {Data: []byte("id: white/a\ntitle: Ticket A\nrole: white\norder: 1\nest_minutes: 5\nbrief: Fix A.\nhints: [one, two]\n")},
+	"white/a/setup.sh":    {Data: []byte("SETUP")},
+	"white/a/check.sh":    {Data: []byte("CHECK")},
 }
 
 var goodMachine = doctor.Machine{
@@ -122,7 +122,7 @@ func newEnv(t *testing.T) *env {
 	out := &bytes.Buffer{}
 	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
 	app := &App{
-		Out: out, Catalog: catalog, BackendName: "fake",
+		Out: out, Catalog: testCatalog, BackendName: "fake",
 		NewBackend: func(string) (lab.Backend, error) { return f, nil },
 		Now:        func() time.Time { return now },
 		Probe:      func(context.Context) doctor.Machine { return goodMachine },
@@ -152,7 +152,7 @@ func TestHelpAndUnknownCommand(t *testing.T) {
 func TestCommandsNeedAKataInProgress(t *testing.T) {
 	for _, cmd := range []string{"status", "hint", "ssh", "check"} {
 		e := newEnv(t)
-		if err := e.run(t, cmd); err == nil || !strings.Contains(err.Error(), "no kata in progress") {
+		if err := e.run(t, cmd); err == nil || !strings.Contains(err.Error(), "no ticket in progress") {
 			t.Errorf("%s: err = %v", cmd, err)
 		}
 	}
@@ -253,7 +253,7 @@ func TestCleanClearsCurrentKeepsHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, cmd := range []string{"status", "hint", "ssh", "check"} {
-		if err := e.run(t, cmd); err == nil || !strings.Contains(err.Error(), "no kata in progress") {
+		if err := e.run(t, cmd); err == nil || !strings.Contains(err.Error(), "no ticket in progress") {
 			t.Errorf("%s after stop: err = %v", cmd, err)
 		}
 	}
@@ -311,7 +311,7 @@ func TestFailedStartLeavesNoActiveKata(t *testing.T) {
 			if c := current(t); c != "" {
 				t.Errorf("current = %q after a failed start", c)
 			}
-			if err := e.run(t, "status"); err == nil || !strings.Contains(err.Error(), "no kata in progress") {
+			if err := e.run(t, "status"); err == nil || !strings.Contains(err.Error(), "no ticket in progress") {
 				t.Errorf("status err = %v", err)
 			}
 		})
@@ -345,7 +345,7 @@ func TestStateWriteFailureIsReported(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "state.json") {
 		t.Fatalf("err = %v, want a state error naming the file", err)
 	}
-	if strings.Contains(e.out.String(), "Kata passed") {
+	if strings.Contains(e.out.String(), "Ticket passed") {
 		t.Errorf("reported success:\n%s", e.out)
 	}
 }
@@ -363,7 +363,7 @@ func (r *recordingFS) Open(name string) (fs.File, error) {
 func TestNeverOpensSolutions(t *testing.T) {
 	e := newEnv(t)
 	m := fstest.MapFS{}
-	for k, v := range catalog {
+	for k, v := range testCatalog {
 		m[k] = v
 	}
 	m["white/a/solution.sh"] = &fstest.MapFile{Data: []byte("SOLUTION")}
@@ -717,7 +717,7 @@ func TestNewVerbsAreInTheHelpAndOldOnesAreNot(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := e.out.String()
-	for _, want := range []string{"dojo start [--key PATH] <kata>", "dojo ssh ", "dojo stop "} {
+	for _, want := range []string{"dojo start [--key PATH] <role>/<ticket>", "dojo ssh ", "dojo stop "} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help misses %q:\n%s", want, out)
 		}
@@ -752,7 +752,7 @@ func TestCheckPointsSSHAtTheRebootedLabAndSurvivesFailure(t *testing.T) {
 		t.Errorf("a successful refresh after check's reboot must stay quiet:\n%s", e.out)
 	}
 	e.lab.authorizeErr = errors.New("lab said no")
-	if err := e.run(t, "check"); err != nil || !strings.Contains(e.out.String(), "Kata passed") {
+	if err := e.run(t, "check"); err != nil || !strings.Contains(e.out.String(), "Ticket passed") {
 		t.Errorf("a failed ssh refresh must not fail the check: %v\n%s", err, e.out)
 	}
 	if !strings.Contains(e.out.String(), "Warning: ssh dojo is not set up") {

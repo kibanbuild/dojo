@@ -1,0 +1,12 @@
+id: foundations/find-log
+title: Find the log
+role: foundations
+order: 1
+est_minutes: 10
+tags: [terminal, files]
+brief: |
+  Ticket FND-001: the app writes a log somewhere under /var/log, and nobody knows where.
+  Create /root/log-path containing the path of the file.
+hints:
+  - Look under /var/log first.
+  - '`find /var/log -name "*.log"` lists candidates.'

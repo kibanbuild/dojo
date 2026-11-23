@@ -73,6 +73,51 @@ func (q *Queries) InsertCLIToken(ctx context.Context, arg InsertCLITokenParams) 
 	return i, err
 }
 
+const listLearnerCLITokens = `-- name: ListLearnerCLITokens :many
+SELECT id, device_name, os, cli_version, created_at, last_used_at
+FROM cli_tokens
+WHERE learner_id = $1
+  AND revoked_at IS NULL
+ORDER BY last_used_at DESC, id DESC
+`
+
+type ListLearnerCLITokensRow struct {
+	ID         pgtype.UUID
+	DeviceName string
+	Os         string
+	CliVersion string
+	CreatedAt  pgtype.Timestamptz
+	LastUsedAt pgtype.Timestamptz
+}
+
+// S2 lists a learner's devices, most recently used first. The hash never leaves the database.
+func (q *Queries) ListLearnerCLITokens(ctx context.Context, learnerID pgtype.UUID) ([]ListLearnerCLITokensRow, error) {
+	rows, err := q.db.Query(ctx, listLearnerCLITokens, learnerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLearnerCLITokensRow
+	for rows.Next() {
+		var i ListLearnerCLITokensRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceName,
+			&i.Os,
+			&i.CliVersion,
+			&i.CreatedAt,
+			&i.LastUsedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const revokeCLIToken = `-- name: RevokeCLIToken :exec
 UPDATE cli_tokens SET revoked_at = now(), updated_at = now()
 WHERE id = $1 AND revoked_at IS NULL
@@ -81,6 +126,25 @@ WHERE id = $1 AND revoked_at IS NULL
 func (q *Queries) RevokeCLIToken(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, revokeCLIToken, id)
 	return err
+}
+
+const revokeLearnerCLIToken = `-- name: RevokeLearnerCLIToken :execrows
+UPDATE cli_tokens SET revoked_at = now(), updated_at = now()
+WHERE id = $1 AND learner_id = $2 AND revoked_at IS NULL
+`
+
+type RevokeLearnerCLITokenParams struct {
+	ID        pgtype.UUID
+	LearnerID pgtype.UUID
+}
+
+// Revokes one of the learner's own tokens; zero rows means unknown, foreign or already revoked.
+func (q *Queries) RevokeLearnerCLIToken(ctx context.Context, arg RevokeLearnerCLITokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeLearnerCLIToken, arg.ID, arg.LearnerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const touchCLIToken = `-- name: TouchCLIToken :exec

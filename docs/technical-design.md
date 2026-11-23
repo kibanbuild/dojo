@@ -348,7 +348,7 @@ error cases the page must draw. Status is the Map's.
 | A3 System switches | `dojo-admin` `/flags` | Change a flag (confirm and reason) | Operator only, section 3.7; canvas v108 A3 and the switch confirm (desktop only). |
 | Accessibility statement | `/accessibility` | none | New, from the a11y review; linked from the footer. |
 | S1 Account | `/settings/account` | Save; Switch path; Test out; Delete account | Username and language of explanations save through `PATCH /v1/me` (section 3.1); the rest of the list is path, plan, hour packs, extra time, usage stats, danger zone. |
-| S2 Machines | `/settings/machines` | Revoke a CLI token | Lists CLI devices (OS, version, last seen) and the SSH key. |
+| S2 Machines | `/settings/machines` | Revoke a CLI token | Lists CLI devices (OS, version, last seen; `GET /v1/me/devices`) and the SSH key (a later milestone); revoking calls `DELETE /v1/me/devices/{id}` (3.1). |
 | S3 Notifications | `/settings/notifications` | Toggle | Per-kind push and email; quiet 22:00 to 08:00 local. No streak emails ever. |
 | S4 Your AI | `/settings/ai` | Copy MCP config; Test the connection | Per-tool tabs. |
 | E1-E8 | emails | see 2.9 | |
@@ -646,7 +646,22 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   refuses it.
 - **CLI sign-out:** `DELETE /v1/auth/cli` with the bearer token revokes that token (`dojo logout`)
   and answers `204`; no bearer principal is `401`; a suspended learner can still do it. Revoking
-  another device's token by id is S2 (M1.9b).
+  another device's token by id is S2, below.
+- **Devices (S2):** both routes need an active learner and take the cookie or the bearer (a cookie
+  `DELETE` needs the CSRF headers). Errors are `{"error": "<code>"}`: `401 unauthenticated`,
+  `403 account_suspended` (list only), `403 csrf_rejected`, `500 server_error`.
+  - `GET /v1/me/devices` answers `200 {"devices": [...]}`: the learner's non-revoked CLI tokens,
+    most recently used first, each `{id, device_name, os, cli_version, created_at, last_used_at,
+    current}`. `id` is the `cli_tokens` row id (never the token or its hash); `current` is `true`
+    only on the token the request itself carries, so it is always `false` for a cookie call. An
+    empty list is `[]`.
+  - `DELETE /v1/me/devices/{id}` revokes that token and answers `204`, only if it is the caller's
+    and not yet revoked. An unknown, another learner's, already revoked or malformed id (anything
+    but the canonical 8-4-4-4-12 form, hex digits in either case; no dashes, underscores or braces) is the same `404 not_found`, so the route is no oracle for
+    other learners' token ids. Revoking the token the call carries is allowed (it is a sign-out):
+    the next call with it is `401`. A suspended learner cannot list (`403 account_suspended`) but can
+    still revoke their own tokens (self-service, scoped by `learner_id`, like `DELETE /v1/auth/cli`
+    and web sign-out); another learner's id stays `404`.
 - **No token to the learner's GitHub.** Their practice repo is public and is read without auth.
 - **CSRF:** every state-changing request authenticated by the session cookie needs a JSON body and
   a custom header (`X-Dojo-Csrf`, any non-empty value, with `Content-Type: application/json`;

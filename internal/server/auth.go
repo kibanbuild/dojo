@@ -39,6 +39,8 @@ type SessionStore interface {
 	GetActiveCLIToken(ctx context.Context, tokenHash []byte) (repo.GetActiveCLITokenRow, error)
 	TouchCLIToken(ctx context.Context, id pgtype.UUID) error
 	RevokeCLIToken(ctx context.Context, id pgtype.UUID) error
+	ListLearnerCLITokens(ctx context.Context, learnerID pgtype.UUID) ([]repo.ListLearnerCLITokensRow, error)
+	RevokeLearnerCLIToken(ctx context.Context, arg repo.RevokeLearnerCLITokenParams) (int64, error)
 	GetLearnerByID(ctx context.Context, id pgtype.UUID) (repo.Learner, error)
 	UpdateLearnerProfile(ctx context.Context, arg repo.UpdateLearnerProfileParams) (repo.Learner, error)
 }
@@ -203,6 +205,18 @@ func requireSession(next http.HandlerFunc) http.HandlerFunc {
 		default:
 			next(w, r)
 		}
+	}
+}
+
+// requireAuthenticated passes any resolved principal, suspended or not, for self-service routes
+// that only end the caller's own credentials (like sign-out). CSRF has already run.
+func requireAuthenticated(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := principalOf(r.Context()); !ok {
+			writeError(w, http.StatusUnauthorized, "unauthenticated")
+			return
+		}
+		next(w, r)
 	}
 }
 

@@ -1,11 +1,11 @@
 -- +goose Up
 -- Progress tables (design 3.3, 3.8): events (append-only audit), ticket_progress (the projection the
 -- API writes in the same transaction as the event) and hint_opens (written hints a learner opened).
--- item_id is the catalog item id (text, for example support-l1/perms-03), not a uuid. It carries no
--- foreign key to catalog_items yet: that table arrives in migration 00012 (M2.1a), which is not on
--- this branch. TODO: the migration that lands after 00012 adds the FK on ticket_progress and
--- hint_opens (item_id REFERENCES catalog_items (id)). The design makes an unknown item an
--- "ignored" event that projects nothing, so the API checks the catalog before it writes either table.
+-- item_id is the catalog item id (text, for example support-l1/perms-03), not a uuid. ticket_progress
+-- and hint_opens reference catalog_items (id) with NO ACTION, never CASCADE: a catalog load that drops
+-- an item someone has progress on fails instead of erasing that progress. events keeps item ids in
+-- its payload with no FK, as an audit log. The design makes an unknown item an "ignored" event that
+-- projects nothing, so the API checks the catalog before it writes either table.
 -- Every learner FK is ON DELETE CASCADE, so delete_learner() (00011) erases all three tables.
 
 CREATE TABLE events (
@@ -27,7 +27,7 @@ CREATE INDEX events_at_idx ON events (at);
 CREATE TABLE ticket_progress (
     org_id            uuid NOT NULL REFERENCES orgs (id),
     learner_id        uuid NOT NULL REFERENCES learners (id) ON DELETE CASCADE,
-    item_id           text NOT NULL CHECK (char_length(item_id) BETWEEN 1 AND 128),
+    item_id           text NOT NULL REFERENCES catalog_items (id),
     created_at        timestamptz NOT NULL DEFAULT now(),
     updated_at        timestamptz NOT NULL DEFAULT now(),
     state             text NOT NULL CHECK (state IN ('started', 'passed', 'revisit')),
@@ -61,7 +61,7 @@ CREATE INDEX ticket_progress_live_lab_idx ON ticket_progress (last_seen_at) WHER
 CREATE TABLE hint_opens (
     org_id     uuid NOT NULL REFERENCES orgs (id),
     learner_id uuid NOT NULL REFERENCES learners (id) ON DELETE CASCADE,
-    item_id    text NOT NULL CHECK (char_length(item_id) BETWEEN 1 AND 128),
+    item_id    text NOT NULL REFERENCES catalog_items (id),
     n          smallint NOT NULL CHECK (n BETWEEN 1 AND 3),
     opened_at  timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (learner_id, item_id, n)

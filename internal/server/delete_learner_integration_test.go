@@ -39,8 +39,9 @@ func seedDeletableLearner(t *testing.T, githubID, email, username string) string
 	asOwner(t, "INSERT INTO telemetry_events (org_id, learner_id, command, result, duration_ms, cli_version, os) SELECT org_id, id, 'check', 'ok', 1, '"+delMarker+"', 'linux' FROM learners WHERE id = '"+id+"'")
 	asOwner(t, "INSERT INTO email_outbox (learner_id, to_address, kind, ref) VALUES ('"+id+"', '"+email+"', 'E1', '"+delMarker+"-e1-"+username+"')")
 	asOwner(t, "INSERT INTO events (org_id, learner_id, client_event_id, type, client_at) SELECT org_id, id, gen_random_uuid(), 'ticket.started', now() FROM learners WHERE id = '"+id+"'")
-	asOwner(t, "INSERT INTO ticket_progress (org_id, learner_id, item_id, state, first_started_at) SELECT org_id, id, '"+delMarker+"/t', 'started', now() FROM learners WHERE id = '"+id+"'")
-	asOwner(t, "INSERT INTO hint_opens (org_id, learner_id, item_id, n) SELECT org_id, id, '"+delMarker+"/t', 1 FROM learners WHERE id = '"+id+"'")
+	progressItem(t, delMarker+"/"+username)
+	asOwner(t, "INSERT INTO ticket_progress (org_id, learner_id, item_id, state, first_started_at) SELECT org_id, id, '"+delMarker+"/"+username+"', 'started', now() FROM learners WHERE id = '"+id+"'")
+	asOwner(t, "INSERT INTO hint_opens (org_id, learner_id, item_id, n) SELECT org_id, id, '"+delMarker+"/"+username+"', 1 FROM learners WHERE id = '"+id+"'")
 	return id
 }
 

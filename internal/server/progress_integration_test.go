@@ -19,6 +19,21 @@ func progressLearner(t *testing.T) string {
 	return strings.Fields(id)[0]
 }
 
+// progressItem inserts a practice catalog item for progress rows to reference, and removes it,
+// with any progress still pointing at it, when the test ends.
+func progressItem(t *testing.T, id string) {
+	t.Helper()
+	clean := func() {
+		asOwner(t, "DELETE FROM hint_opens WHERE item_id = '"+id+"'")
+		asOwner(t, "DELETE FROM ticket_progress WHERE item_id = '"+id+"'")
+		asOwner(t, "DELETE FROM catalog_items WHERE id = '"+id+"'")
+	}
+	clean()
+	t.Cleanup(clean)
+	asOwner(t, "INSERT INTO catalog_items (id, org_id, kind, position, title, est_minutes, catalog_version) "+
+		"SELECT '"+id+"', id, 'practice', 1, 'T', 1, '0123456789ab' FROM orgs WHERE slug = 'public'")
+}
+
 // ownerExec runs one statement as the owner and returns its output and error, so a CHECK
 // refusal can be asserted instead of failing the test.
 func ownerExec(t *testing.T, sql string) (string, error) {
@@ -48,6 +63,8 @@ func tpInsert(learner, cols, vals string) string {
 
 func TestTicketProgressChecks(t *testing.T) {
 	l := progressLearner(t)
+	progressItem(t, "it/p")
+	progressItem(t, "it/ok")
 	for name, c := range map[string]struct{ cols, vals string }{
 		"bad state":              {"state", "'done'"},
 		"bad lab":                {"state, lab", "'started', 'cloud'"},
@@ -79,6 +96,7 @@ func TestTicketProgressChecks(t *testing.T) {
 
 func TestHintOpensRangeAndKey(t *testing.T) {
 	l := progressLearner(t)
+	progressItem(t, "it/h")
 	ins := func(n string) string {
 		return "INSERT INTO hint_opens (org_id, learner_id, item_id, n) SELECT org_id, id, 'it/h', " + n + " FROM learners WHERE id = '" + l + "'"
 	}
@@ -93,6 +111,29 @@ func TestHintOpensRangeAndKey(t *testing.T) {
 		t.Fatalf("repeat hint: %v %q", err, out)
 	}
 	wantOK(t, "repeat with ON CONFLICT", ins("2")+" ON CONFLICT DO NOTHING")
+}
+
+// Progress must name a catalog item, and a catalog load may not drop an item that has progress.
+func TestProgressReferencesTheCatalog(t *testing.T) {
+	l := progressLearner(t)
+	progressItem(t, "it/fk")
+	for name, sql := range map[string]string{
+		"ticket_progress": "INSERT INTO ticket_progress (org_id, learner_id, item_id, state, first_started_at) SELECT org_id, id, 'it/ghost', 'started', now() FROM learners WHERE id = '" + l + "'",
+		"hint_opens":      "INSERT INTO hint_opens (org_id, learner_id, item_id, n) SELECT org_id, id, 'it/ghost', 1 FROM learners WHERE id = '" + l + "'",
+	} {
+		if out, err := ownerExec(t, sql); err == nil || !strings.Contains(out, name+"_item_id_fkey") {
+			t.Fatalf("%s with an unknown item: %v %q", name, err, out)
+		}
+	}
+	wantOK(t, "progress", "INSERT INTO ticket_progress (org_id, learner_id, item_id, state, first_started_at) SELECT org_id, id, 'it/fk', 'started', now() FROM learners WHERE id = '"+l+"'")
+	wantOK(t, "hint", "INSERT INTO hint_opens (org_id, learner_id, item_id, n) SELECT org_id, id, 'it/fk', 1 FROM learners WHERE id = '"+l+"'")
+	out, err := ownerExec(t, "DELETE FROM catalog_items WHERE id = 'it/fk'")
+	if err == nil || !strings.Contains(out, "violates foreign key constraint") {
+		t.Fatalf("deleting an item with progress: %v %q", err, out)
+	}
+	if got := countWhere(t, "ticket_progress", "item_id = 'it/fk'"); got != "1" {
+		t.Fatalf("progress rows after the refused delete: %q", got)
+	}
 }
 
 func TestEventsChecksAndIdempotency(t *testing.T) {
@@ -116,6 +157,7 @@ func TestEventsChecksAndIdempotency(t *testing.T) {
 
 func TestPruneEventsKeepsTwelveMonths(t *testing.T) {
 	l := progressLearner(t)
+	progressItem(t, "it/old")
 	// Only this test's old rows may exist, so the count is exact.
 	asOwner(t, "DELETE FROM events WHERE at < now() - interval '12 months'")
 	for _, age := range []string{"13 months", "12 months 1 day", "400 days", "11 months 29 days", "1 hour"} {

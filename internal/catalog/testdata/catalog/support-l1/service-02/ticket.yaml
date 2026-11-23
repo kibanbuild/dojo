@@ -1,0 +1,10 @@
+id: support-l1/service-02
+title: Restart the service
+role: support-l1
+order: 2
+est_minutes: 15
+tags: [services, systemd]
+brief: |
+  Ticket SUP-002: the demo service is stopped. Start it and make it survive a reboot.
+hints:
+  - '`systemctl status demo` says why it is down.'

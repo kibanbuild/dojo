@@ -1,7 +1,7 @@
 # Kiban Dojo
 
-Practise real IT work on a lab machine that runs on your own computer. Each kata is a broken
-system and a ticket: you fix it from your own terminal, the way the job works.
+Practise real IT work on a lab machine that runs on your own computer. Each ticket is a broken
+system and a task: you fix it from your own terminal, the way the job works.
 
 Work in progress: the first pieces are landing one pull request at a time.
 
@@ -10,8 +10,8 @@ Work in progress: the first pieces are landing one pull request at a time.
 ```sh
 make build                 # builds bin/dojo
 bin/dojo doctor            # checks that this computer can run the labs
-bin/dojo start <kata>      # a fresh lab, broken for that kata; sets up "ssh dojo" (--key PATH picks the SSH key)
-bin/dojo status            # the current kata and its brief
+bin/dojo start <role>/<ticket>  # a fresh lab, broken for that ticket; sets up "ssh dojo" (--key PATH picks the SSH key)
+bin/dojo status            # the current ticket and its brief
 bin/dojo hint              # the next hint
 bin/dojo ssh               # a terminal inside the lab
 bin/dojo check             # reboots the lab and verifies your fix (--quick skips the reboot)
@@ -103,7 +103,7 @@ Compose and the Node version in `web/.nvmrc`.
 make dev                           # the stack plus the web dev server on http://localhost:4321
 make down                          # stops it, keeping the data
 make verify                        # lint for macOS, Linux and Windows, tests with -race, govulncheck
-make e2e                           # needs Lima; boots a real VM and runs every kata end to end
+make e2e                           # needs Lima; boots a real VM and runs every ticket end to end
 git config core.hooksPath .githooks  # run the same gate before every push
 ```
 

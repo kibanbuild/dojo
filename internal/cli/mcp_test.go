@@ -51,7 +51,7 @@ func TestMCPToolsShowOnlyWhatTheLearnerSaw(t *testing.T) {
 	if err := st.Save(); err != nil {
 		t.Fatal(err)
 	}
-	if got := mcpCall(t, e, "current_ticket"); !strings.Contains(got, "white/a: Kata A") || !strings.Contains(got, "Fix A.") {
+	if got := mcpCall(t, e, "current_ticket"); !strings.Contains(got, "white/a: Ticket A") || !strings.Contains(got, "Fix A.") {
 		t.Errorf("current_ticket = %q", got)
 	}
 	if got := mcpCall(t, e, "last_check"); !strings.Contains(got, "FAIL  two") {
@@ -86,7 +86,7 @@ func TestMCPNeverExposesSolutionContent(t *testing.T) {
 		"setup.sh": "SECRET-SETUP-9f1", "check.sh": "SECRET-CHECK-3c7",
 		"solution.sh": "SECRET-SOLUTION-b42", "wrong-x.sh": "SECRET-WRONG-d05",
 	}
-	cat := fstest.MapFS{"white/s/kata.yaml": {Data: []byte("id: white/s\ntitle: S\nbelt: white\nsummary: s\nbrief: Fix S.\nhints: [h1, h2, h3]\n")}}
+	cat := fstest.MapFS{"white/s/ticket.yaml": {Data: []byte("id: white/s\ntitle: S\nrole: white\norder: 1\nest_minutes: 5\nbrief: Fix S.\nhints: [h1, h2, h3]\n")}}
 	for f, s := range secrets {
 		cat["white/s/"+f] = &fstest.MapFile{Data: []byte(s)}
 	}

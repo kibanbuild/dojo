@@ -1056,6 +1056,14 @@ ticket's directory are left out.
 - **Caps:** at most 1 MiB compressed, 4 MiB unpacked, 64 entries. The build fails over a cap; the
   CLI checks them again before it unpacks and refuses a path that is absolute, holds `..` or a
   backslash, or any link.
+- **Content rules:** `ticket.yaml`, `setup.sh` and `check.sh` enter with LF line endings (CRLF is
+  turned into LF). Everything under `files/` is byte-exact, so authors commit it with LF (the
+  catalog repo carries a `.gitattributes` with `* text=auto eol=lf`). Names are printable ASCII, at
+  most 100 bytes, and no two entries may be equal once lower-cased, so a bundle extracts the same on
+  a case-insensitive disk; the build and the CLI both refuse a collision. The build also refuses any
+  path under `files/` with a segment that starts with `wrong` or `solution`, so neither can ship by
+  being left in the wrong place. The decoder refuses YAML merge keys and non-integer numbers. A
+  failed extraction removes what it wrote, so a retry starts clean.
 - **Key and hash:** the object key is `bundles/<role-slug>/<ticket-slug>/<sha256>.tar.gz`, the
   sha256 of the archive in lower-case hex. Keys are immutable (content addressed), so a ticket
   that did not change keeps its object across loads and a rollback is a new `catalog_items` row

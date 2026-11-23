@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kibanbuild/dojo/internal/catalog"
 	"github.com/kibanbuild/dojo/internal/doctor"
-	"github.com/kibanbuild/dojo/internal/kata"
 	"github.com/kibanbuild/dojo/internal/lab"
 	"github.com/kibanbuild/dojo/internal/mentor"
 	"github.com/kibanbuild/dojo/internal/sshconfig"
@@ -28,13 +28,13 @@ const Usage = `dojo: practise real IT work on a local lab machine.
 
 Usage:
   dojo doctor             check that this computer can run the labs
-  dojo start [--key PATH] <kata>
-                          create a fresh lab and break it for <kata>; also lets your
+  dojo start [--key PATH] <role>/<ticket>
+                          create a fresh lab and break it for the ticket; also lets your
                           SSH key into the lab and sets up "ssh dojo" (--key picks the
                           key, a private or .pub path, from now on)
-  dojo status             show the current kata and its brief
+  dojo status             show the current ticket and its brief
   dojo ssh                open a terminal inside the lab (or: ssh dojo)
-  dojo hint               show the next hint for the current kata
+  dojo hint               show the next hint for the current ticket
   dojo check [--quick]    reboot the lab and verify your fix (--quick skips the reboot)
   dojo stop               stop the lab and delete the lab machine
   dojo mcp                run the mentor server your AI tool connects to (see the README)
@@ -45,7 +45,7 @@ Usage:
 
 Environment:
   DOJO_BACKEND     lab backend (default lima)
-  DOJO_KATAS       read katas from this directory instead of the built-in catalog
+  DOJO_KATAS       read tickets from this catalog directory instead of the built-in one
   DOJO_HOME        where progress and the login token are stored
   DOJO_API_URL     the Dojo API (login, logout)
   DOJO_GITHUB_URL  GitHub's base URL (default https://github.com)
@@ -90,8 +90,8 @@ var commands = map[string]bool{"status": true, "hint": true, "doctor": true, "st
 var removed = map[string]string{
 	"shell":      "it is now dojo ssh",
 	"clean":      "it is now dojo stop",
-	"ssh-config": "dojo start sets up ssh dojo now; pick the key with dojo start --key PATH <kata>",
-	"list":       "there is no list command; start a kata with dojo start <kata>",
+	"ssh-config": "dojo start sets up ssh dojo now; pick the key with dojo start --key PATH <role>/<ticket>",
+	"list":       "there is no list command; start a ticket with dojo start <role>/<ticket>",
 }
 
 // Run executes one command line (without the program name) and, around it, records the command's
@@ -140,7 +140,7 @@ func (a *App) run(ctx context.Context, args []string) error {
 		positional = fset.Args()
 	}
 	if err == nil && cmd == "start" && len(positional) > 1 {
-		// Flags may follow the kata: dojo start <kata> --key PATH.
+		// Flags may follow the ticket: dojo start <ticket> --key PATH.
 		if err = fset.Parse(positional[1:]); err == nil {
 			positional = append(positional[:1:1], fset.Args()...)
 		}
@@ -165,7 +165,7 @@ func (a *App) run(ctx context.Context, args []string) error {
 	}
 	if len(positional) != want {
 		if cmd == "start" {
-			return errors.New("usage: dojo start [--key PATH] <kata>")
+			return errors.New("usage: dojo start [--key PATH] <role>/<ticket>")
 		}
 		return fmt.Errorf("usage: dojo %s takes no arguments (see dojo help)", cmd)
 	}
@@ -253,22 +253,22 @@ func stateErr(err error) error {
 	return fmt.Errorf("progress file %s: %w (fix its permissions or remove it; DOJO_HOME moves it)", p, err)
 }
 
-func (a *App) current() (*state.State, *kata.Kata, error) {
+func (a *App) current() (*state.State, *catalog.Ticket, error) {
 	st, err := a.load()
 	if err != nil {
 		return nil, nil, err
 	}
 	if st.Current == "" {
-		return nil, nil, errors.New("no kata in progress: run dojo start <kata>")
+		return nil, nil, errors.New("no ticket in progress: run dojo start <role>/<ticket>")
 	}
-	k, err := kata.Load(a.Catalog, st.Current)
+	k, err := catalog.LoadTicket(a.Catalog, st.Current)
 	return st, k, err
 }
 
-// start creates the lab for a kata and sets up ssh dojo. key is the --key flag: empty keeps the
+// start creates the lab for a ticket and sets up ssh dojo. key is the --key flag: empty keeps the
 // remembered key, and a key that cannot be used stops the command before the lab is touched.
 func (a *App) start(ctx context.Context, backend lab.Backend, id, key string) error {
-	k, err := kata.Load(a.Catalog, id)
+	k, err := catalog.LoadTicket(a.Catalog, id)
 	if err != nil {
 		return err
 	}
@@ -300,10 +300,10 @@ func (a *App) start(ctx context.Context, backend lab.Backend, id, key string) er
 		return cerr
 	}
 	if err != nil {
-		return fmt.Errorf("kata setup: %w", err)
+		return fmt.Errorf("ticket setup: %w", err)
 	}
 	if code != 0 {
-		return fmt.Errorf("kata setup failed (exit %d)\n%s", code, out)
+		return fmt.Errorf("ticket setup failed (exit %d)\n%s", code, out)
 	}
 	st.Current = k.ID
 	if err := a.save(st); err != nil {
@@ -362,7 +362,7 @@ func (a *App) ssh(ctx context.Context, backend lab.Backend) error {
 	return backend.Shell(ctx)
 }
 
-// trySSH sets up ssh dojo but never blocks the kata, since dojo ssh works without it. chosen is
+// trySSH sets up ssh dojo but never blocks the ticket, since dojo ssh works without it. chosen is
 // the key to use (empty auto-detects); it is remembered only once ssh dojo works with it, so a
 // bad key never leaves a broken setting behind. Only an interrupt is returned.
 func (a *App) trySSH(ctx context.Context, backend lab.Backend, st *state.State, chosen string, announce bool) error {
@@ -399,7 +399,7 @@ func (a *App) setupSSH(ctx context.Context, backend lab.Backend, chosen string, 
 		return "", fmt.Errorf("%w in %s: create one with `ssh-keygen -t ed25519 -C \"you@example.com\"`, or pass --key <path>", err, dir)
 	}
 	if err != nil {
-		return "", fmt.Errorf("%w (pick another key with dojo start --key <path> <kata>)", err)
+		return "", fmt.Errorf("%w (pick another key with dojo start --key <path> <role>/<ticket>)", err)
 	}
 	if err := backend.AuthorizeKey(ctx, pub); err != nil {
 		return "", err
@@ -412,7 +412,7 @@ func (a *App) setupSSH(ctx context.Context, backend lab.Backend, chosen string, 
 		return "", err
 	}
 	if announce {
-		fmt.Fprintf(a.Out, "ssh dojo is ready, using your key %s (change it: dojo start --key <path> <kata>).\n", priv)
+		fmt.Fprintf(a.Out, "ssh dojo is ready, using your key %s (change it: dojo start --key <path> <role>/<ticket>).\n", priv)
 	}
 	return priv, nil
 }
@@ -460,13 +460,13 @@ func (a *App) check(ctx context.Context, backend lab.Backend, quick bool) error 
 	if err := a.save(st); err != nil {
 		return err
 	}
-	fmt.Fprintf(a.Out, "\nKata passed: %s.\n", k.Title)
+	fmt.Fprintf(a.Out, "\nTicket passed: %s.\n", k.Title)
 	return nil
 }
 
 // tryMentorFiles writes the mentor rules into the learner's home in the lab, where
 // an AI tool run through ssh dojo or VS Code Remote reads them. Like ssh dojo it
-// never blocks the kata; only an interrupt is returned.
+// never blocks the ticket; only an interrupt is returned.
 func (a *App) tryMentorFiles(ctx context.Context, backend lab.Backend) error {
 	out, code, err := backend.Run(ctx, mentorScript())
 	if cerr := ctx.Err(); cerr != nil {
@@ -533,11 +533,11 @@ func (a *App) doctor(ctx context.Context) error {
 		fmt.Fprintln(a.Out, "\nNot ready yet. Fix the ✗ items and run dojo doctor again.")
 		return ErrNotReady
 	}
-	fmt.Fprintln(a.Out, "\nReady. Next: dojo start <kata>.")
+	fmt.Fprintln(a.Out, "\nReady. Next: dojo start <role>/<ticket>.")
 	return nil
 }
 
-func (a *App) printBrief(k *kata.Kata) {
+func (a *App) printBrief(k *catalog.Ticket) {
 	fmt.Fprintf(a.Out, "%s: %s\n\n%s\n\n", k.ID, k.Title, strings.TrimSpace(k.Brief))
 }
 

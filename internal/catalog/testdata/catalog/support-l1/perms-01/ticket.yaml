@@ -1,0 +1,12 @@
+id: support-l1/perms-01
+title: Fix the shared folder
+role: support-l1
+order: 1
+est_minutes: 20
+tags: [permissions]
+brief: |
+  Ticket SUP-001: Ada cannot write to /srv/shared. Let the staff group write there.
+hints:
+  - Look at who owns the directory.
+  - '`ls -ld /srv/shared`, then `man chgrp`.'
+  - Group write needs the w bit for the group.

@@ -1,0 +1,10 @@
+id: foundations/free-disk
+title: Free the disk
+role: foundations
+order: 2
+est_minutes: 15
+tags: [disk]
+brief: |
+  Ticket FND-002: /var/tmp/big.bin fills the disk. Remove it.
+hints:
+  - '`du -sh /var/tmp/*` shows the big one.'

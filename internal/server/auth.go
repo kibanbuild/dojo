@@ -43,6 +43,7 @@ type SessionStore interface {
 	RevokeLearnerCLIToken(ctx context.Context, arg repo.RevokeLearnerCLITokenParams) (int64, error)
 	GetLearnerByID(ctx context.Context, id pgtype.UUID) (repo.Learner, error)
 	UpdateLearnerProfile(ctx context.Context, arg repo.UpdateLearnerProfileParams) (repo.Learner, error)
+	InsertTelemetryEvents(ctx context.Context, arg repo.InsertTelemetryEventsParams) error
 }
 
 // Auth authenticates requests by session cookie or CLI bearer token.

@@ -96,7 +96,7 @@ Each row says why for this project. Nothing is here because another Kiban projec
 | Push | Web Push with VAPID keys sent by the API | No third-party push service. |
 | AI hint button and reviews | Amazon Bedrock, a Haiku-class Claude model, called through an adapter | All-in on AWS (decided 2026-11-20), pays per token, and the provider does not train on inputs (verify in AWS service terms before launch). Cost estimate in the pricing research: about EUR 0.04 per learner a month. Exact model id and region verified in M7. |
 | Web analytics | PostHog Cloud EU, loaded only after consent | Confirmed 2026-11-20: EU hosting, consent first. A signed-out visitor's choice lives in a first-party cookie and fills `learners.analytics_consent` at sign-in only while it is null; a choice already on the account wins. |
-| CLI telemetry | Our own `POST /v1/telemetry`, a table in our database, kept 12 months | The CLI must not talk to a third party. Opt-out with `dojo telemetry off`; events carry command names, results and timings, never files or output. Anonymous events are accepted, rate limited. The nightly job deletes rows older than 12 months (`prune_telemetry()`, section 3.3). |
+| CLI telemetry | Our own `POST /v1/telemetry`, a table in our database, kept 12 months | The CLI must not talk to a third party. Opt-out with `dojo telemetry off`; events carry command names, results and timings, never files or output. Anonymous events are accepted, rate limited per IP; authenticated ones per learner. The nightly job deletes rows older than 12 months (`prune_telemetry()`, section 3.3). |
 | Infrastructure as code | OpenTofu in `infra/`, state in S3, GitHub OIDC for CI | Portable HCL with no long-lived AWS keys. |
 | Domain and accounts | `dojo.kyoten.dev`, kept a config value (`PUBLIC_ORIGIN`); an AWS Organization with an app account and a machines account, created in M0b | Decided 2026-11-20. Dojo may get its own domain later, so no code, cookie name or email template hardcodes the host. `kyoten.dev` is not registered yet (ledger): NEEDS-DECISION to buy it; until then M0b runs on the CloudFront default domain. |
 | Environments | `pre` from M0b, `pro` created only at launch | Halves fixed cost until there are learners (the research estimates about USD 55 to 60 per environment). `pre` and `pro` are separate stacks (VPC, database, ECS) in the app account; the machines account holds the machine networks of both. Names are `pre` and `pro`, never "prod". |
@@ -600,8 +600,8 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   P6), the callback stores nothing and sends the browser back to O1 to confirm. So no GitHub data
   is kept before the 14-or-older confirmation, and no session exists for a half-created account.
   A returning learner signs in without ticking them again.
-- **Rate limit:** every `/v1/auth/*` route, and anonymous `POST /v1/telemetry`, is limited per
-  client IP. The client IP is the address `TRUSTED_PROXY_HOPS` entries from the right of
+- **Rate limit:** every `/v1/auth/*` route, and anonymous `POST /v1/telemetry` (60 a minute), is limited per
+  client IP; authenticated `POST /v1/telemetry` is limited per learner (120 a minute, shared by the learner's devices), so one valid token is not unlimited. The general per-learner limit for the other authenticated writes is a separate piece (issue 83). The client IP is the address `TRUSTED_PROXY_HOPS` entries from the right of
   `X-Forwarded-For` (1 locally, behind Caddy; 2 in AWS, behind CloudFront and the ALB), or the
   connection address when the header is shorter; the header is never trusted further.
 - **CLI login:** `dojo login` uses the GitHub device flow with our client id (the same OAuth App as
@@ -743,7 +743,7 @@ each migration states the grants for `dojo_api` and `dojo_admin` (section 3.7).
 | `subscriptions`, `hour_packs`, `billing_customers`, `stripe_events` | customer id; subscription `price_kind` (founding, standard), `interval`, `status`, `current_period_end`, `cancel_at`; pack `seconds_total`, `seconds_left`, `expires_at`, `payment_ref`; event `id` unique | Written only by the webhook handler. |
 | `ai_hints` | `learner_id`, `item_id`, `seq`, `check_event_id`, `tokens_in`, `tokens_out`, `model`, `body`, `rejected_reason` | Counts per ticket and per day; drives the spend cap. |
 | `inbox_items`, `push_subscriptions`, `notification_prefs`, `email_log`, `email_suppressions` | kind, ref, `read_at`; endpoint and keys; per-kind toggles and quiet hours; kind and `sent_at`; address and reason | Story push max one a day, quiet 22:00 to 08:00. |
-| `telemetry_events` | `learner_id` (nullable), `command`, `result`, `duration_ms`, `cli_version`, `os`, `at` | CLI usage stats. Accepted without a token (`learner_id` null, rate limited) so the CLI can report before `dojo login`, but the CLI sends nothing until it has shown its usage-stats notice once (on first run) with `dojo telemetry off`. The API drops events sent with a token whose learner has `usage_stats` off. `dojo telemetry off` is the local switch; when logged in it also sets `learners.usage_stats`, which the CLI reads at login. Deleted after 12 months by `prune_telemetry()`, run by the nightly job with the migration role, so `dojo_api` has no `DELETE`. |
+| `telemetry_events` | `org_id`, `learner_id` (nullable, cascades on delete), `command`, `result`, `duration_ms`, `cli_version`, `os`, `at` (server clock) | CLI usage stats. Accepted without a token (`learner_id` null, rate limited) so the CLI can report before `dojo login`, but the CLI sends nothing until it has shown its usage-stats notice once (on first run) with `dojo telemetry off`. The API drops events sent with a token whose learner has `usage_stats` off. `dojo telemetry off` is the local switch; when logged in it also sets `learners.usage_stats`, which the CLI reads at login. Deleted after 12 months by `prune_telemetry()`, run by the nightly job with the migration role, so `dojo_api` has no `DELETE`, no `SELECT` and no `UPDATE`: it only inserts, and `dojo_admin` has no grant. Indexed by `at` for the prune. |
 | `ticket_reports` | `learner_id`, `item_id`, `kind` (broken ticket, setup help), `cli_version`, `last_check_output`, `message` | Forwarded by email to us. |
 | `path_waitlist` | `learner_id`, `path_id` (unique together) | The "Tell me when" list for planned paths. |
 | `record_items` | `learner_id`, `ref` (ticket or practice item), `shown` | What the learner chose to show on a shared record. |
@@ -787,6 +787,14 @@ request within 30 days is a manual backup restore, not a soft delete.
 `/v1/tickets/:id/*` (start, progress, hints), `/v1/hints/ai`, `/v1/quiz`, `/v1/writing`,
 `/v1/labs` (hosted start, stop, terminal ticket), `/v1/exams/*`, `/v1/billing/*`, `/v1/inbox`,
 `/v1/push`, `/v1/reports`, `/v1/telemetry`, `/v1/webhooks/{stripe,ses}`, `/v1/health`.
+
+`POST /v1/telemetry` takes a JSON body of at most 8 KB: `cli_version` and `os` once, and `events`, 1 to 20 of
+`{command, result, duration_ms}` (`command` and `result` are 1 to 32 of `a-z0-9_-` starting with a letter, `duration_ms`
+an integer from 0 to 86400000); unknown fields are refused. It answers `204` with no body, `400 bad_request` for any
+invalid body or content type, `401 unauthenticated` for a bad bearer token, `403 csrf_rejected` for a cookie call
+without the CSRF header, `429 rate_limited` with `Retry-After`, `500 server_error`. With no credential the events are
+stored with a null learner; a cookie or bearer principal links them; a learner with `usage_stats` off, or suspended,
+gets `204` and nothing is stored. The server stamps `at` and stores no IP address.
 
 There are no operator routes under `/v1`. The edge answers a real 404 (not the SPA fallback) for
 `/admin*` and `/review`: a Caddy rule locally, a CloudFront Function on viewer request in AWS. The

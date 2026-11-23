@@ -58,3 +58,15 @@ type Session struct {
 	LastUsedAt pgtype.Timestamptz
 	RevokedAt  pgtype.Timestamptz
 }
+
+type TelemetryEvent struct {
+	ID         pgtype.UUID
+	OrgID      pgtype.UUID
+	LearnerID  pgtype.UUID
+	At         pgtype.Timestamptz
+	Command    string
+	Result     string
+	DurationMs int32
+	CliVersion string
+	Os         string
+}

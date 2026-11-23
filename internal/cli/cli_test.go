@@ -150,7 +150,7 @@ func TestHelpAndUnknownCommand(t *testing.T) {
 }
 
 func TestCommandsNeedAKataInProgress(t *testing.T) {
-	for _, cmd := range []string{"status", "hint", "shell", "check"} {
+	for _, cmd := range []string{"status", "hint", "ssh", "check"} {
 		e := newEnv(t)
 		if err := e.run(t, cmd); err == nil || !strings.Contains(err.Error(), "no kata in progress") {
 			t.Errorf("%s: err = %v", cmd, err)
@@ -211,10 +211,6 @@ func TestCheckRebootsThenRecordsPass(t *testing.T) {
 	if st, _ := state.Load(); st.Passed["white/a"].IsZero() {
 		t.Error("pass not recorded")
 	}
-	e.run(t, "list")
-	if !strings.Contains(e.out.String(), "✓ white/a") {
-		t.Errorf("list does not mark the pass:\n%s", e.out)
-	}
 }
 
 func TestQuickCheckSkipsRebootAndNeverPasses(t *testing.T) {
@@ -253,12 +249,12 @@ func TestCleanClearsCurrentKeepsHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.run(t, "start", "white/a")
-	if err := e.run(t, "clean"); err != nil {
+	if err := e.run(t, "stop"); err != nil {
 		t.Fatal(err)
 	}
-	for _, cmd := range []string{"status", "hint", "shell", "check"} {
+	for _, cmd := range []string{"status", "hint", "ssh", "check"} {
 		if err := e.run(t, cmd); err == nil || !strings.Contains(err.Error(), "no kata in progress") {
-			t.Errorf("%s after clean: err = %v", cmd, err)
+			t.Errorf("%s after stop: err = %v", cmd, err)
 		}
 	}
 	if st, _ := state.Load(); st.Current != "" || st.Passed["white/a"].IsZero() {
@@ -274,17 +270,14 @@ func TestBackendNotAvailable(t *testing.T) {
 	}
 }
 
-func TestListStatusAndShellHappyPaths(t *testing.T) {
+func TestStatusAndSSHHappyPaths(t *testing.T) {
 	e := newEnv(t)
-	if err := e.run(t, "list"); err != nil || !strings.Contains(e.out.String(), "  white/a") {
-		t.Errorf("list before passing: %v\n%s", err, e.out)
-	}
 	e.run(t, "start", "white/a")
 	if err := e.run(t, "status"); err != nil || !strings.Contains(e.out.String(), "Fix A.") || strings.Contains(e.out.String(), "Passed on") {
 		t.Errorf("status: %v\n%s", err, e.out)
 	}
-	if err := e.run(t, "shell"); err != nil || !e.lab.has("shell") {
-		t.Errorf("shell: %v, calls %v", err, e.lab.calls)
+	if err := e.run(t, "ssh"); err != nil || !e.lab.has("shell") {
+		t.Errorf("ssh:%v, calls %v", err, e.lab.calls)
 	}
 	e.run(t, "check")
 	if e.run(t, "status"); !strings.Contains(e.out.String(), "Passed on 2026-11-16") {
@@ -329,7 +322,7 @@ func TestFailedCleanKeepsState(t *testing.T) {
 	e := newEnv(t)
 	e.run(t, "start", "white/a")
 	e.lab.deleteErr = errors.New("busy")
-	if err := e.run(t, "clean"); err == nil {
+	if err := e.run(t, "stop"); err == nil {
 		t.Fatal("clean should fail")
 	}
 	if c := current(t); c != "white/a" {
@@ -377,7 +370,7 @@ func TestNeverOpensSolutions(t *testing.T) {
 	m["white/a/wrong-x.sh"] = &fstest.MapFile{Data: []byte("WRONG")}
 	rec := &recordingFS{FS: m}
 	e.app.Catalog = rec
-	for _, args := range [][]string{{"list"}, {"start", "white/a"}, {"status"}, {"hint"}, {"check"}} {
+	for _, args := range [][]string{{"start", "white/a"}, {"status"}, {"hint"}, {"check"}} {
 		if err := e.run(t, args...); err != nil {
 			t.Fatalf("%v: %v", args, err)
 		}
@@ -424,7 +417,7 @@ func TestInterruptedCommandsReturnTheContextError(t *testing.T) {
 
 func TestExtraArgsAndHelp(t *testing.T) {
 	e := newEnv(t)
-	for _, cmd := range []string{"doctor", "list", "status", "hint", "shell", "check", "clean"} {
+	for _, cmd := range []string{"doctor", "status", "hint", "ssh", "check", "stop"} {
 		if err := e.run(t, cmd, "extra"); err == nil || !strings.Contains(err.Error(), "takes no arguments") {
 			t.Errorf("%s extra: err = %v", cmd, err)
 		}
@@ -445,7 +438,7 @@ func TestCorruptStateNamesTheFile(t *testing.T) {
 	home := os.Getenv("DOJO_HOME")
 	os.MkdirAll(home, 0o700)
 	os.WriteFile(filepath.Join(home, "state.json"), []byte("{nope"), 0o600)
-	if err := e.run(t, "list"); err == nil || !strings.Contains(err.Error(), "state.json") || !strings.Contains(err.Error(), "remove it") {
+	if err := e.run(t, "status"); err == nil || !strings.Contains(err.Error(), "state.json") || !strings.Contains(err.Error(), "remove it") {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -455,7 +448,7 @@ func TestDoctorReady(t *testing.T) {
 	if err := e.run(t, "doctor"); err != nil {
 		t.Fatalf("doctor on a good machine: %v\n%s", err, e.out)
 	}
-	for _, want := range []string{"✓ 16 GB RAM", "✓ VM manager ready (fake)", "Ready. Next: dojo list"} {
+	for _, want := range []string{"✓ 16 GB RAM", "✓ VM manager ready (fake)", "Ready. Next: dojo start"} {
 		if !strings.Contains(e.out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, e.out)
 		}
@@ -570,7 +563,7 @@ func TestStartWithoutAKeyStillStartsTheKata(t *testing.T) {
 	if current(t) != "white/a" {
 		t.Error("the kata should be in progress")
 	}
-	for _, want := range []string{"Warning: ssh dojo is not set up", "no SSH key found", "ssh-keygen -t ed25519", "dojo shell"} {
+	for _, want := range []string{"Warning: ssh dojo is not set up", "no SSH key found", "ssh-keygen -t ed25519", "dojo ssh"} {
 		if !strings.Contains(e.out.String(), want) {
 			t.Errorf("missing %q in:\n%s", want, e.out)
 		}
@@ -624,14 +617,18 @@ func TestStartKeepsAPinnedKeyAndFallsBackWithAWarning(t *testing.T) {
 	}
 }
 
-func TestSSHConfigKeyIsRememberedAfterSuccess(t *testing.T) {
+func TestStartKeyIsRememberedAfterSuccess(t *testing.T) {
 	e := newEnv(t)
 	writeKey(t, "id_ed25519", "ssh-ed25519 AAAA ana@x")
 	e.run(t, "start", "white/a")
 	other := writeKey(t, "id_work", "ssh-ed25519 BBBB work@x")
-	for _, key := range []string{other, other + ".pub"} {
+	for i, key := range []string{other, other + ".pub"} {
 		e.lab.authorized = nil
-		if err := e.run(t, "ssh-config", "--key", key); err != nil {
+		args := []string{"start", "--key", key, "white/a"}
+		if i == 1 {
+			args = []string{"start", "white/a", "--key", key} // the flag may follow the kata
+		}
+		if err := e.run(t, args...); err != nil {
 			t.Fatal(err)
 		}
 		if string(e.lab.authorized[0]) != "ssh-ed25519 BBBB work@x" || savedKey(t) != other {
@@ -643,7 +640,7 @@ func TestSSHConfigKeyIsRememberedAfterSuccess(t *testing.T) {
 	}
 }
 
-func TestSSHConfigFailuresKeepTheOldKey(t *testing.T) {
+func TestStartKeyFailuresKeepTheOldKey(t *testing.T) {
 	e := newEnv(t)
 	first := writeKey(t, "id_ed25519", "ssh-ed25519 AAAA ana@x")
 	other := writeKey(t, "id_work", "ssh-ed25519 BBBB work@x")
@@ -651,63 +648,92 @@ func TestSSHConfigFailuresKeepTheOldKey(t *testing.T) {
 	before := installed(t)
 	e.lab.calls = nil
 
-	if err := e.run(t, "ssh-config", "--key", filepath.Join(filepath.Dir(first), "missing")); err == nil {
+	// A key that does not exist stops start before the lab is touched.
+	if err := e.run(t, "start", "--key", filepath.Join(filepath.Dir(first), "missing"), "white/a"); err == nil {
 		t.Error("a missing key should fail")
 	}
-	if e.lab.has("authorize") {
-		t.Error("the lab was touched for a key that does not exist")
+	if e.lab.calls != nil {
+		t.Errorf("the lab was touched for a key that does not exist: %v", e.lab.calls)
 	}
+	// A key the lab refuses only warns: the kata still starts, the old key stays.
 	e.lab.authorizeErr = errors.New("lab said no")
-	if err := e.run(t, "ssh-config", "--key", other); err == nil || !strings.Contains(err.Error(), "lab said no") {
-		t.Errorf("err = %v", err)
+	if err := e.run(t, "start", "--key", other, "white/a"); err != nil || !strings.Contains(e.out.String(), "lab said no") {
+		t.Errorf("err = %v\n%s", err, e.out)
 	}
 	e.lab.authorizeErr, e.lab.configErr = nil, errors.New("config said no")
-	if err := e.run(t, "ssh-config", "--key", other); err == nil || !strings.Contains(err.Error(), "config said no") {
-		t.Errorf("err = %v", err)
+	if err := e.run(t, "start", "--key", other, "white/a"); err != nil || !strings.Contains(e.out.String(), "config said no") {
+		t.Errorf("err = %v\n%s", err, e.out)
 	}
 	if savedKey(t) != first || installed(t) != before {
 		t.Errorf("failed runs changed things: key %q, config %q", savedKey(t), installed(t))
 	}
 }
 
-func TestSSHConfigNeedsALabAndAKey(t *testing.T) {
+func TestStartArgsAndFlags(t *testing.T) {
 	e := newEnv(t)
-	e.lab.noLab = true
-	writeKey(t, "id_ed25519", "ssh-ed25519 AAAA ana@x")
-	if err := e.run(t, "ssh-config"); err == nil || !strings.Contains(err.Error(), "dojo start") {
-		t.Errorf("no lab: err = %v", err)
+	for _, args := range [][]string{
+		{"start", "white/a", "extra"},
+		{"start", "white/a", "--key", "x", "extra"},
+		{"start", "--nope", "white/a"},
+		{"start", "white/a", "--nope"},
+		{"start", "--key"},
+		{"start", "--key", "", "white/a"},
+		{"start", "white/a", "--key="},
+		{"start"},
+	} {
+		if err := e.run(t, args...); err == nil {
+			t.Errorf("%v should fail", args)
+		}
 	}
-	if e.lab.has("authorize") || installed(t) != "" || savedKey(t) != "" {
-		t.Error("nothing should be done without a lab")
-	}
-	e.lab.noLab = false
-	if err := os.Remove(filepath.Join(os.Getenv("DOJO_SSH_DIR"), "id_ed25519.pub")); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.run(t, "ssh-config"); err == nil || !strings.Contains(err.Error(), "--key") {
-		t.Errorf("unusable default key: err = %v", err)
-	}
-	if err := os.RemoveAll(os.Getenv("DOJO_SSH_DIR")); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.run(t, "ssh-config"); err == nil || !strings.Contains(err.Error(), "ssh-keygen") || e.lab.has("authorize") {
-		t.Errorf("no key: err = %v, calls %v", err, e.lab.calls)
-	}
-}
-
-func TestSSHConfigArgsAndFlags(t *testing.T) {
-	e := newEnv(t)
-	if err := e.run(t, "ssh-config", "extra"); err == nil {
-		t.Error("a stray argument should fail")
-	}
-	if err := e.run(t, "ssh-config", "--nope"); err == nil {
-		t.Error("an unknown flag should fail")
-	}
-	if err := e.run(t, "start", "--key", "x", "white/a"); err == nil {
-		t.Error("--key belongs to ssh-config only")
+	if err := e.run(t, "check", "--key", "x"); err == nil {
+		t.Error("--key belongs to start only")
 	}
 	if e.lab.calls != nil {
 		t.Errorf("lab touched: %v", e.lab.calls)
+	}
+}
+
+func TestRemovedVerbsAreUnknownWithAHint(t *testing.T) {
+	for old, want := range map[string]string{
+		"shell":      "dojo ssh",
+		"clean":      "dojo stop",
+		"ssh-config": "dojo start",
+		"list":       "dojo start",
+	} {
+		e := newEnv(t)
+		err := e.run(t, old)
+		if err == nil || !strings.Contains(err.Error(), "unknown command") || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: err = %v, want unknown command naming %q", old, err, want)
+		}
+		if e.lab.calls != nil || e.out.Len() != 0 {
+			t.Errorf("%s ran something: calls %v, out %q", old, e.lab.calls, e.out)
+		}
+	}
+}
+
+func TestNewVerbsAreInTheHelpAndOldOnesAreNot(t *testing.T) {
+	e := newEnv(t)
+	if err := e.run(t, "help"); err != nil {
+		t.Fatal(err)
+	}
+	out := e.out.String()
+	for _, want := range []string{"dojo start [--key PATH] <kata>", "dojo ssh ", "dojo stop "} {
+		if !strings.Contains(out, want) {
+			t.Errorf("help misses %q:\n%s", want, out)
+		}
+	}
+	for _, gone := range []string{"dojo list", "dojo shell", "dojo clean", "dojo ssh-config"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("help still lists %q:\n%s", gone, out)
+		}
+	}
+}
+
+func TestRemovedVerbsAreNeverRecorded(t *testing.T) {
+	for old := range removed {
+		if commands[old] {
+			t.Errorf("%s must not be a recorded command", old)
+		}
 	}
 }
 
@@ -792,7 +818,7 @@ func TestCleanClearsSSHDojoAfterTheLabIsGone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := e.run(t, "clean"); err != nil {
+	if err := e.run(t, "stop"); err != nil {
 		t.Fatal(err)
 	}
 	if got := installed(t); got != "" {
@@ -810,7 +836,7 @@ func TestCleanClearsSSHDojoAfterTheLabIsGone(t *testing.T) {
 func TestCleanWithoutSSHSetupSucceedsAndCreatesNothing(t *testing.T) {
 	e := newEnv(t)
 	e.run(t, "start", "white/a")
-	if err := e.run(t, "clean"); err != nil {
+	if err := e.run(t, "stop"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(os.Getenv("DOJO_SSH_DIR"), "dojo_config")); !errors.Is(err, fs.ErrNotExist) {
@@ -824,7 +850,7 @@ func TestFailedCleanKeepsTheSSHEntry(t *testing.T) {
 	e.run(t, "start", "white/a")
 	before := installed(t)
 	e.lab.deleteErr = errors.New("busy")
-	if err := e.run(t, "clean"); err == nil {
+	if err := e.run(t, "stop"); err == nil {
 		t.Fatal("clean should fail")
 	}
 	if got := installed(t); got == "" || got != before {
@@ -845,7 +871,7 @@ func TestCleanReportsAnSSHRemovalFailureAfterDeletingTheLab(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.lab.calls = nil
-	err := e.run(t, "clean")
+	err := e.run(t, "stop")
 	if err == nil || !strings.Contains(err.Error(), "ssh dojo could not be cleared") {
 		t.Fatalf("err = %v, want the ssh failure named", err)
 	}
@@ -905,7 +931,7 @@ func TestStartAndCleanDropTheLastCheck(t *testing.T) {
 	e.lab.checkOut = []byte("old run")
 	e.lab.checkCode = 1
 	e.run(t, "check", "--quick")
-	e.run(t, "clean")
+	e.run(t, "stop")
 	if st, _ := state.Load(); st.LastCheck != "" {
 		t.Errorf("clean kept LastCheck = %q", st.LastCheck)
 	}

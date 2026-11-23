@@ -10,13 +10,12 @@ Work in progress: the first pieces are landing one pull request at a time.
 ```sh
 make build                 # builds bin/dojo
 bin/dojo doctor            # checks that this computer can run the labs
-bin/dojo list              # the available katas
-bin/dojo start <kata>      # a fresh lab, broken for that kata
+bin/dojo start <kata>      # a fresh lab, broken for that kata; sets up "ssh dojo" (--key PATH picks the SSH key)
 bin/dojo status            # the current kata and its brief
 bin/dojo hint              # the next hint
-bin/dojo shell             # a terminal inside the lab
+bin/dojo ssh               # a terminal inside the lab
 bin/dojo check             # reboots the lab and verifies your fix (--quick skips the reboot)
-bin/dojo clean             # deletes the lab
+bin/dojo stop              # stops the lab and deletes the lab machine
 bin/dojo mcp               # the mentor server for your AI tool (see below)
 bin/dojo login             # signs in with GitHub (device code); --force logs in again
 bin/dojo logout            # revokes this computer's login; --local only forgets it here

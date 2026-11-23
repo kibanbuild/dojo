@@ -141,7 +141,7 @@ func shown(t *testing.T) {
 
 func TestNoticeOnceAndNothingSentBeforeIt(t *testing.T) {
 	e, api, errBuf := teleEnv(t)
-	if err := e.run(t, "list"); err != nil {
+	if err := e.run(t, "doctor"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(errBuf.String(), "Dojo shares usage stats") || !strings.Contains(errBuf.String(), "dojo telemetry off") {
@@ -158,7 +158,7 @@ func TestNoticeOnceAndNothingSentBeforeIt(t *testing.T) {
 	}
 
 	errBuf.Reset()
-	if err := e.run(t, "list"); err != nil {
+	if err := e.run(t, "doctor"); err != nil {
 		t.Fatal(err)
 	}
 	if errBuf.Len() != 0 {
@@ -169,7 +169,7 @@ func TestNoticeOnceAndNothingSentBeforeIt(t *testing.T) {
 		t.Fatalf("second command sent %d requests", len(posts))
 	}
 	b := decodeBody(t, posts[0])
-	if len(b.Events) != 1 || b.Events[0].Command != "list" || b.Events[0].Result != "ok" {
+	if len(b.Events) != 1 || b.Events[0].Command != "doctor" || b.Events[0].Result != "ok" {
 		t.Fatalf("events %+v", b.Events)
 	}
 	if b.OS != runtime.GOOS+"/"+runtime.GOARCH || b.CLIVersion != "dev" {
@@ -183,15 +183,15 @@ func TestNoticeOnceAndNothingSentBeforeIt(t *testing.T) {
 func TestNoNoticeWithoutStderrOrAPI(t *testing.T) {
 	e, api, _ := teleEnv(t)
 	e.app.Err = nil
-	_ = e.run(t, "list")
-	_ = e.run(t, "list")
+	_ = e.run(t, "doctor")
+	_ = e.run(t, "doctor")
 	if len(api.posts()) != 0 {
 		t.Fatal("sent without ever being able to show the notice")
 	}
 	e, api, errBuf := teleEnv(t)
 	e.app.Login = LoginConfig{}
-	_ = e.run(t, "list")
-	_ = e.run(t, "list")
+	_ = e.run(t, "doctor")
+	_ = e.run(t, "doctor")
 	if len(api.posts()) != 0 || errBuf.Len() != 0 {
 		t.Fatalf("no API configured must be silent: %d posts, notice %q", len(api.posts()), errBuf)
 	}
@@ -203,7 +203,7 @@ func TestNothingSentWhenOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 3 {
-		_ = e.run(t, "list")
+		_ = e.run(t, "doctor")
 	}
 	if len(api.posts()) != 0 || errBuf.Len() != 0 {
 		t.Fatalf("off: %d posts, stderr %q", len(api.posts()), errBuf)
@@ -216,7 +216,7 @@ func TestNothingSentWhenOff(t *testing.T) {
 func TestOffDropsTheQueue(t *testing.T) {
 	e, _, _ := teleEnv(t)
 	shown(t)
-	_ = state.SaveQueue(state.Queue{Events: []state.Event{{Command: "list", Result: "ok"}}})
+	_ = state.SaveQueue(state.Queue{Events: []state.Event{{Command: "doctor", Result: "ok"}}})
 	if err := e.run(t, "telemetry", "off"); err != nil {
 		t.Fatal(err)
 	}
@@ -238,8 +238,8 @@ func TestEnvOverrideAlwaysWins(t *testing.T) {
 				}
 				return ""
 			}
-			_ = e.run(t, "list")
-			_ = e.run(t, "list")
+			_ = e.run(t, "doctor")
+			_ = e.run(t, "doctor")
 			if len(api.posts()) != 0 || errBuf.Len() != 0 {
 				t.Fatalf("env %s=%s: %d posts, stderr %q", tt.k, tt.v, len(api.posts()), errBuf)
 			}
@@ -258,7 +258,7 @@ func TestEnvOverrideAlwaysWins(t *testing.T) {
 		}
 		return ""
 	}
-	_ = e.run(t, "list")
+	_ = e.run(t, "doctor")
 	if len(api.posts()) != 1 {
 		t.Fatal("DO_NOT_TRACK=0 must not disable")
 	}
@@ -269,13 +269,13 @@ func TestEventsCarryNamesOnly(t *testing.T) {
 	shown(t)
 	for _, args := range [][]string{
 		{"start", "white/a"},
-		{"ssh-config", "--key", "/secret/keys/id_ed25519"},
+		{"start", "--key", "/secret/keys/id_ed25519", "white/a"},
 		{"check", "--quick"},
 		{"login", "--api-url", api.srv.URL + "/private-path"},
 	} {
 		_ = e.run(t, args...)
 	}
-	allowed := map[string]bool{"start": true, "ssh-config": true, "check": true, "login": true}
+	allowed := map[string]bool{"start": true, "check": true, "login": true}
 	seen := 0
 	for _, p := range api.posts() {
 		for _, bad := range []string{"white/a", "secret", "id_ed25519", "--quick", "--key", "private-path", "Kata A", "setup output"} {
@@ -332,10 +332,10 @@ func TestBatchesOfTwenty(t *testing.T) {
 	shown(t)
 	var q state.Queue
 	for range 45 {
-		q.Events = append(q.Events, state.Event{Command: "list", Result: "ok", DurationMS: 5})
+		q.Events = append(q.Events, state.Event{Command: "doctor", Result: "ok", DurationMS: 5})
 	}
 	_ = state.SaveQueue(q)
-	_ = e.run(t, "list") // adds a 46th event
+	_ = e.run(t, "doctor") // adds a 46th event
 	posts := api.posts()
 	var sizes []int
 	for _, p := range posts {
@@ -366,7 +366,7 @@ func TestFailuresKeepTheQueueAndNeverFailTheCommand(t *testing.T) {
 			e, api, _ := teleEnv(t)
 			shown(t)
 			api.status, api.retryAfter = tt.status, tt.retryAfter
-			if err := e.run(t, "list"); err != nil {
+			if err := e.run(t, "doctor"); err != nil {
 				t.Fatalf("a telemetry failure failed the command: %v", err)
 			}
 			q, _ := state.LoadQueue()
@@ -378,7 +378,7 @@ func TestFailuresKeepTheQueueAndNeverFailTheCommand(t *testing.T) {
 					t.Fatalf("backoff %v, want %v", got, tt.wantWait)
 				}
 				before := len(api.posts())
-				_ = e.run(t, "list") // clock is fixed: still inside the backoff
+				_ = e.run(t, "doctor") // clock is fixed: still inside the backoff
 				if len(api.posts()) != before {
 					t.Fatal("sent during the backoff")
 				}
@@ -388,7 +388,7 @@ func TestFailuresKeepTheQueueAndNeverFailTheCommand(t *testing.T) {
 				api.status = 204
 				later := e.app.Now().Add(tt.wantWait + time.Second)
 				e.app.Now = func() time.Time { return later }
-				_ = e.run(t, "list")
+				_ = e.run(t, "doctor")
 				if q, _ := state.LoadQueue(); len(q.Events) != 0 || !q.RetryAfter.IsZero() {
 					t.Fatalf("queue after the backoff: %+v", q)
 				}
@@ -401,7 +401,7 @@ func TestUnreachableAPIKeepsTheQueue(t *testing.T) {
 	e, api, _ := teleEnv(t)
 	shown(t)
 	api.srv.Close()
-	if err := e.run(t, "list"); err != nil {
+	if err := e.run(t, "doctor"); err != nil {
 		t.Fatal(err)
 	}
 	if q, _ := state.LoadQueue(); len(q.Events) != 1 || q.RetryAfter.IsZero() {
@@ -415,7 +415,7 @@ func TestSlowAPIDoesNotHoldTheCommand(t *testing.T) {
 	api.block = make(chan struct{})
 	t.Cleanup(func() { close(api.block) })
 	t0 := time.Now()
-	err := e.run(t, "list")
+	err := e.run(t, "doctor")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
@@ -446,7 +446,7 @@ func TestBearerRejectedDropsTheBatchNeverResendsAnonymously(t *testing.T) {
 		t.Fatal(err)
 	}
 	api.perAuth = map[string]int{"Bearer " + dojoToken: 401}
-	if err := e.run(t, "list"); err != nil {
+	if err := e.run(t, "doctor"); err != nil {
 		t.Fatal(err)
 	}
 	posts := api.posts()
@@ -459,7 +459,7 @@ func TestBearerRejectedDropsTheBatchNeverResendsAnonymously(t *testing.T) {
 	if q, _ := state.LoadQueue(); len(q.Events) != 0 || q.RetryAfter.IsZero() {
 		t.Fatalf("the rejected batch must be dropped and sending held: %+v", q)
 	}
-	_ = e.run(t, "list") // still inside the hold: nothing goes out, certainly not anonymously
+	_ = e.run(t, "doctor") // still inside the hold: nothing goes out, certainly not anonymously
 	if len(api.posts()) != 1 {
 		t.Fatalf("sent during the hold: %+v", api.posts())
 	}
@@ -469,7 +469,7 @@ func TestLoggedInSendsBearer(t *testing.T) {
 	e, api, _ := teleEnv(t)
 	shown(t)
 	_ = state.SaveToken(dojoToken)
-	_ = e.run(t, "list")
+	_ = e.run(t, "doctor")
 	if p := api.posts(); len(p) != 1 || p[0].auth != "Bearer "+dojoToken {
 		t.Fatalf("posts %+v", p)
 	}
@@ -482,7 +482,7 @@ func TestQueueFileIsPrivate(t *testing.T) {
 	e, api, _ := teleEnv(t)
 	shown(t)
 	api.status = 500
-	_ = e.run(t, "list")
+	_ = e.run(t, "doctor")
 	p := filepath.Join(os.Getenv("DOJO_HOME"), "telemetry-queue.json")
 	fi, err := os.Stat(p)
 	if err != nil || fi.Mode().Perm() != 0o600 {
@@ -578,8 +578,8 @@ func TestCorruptSwitchFileSendsNothing(t *testing.T) {
 	home := os.Getenv("DOJO_HOME")
 	_ = os.MkdirAll(home, 0o700)
 	_ = os.WriteFile(filepath.Join(home, "telemetry.json"), []byte("{nope"), 0o600)
-	_ = e.run(t, "list")
-	_ = e.run(t, "list")
+	_ = e.run(t, "doctor")
+	_ = e.run(t, "doctor")
 	if len(api.posts()) != 0 || errBuf.Len() != 0 {
 		t.Fatalf("corrupt settings: %d posts, %q", len(api.posts()), errBuf)
 	}
@@ -593,7 +593,7 @@ func TestLoginAlignsSwitchFromAccount(t *testing.T) {
 	e.app.Err = &bytes.Buffer{}
 	e.app.Getenv = func(string) string { return "" }
 	shown(t)
-	_ = state.SaveQueue(state.Queue{Events: []state.Event{{Command: "list", Result: "ok"}}})
+	_ = state.SaveQueue(state.Queue{Events: []state.Event{{Command: "doctor", Result: "ok"}}})
 	if err := e.run(t, "login"); err != nil {
 		t.Fatal(err)
 	}

@@ -28,16 +28,15 @@ const Usage = `dojo: practise real IT work on a local lab machine.
 
 Usage:
   dojo doctor             check that this computer can run the labs
-  dojo list               show the available katas
-  dojo start <kata>       create a fresh lab and break it for <kata>
+  dojo start [--key PATH] <kata>
+                          create a fresh lab and break it for <kata>; also lets your
+                          SSH key into the lab and sets up "ssh dojo" (--key picks the
+                          key, a private or .pub path, from now on)
   dojo status             show the current kata and its brief
-  dojo shell              open a terminal inside the lab (or: ssh dojo)
-  dojo ssh-config [--key PATH]
-                          let your SSH key into the lab and set up "ssh dojo";
-                          --key picks the key (private or .pub path) from now on
+  dojo ssh                open a terminal inside the lab (or: ssh dojo)
   dojo hint               show the next hint for the current kata
   dojo check [--quick]    reboot the lab and verify your fix (--quick skips the reboot)
-  dojo clean              delete the lab machine
+  dojo stop               stop the lab and delete the lab machine
   dojo mcp                run the mentor server your AI tool connects to (see the README)
   dojo login [--force]    sign in with GitHub (an account made on the website first)
   dojo logout [--local]   sign out; --local only forgets the token on this computer
@@ -83,8 +82,17 @@ type App struct {
 }
 
 // commands are the names usage stats may record; anything else (help, a typo) is never counted.
-var commands = map[string]bool{"list": true, "status": true, "hint": true, "doctor": true, "start": true, "shell": true,
-	"ssh-config": true, "check": true, "clean": true, "mcp": true, "login": true, "logout": true, "telemetry": true}
+var commands = map[string]bool{"status": true, "hint": true, "doctor": true, "start": true, "ssh": true,
+	"check": true, "stop": true, "mcp": true, "login": true, "logout": true, "telemetry": true}
+
+// removed are the pre-v1 verbs, gone without aliases (the product has no users yet); a learner who
+// types one is told what replaced it.
+var removed = map[string]string{
+	"shell":      "it is now dojo ssh",
+	"clean":      "it is now dojo stop",
+	"ssh-config": "dojo start sets up ssh dojo now; pick the key with dojo start --key PATH <kata>",
+	"list":       "there is no list command; start a kata with dojo start <kata>",
+}
 
 // Run executes one command line (without the program name) and, around it, records the command's
 // name, result and duration for usage stats. Only the name is kept, never an argument.
@@ -108,9 +116,10 @@ func (a *App) run(ctx context.Context, args []string) error {
 		return nil
 	}
 	cmd, rest := args[0], args[1:]
-	switch cmd {
-	case "list", "status", "hint", "doctor", "start", "shell", "ssh-config", "check", "clean", "mcp", "login", "logout", "telemetry":
-	default:
+	if !commands[cmd] {
+		if hint, ok := removed[cmd]; ok {
+			return fmt.Errorf("unknown command %q: %s (see dojo help)", cmd, hint)
+		}
 		return fmt.Errorf("unknown command %q (see dojo help)", cmd)
 	}
 	fset := flag.NewFlagSet(cmd, flag.ContinueOnError)
@@ -122,25 +131,41 @@ func (a *App) run(ctx context.Context, args []string) error {
 		lf = newLoginFlags(cmd, fset)
 	case "check":
 		quick = fset.Bool("quick", false, "skip the reboot")
-	case "ssh-config":
+	case "start":
 		key = fset.String("key", "", "SSH key to use")
 	}
-	if err := fset.Parse(rest); errors.Is(err, flag.ErrHelp) {
+	err := fset.Parse(rest)
+	var positional []string
+	if err == nil {
+		positional = fset.Args()
+	}
+	if err == nil && cmd == "start" && len(positional) > 1 {
+		// Flags may follow the kata: dojo start <kata> --key PATH.
+		if err = fset.Parse(positional[1:]); err == nil {
+			positional = append(positional[:1:1], fset.Args()...)
+		}
+	}
+	if errors.Is(err, flag.ErrHelp) {
 		fmt.Fprint(a.Out, Usage)
 		return nil
 	} else if err != nil {
 		return fmt.Errorf("%w (see dojo help)", err)
+	}
+	emptyKey := false
+	fset.Visit(func(f *flag.Flag) { emptyKey = emptyKey || (f.Name == "key" && f.Value.String() == "") })
+	if emptyKey {
+		return errors.New("--key needs a path (see dojo help)")
 	}
 	want := 0
 	if cmd == "start" {
 		want = 1
 	}
 	if cmd == "telemetry" {
-		return a.telemetryCmd(ctx, fset.Args())
+		return a.telemetryCmd(ctx, positional)
 	}
-	if fset.NArg() != want {
+	if len(positional) != want {
 		if cmd == "start" {
-			return errors.New("usage: dojo start <kata>  (see dojo list)")
+			return errors.New("usage: dojo start [--key PATH] <kata>")
 		}
 		return fmt.Errorf("usage: dojo %s takes no arguments (see dojo help)", cmd)
 	}
@@ -148,8 +173,6 @@ func (a *App) run(ctx context.Context, args []string) error {
 	switch cmd {
 	case "doctor":
 		return a.doctor(ctx)
-	case "list":
-		return a.list()
 	case "status":
 		return a.status()
 	case "hint":
@@ -170,15 +193,13 @@ func (a *App) run(ctx context.Context, args []string) error {
 	}
 	switch cmd {
 	case "start":
-		return a.start(ctx, backend, fset.Arg(0))
-	case "shell":
-		return a.shell(ctx, backend)
-	case "ssh-config":
-		return a.sshConfig(ctx, backend, *key)
+		return a.start(ctx, backend, positional[0], *key)
+	case "ssh":
+		return a.ssh(ctx, backend)
 	case "check":
 		return a.check(ctx, backend, *quick)
-	default: // clean
-		fmt.Fprintln(a.Out, "Deleting the lab machine...")
+	default: // stop
+		fmt.Fprintln(a.Out, "Stopping the lab: deleting the lab machine...")
 		if err := backend.Delete(ctx); err != nil {
 			return err
 		}
@@ -232,41 +253,33 @@ func stateErr(err error) error {
 	return fmt.Errorf("progress file %s: %w (fix its permissions or remove it; DOJO_HOME moves it)", p, err)
 }
 
-func (a *App) list() error {
-	katas, err := kata.List(a.Catalog)
-	if err != nil {
-		return err
-	}
-	st, err := a.load()
-	if err != nil {
-		return err
-	}
-	for _, k := range katas {
-		mark := " "
-		if _, ok := st.Passed[k.ID]; ok {
-			mark = "✓"
-		}
-		fmt.Fprintf(a.Out, "%s %-24s %s\n", mark, k.ID, k.Summary)
-	}
-	return nil
-}
-
 func (a *App) current() (*state.State, *kata.Kata, error) {
 	st, err := a.load()
 	if err != nil {
 		return nil, nil, err
 	}
 	if st.Current == "" {
-		return nil, nil, errors.New("no kata in progress: run dojo list, then dojo start <kata>")
+		return nil, nil, errors.New("no kata in progress: run dojo start <kata>")
 	}
 	k, err := kata.Load(a.Catalog, st.Current)
 	return st, k, err
 }
 
-func (a *App) start(ctx context.Context, backend lab.Backend, id string) error {
+// start creates the lab for a kata and sets up ssh dojo. key is the --key flag: empty keeps the
+// remembered key, and a key that cannot be used stops the command before the lab is touched.
+func (a *App) start(ctx context.Context, backend lab.Backend, id, key string) error {
 	k, err := kata.Load(a.Catalog, id)
 	if err != nil {
 		return err
+	}
+	if key != "" {
+		dir, err := sshconfig.Dir()
+		if err == nil {
+			_, _, err = sshconfig.ResolveKey(dir, key)
+		}
+		if err != nil {
+			return fmt.Errorf("%w (pick another key with dojo start --key <path> %s)", err, id)
+		}
 	}
 	fmt.Fprintf(a.Out, "Starting a fresh lab for %s (%s).\n", k.ID, backend.Name())
 	fmt.Fprintln(a.Out, "The first time it downloads Ubuntu, so it can take a few minutes.")
@@ -296,7 +309,11 @@ func (a *App) start(ctx context.Context, backend lab.Backend, id string) error {
 	if err := a.save(st); err != nil {
 		return err
 	}
-	if err := a.trySSH(ctx, backend, st, true); err != nil {
+	chosen := st.SSHKey
+	if key != "" {
+		chosen = key
+	}
+	if err := a.trySSH(ctx, backend, st, chosen, true); err != nil {
 		return err
 	}
 	if err := a.tryMentorFiles(ctx, backend); err != nil {
@@ -304,7 +321,7 @@ func (a *App) start(ctx context.Context, backend lab.Backend, id string) error {
 	}
 	fmt.Fprintf(a.Out, "Lab ready in %s.\n\n", a.Now().Sub(t0).Round(time.Second))
 	a.printBrief(k)
-	fmt.Fprintln(a.Out, "Next: dojo shell (or ssh dojo) to get in, dojo check when you think it's fixed.")
+	fmt.Fprintln(a.Out, "Next: dojo ssh (or ssh dojo) to get in, dojo check when you think it's fixed.")
 	return nil
 }
 
@@ -337,7 +354,7 @@ func (a *App) hint() error {
 	return a.save(st)
 }
 
-func (a *App) shell(ctx context.Context, backend lab.Backend) error {
+func (a *App) ssh(ctx context.Context, backend lab.Backend) error {
 	if _, _, err := a.current(); err != nil {
 		return err
 	}
@@ -345,34 +362,11 @@ func (a *App) shell(ctx context.Context, backend lab.Backend) error {
 	return backend.Shell(ctx)
 }
 
-// sshConfig sets up ssh dojo on demand. The key is remembered only once ssh dojo
-// works with it, so a typo or a bad key never leaves a broken setting behind.
-func (a *App) sshConfig(ctx context.Context, backend lab.Backend, key string) error {
-	st, err := a.load()
-	if err != nil {
-		return err
-	}
-	exists, err := backend.Exists(ctx)
-	if err != nil {
-		return orCanceled(ctx, err)
-	}
-	if !exists {
-		return errors.New("no lab machine yet: run dojo start <kata> first")
-	}
-	if key == "" {
-		key = st.SSHKey
-	}
-	priv, err := a.setupSSH(ctx, backend, key, true)
-	if err != nil {
-		return orCanceled(ctx, err)
-	}
-	return a.rememberKey(st, priv)
-}
-
-// trySSH sets up ssh dojo but never blocks the kata, since dojo shell works
-// without it. Only an interrupt is returned.
-func (a *App) trySSH(ctx context.Context, backend lab.Backend, st *state.State, announce bool) error {
-	priv, err := a.setupSSH(ctx, backend, st.SSHKey, announce)
+// trySSH sets up ssh dojo but never blocks the kata, since dojo ssh works without it. chosen is
+// the key to use (empty auto-detects); it is remembered only once ssh dojo works with it, so a
+// bad key never leaves a broken setting behind. Only an interrupt is returned.
+func (a *App) trySSH(ctx context.Context, backend lab.Backend, st *state.State, chosen string, announce bool) error {
+	priv, err := a.setupSSH(ctx, backend, chosen, announce)
 	if cerr := ctx.Err(); cerr != nil {
 		return cerr
 	}
@@ -380,7 +374,7 @@ func (a *App) trySSH(ctx context.Context, backend lab.Backend, st *state.State, 
 		err = a.rememberKey(st, priv)
 	}
 	if err != nil {
-		fmt.Fprintf(a.Out, "Warning: ssh dojo is not set up: %v\nUse dojo shell, or fix that and run dojo ssh-config.\n", err)
+		fmt.Fprintf(a.Out, "Warning: ssh dojo is not set up: %v\nUse dojo ssh, or fix that and run dojo start again.\n", err)
 	}
 	return nil
 }
@@ -405,7 +399,7 @@ func (a *App) setupSSH(ctx context.Context, backend lab.Backend, chosen string, 
 		return "", fmt.Errorf("%w in %s: create one with `ssh-keygen -t ed25519 -C \"you@example.com\"`, or pass --key <path>", err, dir)
 	}
 	if err != nil {
-		return "", fmt.Errorf("%w (pick another key with dojo ssh-config --key <path>)", err)
+		return "", fmt.Errorf("%w (pick another key with dojo start --key <path> <kata>)", err)
 	}
 	if err := backend.AuthorizeKey(ctx, pub); err != nil {
 		return "", err
@@ -418,7 +412,7 @@ func (a *App) setupSSH(ctx context.Context, backend lab.Backend, chosen string, 
 		return "", err
 	}
 	if announce {
-		fmt.Fprintf(a.Out, "ssh dojo is ready, using your key %s (change it: dojo ssh-config --key <path>).\n", priv)
+		fmt.Fprintf(a.Out, "ssh dojo is ready, using your key %s (change it: dojo start --key <path> <kata>).\n", priv)
 	}
 	return priv, nil
 }
@@ -434,7 +428,7 @@ func (a *App) check(ctx context.Context, backend lab.Backend, quick bool) error 
 			return orCanceled(ctx, err)
 		}
 		// The VM comes back on a new SSH port, so ssh dojo must be pointed at it again.
-		if err := a.trySSH(ctx, backend, st, false); err != nil {
+		if err := a.trySSH(ctx, backend, st, st.SSHKey, false); err != nil {
 			return err
 		}
 	}
@@ -539,7 +533,7 @@ func (a *App) doctor(ctx context.Context) error {
 		fmt.Fprintln(a.Out, "\nNot ready yet. Fix the ✗ items and run dojo doctor again.")
 		return ErrNotReady
 	}
-	fmt.Fprintln(a.Out, "\nReady. Next: dojo list, then dojo start <kata>.")
+	fmt.Fprintln(a.Out, "\nReady. Next: dojo start <kata>.")
 	return nil
 }
 

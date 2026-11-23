@@ -672,7 +672,15 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
 - **Untrusted CLI input:** event payloads are limited (64 KB per event, 1 MB per batch, check
   output 16 KB) and always rendered escaped.
 - **Username:** unique, lowercased, 3 to 30 characters `[a-z0-9-]`, reserved list; defaults
-  to the GitHub login when free. Only shown to the learner and used in the app; it carries no
+  to the GitHub login when free. GitHub logins can be 1 to 39 characters, so sign-up never fails on
+  the rule: the login is lowercased and used as is when it fits and is not reserved; otherwise
+  (1 or 2 characters, over 30, reserved, or a character outside `[a-z0-9-]`) the name is
+  `<base>-<id36>`, where `<id36>` is the GitHub id in base 36 and `<base>` is the login stripped of
+  other characters, cut so the whole name stays within 30 characters, with edge hyphens trimmed
+  (`learner` when nothing is left). A taken name (the unique index decides) is retried as
+  `<base>-<id36>-2`, `-3`, and so on, up to 5 tries in all. The result depends only on the login, the
+  id and which names are taken, and the `<id36>` part is unique per account. The learner can rename in
+  S1. Only shown to the learner and used in the app; it carries no
   public URL, so a change needs no redirect.
 - **Profile update (S1):** `PATCH /v1/me`, for an active learner by cookie (with the CSRF header and a
   JSON content type) or bearer. Body `{"username"?, "language"?, "usage_stats"?, "analytics_consent"?}` (`usage_stats` a JSON boolean, the usage-stats switch the CLI mirrors; `analytics_consent` a JSON boolean, the web analytics choice), at least one, and any other field is

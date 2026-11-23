@@ -453,7 +453,7 @@ func (s *SignIn) learner(ctx context.Context, u github.User, email string, st oa
 	}
 	// The server clock records the confirmation; the cookie only said the boxes were ticked.
 	at := pgtype.Timestamptz{Time: s.now(), Valid: true}
-	return createWithUsername(u.Login, func(name string) (repo.Learner, error) {
+	return createWithUsername(u.Login, u.ID, func(name string) (repo.Learner, error) {
 		return s.Store.UpsertLearner(ctx, repo.UpsertLearnerParams{OrgID: org.ID, GithubID: u.ID, GithubLogin: u.Login,
 			Username: name, Email: mail, Language: "en", AgeConfirmedAt: at, TermsAcceptedAt: at, TermsVersion: s.TermsVersion, UsageStats: true})
 	})

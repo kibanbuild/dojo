@@ -10,6 +10,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -161,6 +162,32 @@ func TestWebSignInNewAndReturningLearner(t *testing.T) {
 	}
 	if got := asOwner(t, "SELECT terms_version FROM learners WHERE github_id = 1001"); got != "accepted-earlier" {
 		t.Fatalf("returning sign-in rewrote terms version: %q", got)
+	}
+}
+
+// GitHub logins of 1 and 39 characters fail the username CHECK as they are; sign-up still works with
+// a stable name built from the GitHub id (design 3.1), and a returning sign-in keeps it.
+func TestWebSignInLoginsOutsideTheUsernameRule(t *testing.T) {
+	for _, tt := range []struct{ login, id, want string }{
+		{"z", "1004", "z-" + strconv.FormatInt(1004, 36)},
+		{"a-very-long-github-login-of-39-chars-xx", "1005", "a-very-long-github-login-of" + "-" + strconv.FormatInt(1005, 36)},
+	} {
+		resetLearners(t, tt.id)
+		b := newBrowser(t)
+		resp := b.signIn(tt.login, "", "age=on&terms=on", false)
+		if resp.Header.Get("Location") != "/app" || b.sessionCookie(resp) == nil {
+			t.Fatalf("%s: %d %q", tt.login, resp.StatusCode, resp.Header.Get("Location"))
+		}
+		if code, me := b.me(); code != http.StatusOK || me["github_login"] != tt.login || me["username"] != tt.want {
+			t.Fatalf("%s: me %d %v, want username %q", tt.login, code, me, tt.want)
+		}
+		again := newBrowser(t)
+		if resp := again.signIn(tt.login, "", "", false); resp.Header.Get("Location") != "/app" {
+			t.Fatalf("%s returning: %q", tt.login, resp.Header.Get("Location"))
+		}
+		if code, me := again.me(); code != http.StatusOK || me["username"] != tt.want || learnerCount(t, tt.id) != "1" {
+			t.Fatalf("%s returning: %d %v", tt.login, code, me)
+		}
 	}
 }
 

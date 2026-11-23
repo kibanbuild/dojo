@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { noticeFor, SignInScreen, START_PATH } from './SignIn';
+import { noticeFor, noticeToneFor, SignInScreen, START_PATH } from './SignIn';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -71,6 +71,9 @@ describe('sign-in form', () => {
 describe('callback notices', () => {
   it('maps the confirm flag and each error code', () => {
     expect(noticeFor(new URLSearchParams('confirm=1'))).toContain('Confirm both boxes');
+    expect(noticeFor(new URLSearchParams('deleted=1'))).toBe('Your account was deleted.');
+    expect(noticeToneFor(new URLSearchParams('deleted=1'))).toBe('info');
+    expect(noticeToneFor(new URLSearchParams('error=suspended'))).toBe('error');
     expect(noticeFor(new URLSearchParams('error=state_check'))).toContain('try again');
     expect(noticeFor(new URLSearchParams('error=suspended'))).toContain('suspended');
     expect(noticeFor(new URLSearchParams('error=unknown_code'))).toContain('Something went wrong');

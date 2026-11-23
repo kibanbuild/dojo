@@ -17,8 +17,11 @@ const MESSAGES: Record<string, string> = {
 };
 const CONFIRM_MESSAGE = 'We do not know this GitHub account yet. Confirm both boxes below to create it.';
 
+const DELETED_MESSAGE = 'Your account was deleted.';
+
 export function noticeFor(params: URLSearchParams): string {
   if (params.get('confirm') === '1') return CONFIRM_MESSAGE;
+  if (params.get('deleted') === '1') return DELETED_MESSAGE;
   const code = params.get('error');
   if (!code) return '';
   return MESSAGES[code] ?? MESSAGES.server_error!;
@@ -42,7 +45,14 @@ function Header() {
   );
 }
 
-export function SignInScreen({ notice }: { notice: string }) {
+export type NoticeTone = 'error' | 'info';
+
+/** The deleted-account notice is good news, not an error. */
+export function noticeToneFor(params: URLSearchParams): NoticeTone {
+  return params.get('deleted') === '1' ? 'info' : 'error';
+}
+
+export function SignInScreen({ notice, tone = 'error' }: { notice: string; tone?: NoticeTone }) {
   const [age, setAge] = useState(false);
   const [terms, setTerms] = useState(false);
   const hintId = useId();
@@ -74,7 +84,11 @@ export function SignInScreen({ notice }: { notice: string }) {
 
           <div role="status" aria-live="polite" className="empty:hidden">
             {notice && (
-              <p className="m-0 rounded-[10px] bg-badsoft px-3.5 py-2.5 text-[13px] leading-normal font-semibold text-bad">{notice}</p>
+              <p
+                className={`m-0 rounded-[10px] px-3.5 py-2.5 text-[13px] leading-normal font-semibold ${tone === 'info' ? 'bg-surface2 text-fg2' : 'bg-badsoft text-bad'}`}
+              >
+                {notice}
+              </p>
             )}
           </div>
 
@@ -135,5 +149,5 @@ export function SignInScreen({ notice }: { notice: string }) {
 
 export function SignInPage() {
   const [params] = useSearchParams();
-  return <SignInScreen notice={noticeFor(params)} />;
+  return <SignInScreen notice={noticeFor(params)} tone={noticeToneFor(params)} />;
 }

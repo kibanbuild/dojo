@@ -67,3 +67,27 @@ export async function errorCode(res: Response): Promise<string> {
     return '';
   }
 }
+
+export type DeleteResult = { ok: true } | { ok: false; reason: DeleteFailure };
+export type DeleteFailure = 'confirm_mismatch' | 'signed_out' | 'rate_limited' | 'failed';
+
+export const DELETE_MESSAGES: Record<Exclude<DeleteFailure, 'signed_out'>, string> = {
+  confirm_mismatch: 'That does not match your GitHub username. Check it and try again.',
+  rate_limited: 'Too many attempts. Wait a minute and try again.',
+  failed: 'Could not delete your account. Please try again.',
+};
+
+/** DELETE /v1/me with the GitHub login as confirmation; 204 means the account is gone and the session cookie cleared. */
+export async function deleteMe(confirm: string): Promise<DeleteResult> {
+  let res: Response;
+  try {
+    res = await apiFetch('/v1/me', { method: 'DELETE', body: JSON.stringify({ confirm }) });
+  } catch {
+    return { ok: false, reason: 'failed' };
+  }
+  if (res.status === 204 || res.ok) return { ok: true };
+  if (res.status === 401) return { ok: false, reason: 'signed_out' };
+  if (res.status === 429) return { ok: false, reason: 'rate_limited' };
+  if (res.status === 400 && (await errorCode(res)) === 'confirm_mismatch') return { ok: false, reason: 'confirm_mismatch' };
+  return { ok: false, reason: 'failed' };
+}

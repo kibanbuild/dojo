@@ -4,6 +4,8 @@
 !cmd/dojo-api
 !internal/server
 !internal/github
+!cmd/dojo-admin
+!internal/admin
 !cmd/fake-github
 !internal/fakegithub
 !db/migrations

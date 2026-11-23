@@ -12,7 +12,7 @@ SQLC := $(TOOLS)/sqlc-$(SQLC_VERSION)
 
 # The integration stack runs under its own compose project, apart from any other.
 IT_PROJECT := dojo-it
-COMPOSE := EDGE_PORT= FAKE_GITHUB_PORT= docker compose -p $(IT_PROJECT) -f compose.yaml -f compose.it.yaml --env-file .env.example
+COMPOSE := EDGE_PORT= FAKE_GITHUB_PORT= ADMIN_PORT= docker compose -p $(IT_PROJECT) -f compose.yaml -f compose.it.yaml --env-file .env.example
 
 # The dev stack is the default compose project (dojo); a local .env wins over the fixed values.
 # compose.dev.yaml makes http://localhost:4321 (Astro) the public origin, which only this path uses.
@@ -72,9 +72,10 @@ test-integration:
 	port=$$($(COMPOSE) port api 8080 | sed 's/.*://'); \
 	edge=$$($(COMPOSE) port edge 8080 | sed 's/.*://'); \
 	fake=$$($(COMPOSE) port fake-github 8081 | sed 's/.*://'); \
-	DOJO_API_URL=http://127.0.0.1:$$port DOJO_EDGE_URL=http://127.0.0.1:$$edge DOJO_FAKE_GITHUB_URL=http://127.0.0.1:$$fake DOJO_COMPOSE_PROJECT=$(IT_PROJECT) \
-		go test -tags integration -count=1 -v ./internal/server/ ./internal/github/ \
-		|| { rc=$$?; $(COMPOSE) logs --no-color --tail=100 api fake-github; exit $$rc; }
+	admin=$$($(COMPOSE) port admin 8090 | sed 's/.*://'); \
+	DOJO_ADMIN_URL=http://127.0.0.1:$$admin DOJO_API_URL=http://127.0.0.1:$$port DOJO_EDGE_URL=http://127.0.0.1:$$edge DOJO_FAKE_GITHUB_URL=http://127.0.0.1:$$fake DOJO_COMPOSE_PROJECT=$(IT_PROJECT) \
+		go test -tags integration -count=1 -v ./internal/server/ ./internal/github/ ./internal/admin/ \
+		|| { rc=$$?; $(COMPOSE) logs --no-color --tail=100 api admin fake-github; exit $$rc; }
 
 # Starts the stack in the background, then the SPA's Vite dev server (background, its own pid in app/.dev.pid)
 # and the web dev server in the foreground (Astro detaches when there is no terminal). The web dev

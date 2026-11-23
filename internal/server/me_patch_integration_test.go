@@ -5,8 +5,10 @@ package server_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -186,5 +188,87 @@ func TestPatchMeUsageStats(t *testing.T) {
 	}
 	if _, me := ada.me(); me["usage_stats"] != true {
 		t.Fatalf("cookie sees: %v", me)
+	}
+}
+
+func TestPatchMeAnalyticsConsent(t *testing.T) {
+	resetLearners(t, "1001")
+	ada := newBrowser(t)
+	if resp := ada.signIn("ada", "", "age=on&terms=on", false); resp.Header.Get("Location") != "/app" {
+		t.Fatalf("ada sign-in: %q", resp.Header.Get("Location"))
+	}
+	if _, me := ada.me(); me["analytics_consent"] != nil {
+		t.Fatalf("default: %v", me)
+	}
+	if code, _ := ada.patch(`{"analytics_consent":true}`, false); code != http.StatusForbidden {
+		t.Fatalf("without CSRF: %d", code)
+	}
+	for _, want := range []bool{true, false} {
+		code, body := ada.patch(`{"analytics_consent":`+fmt.Sprint(want)+`}`, true)
+		var got map[string]any
+		if code != http.StatusOK || json.Unmarshal([]byte(body), &got) != nil || got["analytics_consent"] != want {
+			t.Fatalf("set %v: %d %q", want, code, body)
+		}
+		if _, me := ada.me(); me["analytics_consent"] != want || me["usage_stats"] != true {
+			t.Fatalf("me after %v: %v", want, me)
+		}
+	}
+	for _, bad := range []string{`{"analytics_consent":null}`, `{"analytics_consent":"true"}`, `{"analytics_consent":1}`} {
+		if code, _ := ada.patch(bad, true); code != http.StatusBadRequest {
+			t.Fatalf("%s: %d", bad, code)
+		}
+	}
+	if _, me := ada.me(); me["analytics_consent"] != false {
+		t.Fatalf("a refused patch changed it: %v", me)
+	}
+}
+
+// signInWithConsentCookie signs in with the web app's consent cookie in the jar ("" sends none).
+func signInWithConsentCookie(t *testing.T, login, cookie, ticks string) *browser {
+	t.Helper()
+	b := newBrowser(t)
+	if cookie != "" {
+		u, _ := url.Parse(apiURL(t))
+		b.c.Jar.SetCookies(u, []*http.Cookie{{Name: "dojo_analytics_consent", Value: cookie, Path: "/"}})
+	}
+	if resp := b.signIn(login, "", ticks, false); resp.Header.Get("Location") != "/app" {
+		t.Fatalf("%s sign-in: %q", login, resp.Header.Get("Location"))
+	}
+	return b
+}
+
+func TestWebSignInCopiesTheConsentCookie(t *testing.T) {
+	consent := func(t *testing.T) string {
+		return asOwner(t, "SELECT coalesce(analytics_consent::text, 'null') FROM learners WHERE github_id = 1001")
+	}
+	const ticks = "age=on&terms=on"
+	tests := []struct {
+		name, first, second, wantFirst, wantSecond string
+	}{
+		{"new learner with granted", "granted", "", "true", "true"},
+		{"new learner with denied", "denied", "", "false", "false"},
+		{"new learner with garbage", "maybe", "", "null", "null"},
+		{"returning, null, granted", "", "granted", "null", "true"},
+		{"returning, null, denied", "", "denied", "null", "false"},
+		{"returning, null, garbage", "", "Granted", "null", "null"},
+		{"returning, false, granted stays false", "denied", "granted", "false", "false"},
+		{"returning, true, denied stays true", "granted", "denied", "true", "true"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetLearners(t, "1001")
+			signInWithConsentCookie(t, "ada", tt.first, ticks)
+			if got := consent(t); got != tt.wantFirst {
+				t.Fatalf("after first sign-in: %s, want %s", got, tt.wantFirst)
+			}
+			b := signInWithConsentCookie(t, "ada", tt.second, "")
+			if got := consent(t); got != tt.wantSecond {
+				t.Fatalf("after second sign-in: %s, want %s", got, tt.wantSecond)
+			}
+			want := map[string]any{"true": true, "false": false, "null": nil}[tt.wantSecond]
+			if _, me := b.me(); me["analytics_consent"] != want {
+				t.Fatalf("me: %v, want %v", me["analytics_consent"], want)
+			}
+		})
 	}
 }

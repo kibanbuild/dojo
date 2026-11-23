@@ -19,6 +19,12 @@ UPDATE learners
 SET username = COALESCE(sqlc.narg('username'), username),
     language = COALESCE(sqlc.narg('language'), language),
     usage_stats = COALESCE(sqlc.narg('usage_stats'), usage_stats),
+    analytics_consent = COALESCE(sqlc.narg('analytics_consent'), analytics_consent),
     updated_at = now()
 WHERE id = $1
 RETURNING *;
+
+-- name: SetLearnerAnalyticsConsentIfUnset :execrows
+UPDATE learners
+SET analytics_consent = $2, updated_at = now()
+WHERE id = $1 AND analytics_consent IS NULL;

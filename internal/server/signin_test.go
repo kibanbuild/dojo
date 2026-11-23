@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -65,6 +66,14 @@ type fakeStore struct {
 	sessionErr error
 
 	revokedSessions []pgtype.UUID
+
+	consents   []repo.SetLearnerAnalyticsConsentIfUnsetParams
+	consentErr error
+}
+
+func (f *fakeStore) SetLearnerAnalyticsConsentIfUnset(_ context.Context, a repo.SetLearnerAnalyticsConsentIfUnsetParams) (int64, error) {
+	f.consents = append(f.consents, a)
+	return 1, f.consentErr
 }
 
 func (f *fakeStore) GetOrgBySlug(context.Context, string) (repo.Org, error) {
@@ -665,6 +674,57 @@ func TestParseStateKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if _, err := ParseStateKey(tt.key, tt.local); (err == nil) != tt.ok {
 				t.Fatalf("err = %v", err)
+			}
+		})
+	}
+}
+
+func TestCallbackCopiesTheConsentCookie(t *testing.T) {
+	known := &repo.Learner{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, OrgID: pgtype.UUID{Bytes: [16]byte{9}, Valid: true}, Username: "ada"}
+	tests := []struct {
+		name   string
+		known  *repo.Learner
+		cookie *http.Cookie
+		want   []bool
+		failed bool
+	}{
+		{"granted, known", known, &http.Cookie{Name: consentCookie, Value: "granted"}, []bool{true}, false},
+		{"denied, known", known, &http.Cookie{Name: consentCookie, Value: "denied"}, []bool{false}, false},
+		{"granted, new", nil, &http.Cookie{Name: consentCookie, Value: "granted"}, []bool{true}, false},
+		{"denied, new", nil, &http.Cookie{Name: consentCookie, Value: "denied"}, []bool{false}, false},
+		{"garbage", known, &http.Cookie{Name: consentCookie, Value: "yes"}, nil, false},
+		{"wrong case", known, &http.Cookie{Name: consentCookie, Value: "Granted"}, nil, false},
+		{"empty", known, &http.Cookie{Name: consentCookie, Value: ""}, nil, false},
+		{"no cookie", known, nil, nil, false},
+		{"store failure does not fail the sign-in", known, &http.Cookie{Name: consentCookie, Value: "granted"}, []bool{true}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newRig(t)
+			r.st.known = tt.known
+			if tt.failed {
+				r.st.consentErr = errors.New("db down")
+			}
+			c, state := r.begin(t, startPath, bothTicks)
+			req := httptest.NewRequest(http.MethodGet, callbackPath+"?code=c&state="+state, nil)
+			req.AddCookie(c)
+			if tt.cookie != nil {
+				req.AddCookie(tt.cookie)
+			}
+			rec := httptest.NewRecorder()
+			r.h.ServeHTTP(rec, req)
+			if rec.Header().Get("Location") != "/app" || r.st.sessions != 1 {
+				t.Fatalf("sign-in: %q, sessions %d", rec.Header().Get("Location"), r.st.sessions)
+			}
+			var got []bool
+			for _, a := range r.st.consents {
+				if !a.AnalyticsConsent.Valid || !a.ID.Valid {
+					t.Fatalf("args %+v", a)
+				}
+				got = append(got, a.AnalyticsConsent.Bool)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("consent writes %v, want %v", got, tt.want)
 			}
 		})
 	}

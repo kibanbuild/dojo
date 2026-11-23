@@ -65,21 +65,42 @@ func (q *Queries) GetLearnerByID(ctx context.Context, id pgtype.UUID) (Learner, 
 	return i, err
 }
 
+const setLearnerAnalyticsConsentIfUnset = `-- name: SetLearnerAnalyticsConsentIfUnset :execrows
+UPDATE learners
+SET analytics_consent = $2, updated_at = now()
+WHERE id = $1 AND analytics_consent IS NULL
+`
+
+type SetLearnerAnalyticsConsentIfUnsetParams struct {
+	ID               pgtype.UUID
+	AnalyticsConsent pgtype.Bool
+}
+
+func (q *Queries) SetLearnerAnalyticsConsentIfUnset(ctx context.Context, arg SetLearnerAnalyticsConsentIfUnsetParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setLearnerAnalyticsConsentIfUnset, arg.ID, arg.AnalyticsConsent)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateLearnerProfile = `-- name: UpdateLearnerProfile :one
 UPDATE learners
 SET username = COALESCE($2, username),
     language = COALESCE($3, language),
     usage_stats = COALESCE($4, usage_stats),
+    analytics_consent = COALESCE($5, analytics_consent),
     updated_at = now()
 WHERE id = $1
 RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version
 `
 
 type UpdateLearnerProfileParams struct {
-	ID         pgtype.UUID
-	Username   pgtype.Text
-	Language   pgtype.Text
-	UsageStats pgtype.Bool
+	ID               pgtype.UUID
+	Username         pgtype.Text
+	Language         pgtype.Text
+	UsageStats       pgtype.Bool
+	AnalyticsConsent pgtype.Bool
 }
 
 func (q *Queries) UpdateLearnerProfile(ctx context.Context, arg UpdateLearnerProfileParams) (Learner, error) {
@@ -88,6 +109,7 @@ func (q *Queries) UpdateLearnerProfile(ctx context.Context, arg UpdateLearnerPro
 		arg.Username,
 		arg.Language,
 		arg.UsageStats,
+		arg.AnalyticsConsent,
 	)
 	var i Learner
 	err := row.Scan(

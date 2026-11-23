@@ -30,6 +30,9 @@ func (f *fakeSessions) UpdateLearnerProfile(_ context.Context, a repo.UpdateLear
 	if a.UsageStats.Valid {
 		l.UsageStats = a.UsageStats.Bool
 	}
+	if a.AnalyticsConsent.Valid {
+		l.AnalyticsConsent = a.AnalyticsConsent
+	}
 	f.learner = l
 	return l, nil
 }
@@ -77,6 +80,10 @@ func TestPatchMeValidation(t *testing.T) {
 		{"empty body", ``, "bad_request"},
 		{"empty object", `{}`, "bad_request"},
 		{"only nulls", `{"username":null,"language":null,"usage_stats":null}`, "bad_request"},
+		{"analytics_consent only null", `{"analytics_consent":null}`, "bad_request"},
+		{"analytics_consent string", `{"analytics_consent":"true"}`, "bad_request"},
+		{"analytics_consent number", `{"analytics_consent":1}`, "bad_request"},
+		{"analytics_consent object", `{"analytics_consent":{}}`, "bad_request"},
 		{"usage_stats string", `{"usage_stats":"false"}`, "bad_request"},
 		{"usage_stats number", `{"usage_stats":0}`, "bad_request"},
 		{"usage_stats object", `{"usage_stats":{}}`, "bad_request"},
@@ -182,6 +189,34 @@ func TestPatchMeUsageStats(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestPatchMeAnalyticsConsent(t *testing.T) {
+	for _, mode := range []struct {
+		name   string
+		cookie bool
+	}{{"cookie", true}, {"bearer", false}} {
+		for _, v := range []bool{true, false} {
+			t.Run(mode.name+"/"+strconv.FormatBool(v), func(t *testing.T) {
+				f := newPatchFake()
+				rec := doPatch(t, f, patchCall{cookie: mode.cookie, csrf: true, body: `{"analytics_consent":` + strconv.FormatBool(v) + `}`})
+				if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"analytics_consent":`+strconv.FormatBool(v)) {
+					t.Fatalf("got %d %q", rec.Code, rec.Body.String())
+				}
+				if len(f.updates) != 1 || f.updates[0].AnalyticsConsent != (pgtype.Bool{Bool: v, Valid: true}) ||
+					f.updates[0].Username.Valid || f.updates[0].Language.Valid || f.updates[0].UsageStats.Valid {
+					t.Fatalf("update args %+v", f.updates)
+				}
+			})
+		}
+	}
+	t.Run("null beside a real field leaves consent alone", func(t *testing.T) {
+		f := newPatchFake()
+		rec := doPatch(t, f, patchCall{cookie: true, csrf: true, body: `{"language":"es","analytics_consent":null}`})
+		if rec.Code != http.StatusOK || len(f.updates) != 1 || f.updates[0].AnalyticsConsent.Valid {
+			t.Fatalf("got %d, args %+v", rec.Code, f.updates)
+		}
+	})
 }
 
 func TestPatchMeRequiresCSRFForCookie(t *testing.T) {

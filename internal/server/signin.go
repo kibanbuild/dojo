@@ -56,6 +56,7 @@ type SignInStore interface {
 	GetOrgBySlug(ctx context.Context, slug string) (repo.Org, error)
 	GetLearnerByGithubID(ctx context.Context, githubID int64) (repo.Learner, error)
 	UpsertLearner(ctx context.Context, arg repo.UpsertLearnerParams) (repo.Learner, error)
+	SetLearnerAnalyticsConsentIfUnset(ctx context.Context, arg repo.SetLearnerAnalyticsConsentIfUnsetParams) (int64, error)
 	InsertSession(ctx context.Context, arg repo.InsertSessionParams) (repo.InsertSessionRow, error)
 	RevokeSession(ctx context.Context, id pgtype.UUID) error
 }
@@ -335,6 +336,7 @@ func (s *SignIn) callback(w http.ResponseWriter, r *http.Request) {
 		redirectSignin(w, r, "error=suspended")
 		return
 	}
+	s.copyAnalyticsConsent(ctx, r, l)
 	token, err := randToken()
 	if err == nil {
 		_, err = s.Store.InsertSession(ctx, repo.InsertSessionParams{OrgID: l.OrgID, LearnerID: l.ID, TokenHash: HashToken(token)})
@@ -352,6 +354,24 @@ func (s *SignIn) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, s.Auth.SetCookie(token))
 	http.Redirect(w, r, "/app", http.StatusSeeOther)
+}
+
+// consentCookie is the signed-out visitor's analytics choice, set by the web app.
+const consentCookie = "dojo_analytics_consent"
+
+// copyAnalyticsConsent copies the consent cookie onto the account while the account has no choice. Only the
+// exact values granted and denied count; the update is conditional on NULL so a concurrent PATCH is never
+// overwritten. A failure is logged and never fails the sign-in.
+func (s *SignIn) copyAnalyticsConsent(ctx context.Context, r *http.Request, l repo.Learner) {
+	c, err := r.Cookie(consentCookie)
+	if err != nil || (c.Value != "granted" && c.Value != "denied") {
+		return
+	}
+	_, err = s.Store.SetLearnerAnalyticsConsentIfUnset(ctx, repo.SetLearnerAnalyticsConsentIfUnsetParams{
+		ID: l.ID, AnalyticsConsent: pgtype.Bool{Bool: c.Value == "granted", Valid: true}})
+	if err != nil {
+		slog.Warn("sign-in: copying the analytics consent failed", "error", err)
+	}
 }
 
 // identify exchanges the code, reads the account and always revokes the GitHub token. As in the CLI

@@ -50,7 +50,7 @@ func csrfProtect(want string, next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		if !sameOrigin(r) {
-			slog.Warn("operator request refused: cross-origin", "method", r.Method, "path", r.URL.Path)
+			slog.Warn("operator request refused: cross-origin", "route", r.Pattern)
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
@@ -62,7 +62,7 @@ func csrfProtect(want string, next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 		if got == "" || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
-			slog.Warn("operator request refused: bad csrf token", "method", r.Method, "path", r.URL.Path)
+			slog.Warn("operator request refused: bad csrf token", "route", r.Pattern)
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}

@@ -4,6 +4,7 @@
 !cmd/dojo-api
 !internal/server
 !internal/github
+!internal/storage
 !cmd/dojo-admin
 !internal/admin
 !cmd/fake-github

@@ -47,6 +47,16 @@ table PR adds its grant rows (allowed and refused) to `grantCases` in `internal/
   published only on `127.0.0.1:8090` and never behind Caddy. It answers only requests whose `Host` is
   `127.0.0.1:8090` (421 otherwise); set `ADMIN_PORT` to move the host port. `make dev` and
   `make test-integration` start it. A test in `internal/admin` fails if `cmd/dojo-api` imports it.
+- Object storage (ticket bundles) is the `s3` compose service, an S3-compatible RustFS container, with the private
+  bucket `dojo-catalog` created by the one-off `s3-init`. Code goes through `internal/storage` (`Put`, `PresignGet`,
+  `Stat`), which also talks to real S3 in `pre` and `pro`. Config, all `DOJO_`-prefixed because GitHub Actions
+  exports unprefixed generic names into compose:
+  `DOJO_S3_ENDPOINT` (what the process connects to; empty means AWS), `DOJO_S3_PUBLIC_ENDPOINT` (what presigned
+  URLs carry; must be reachable by whoever downloads, so `http://localhost:9000` locally while the API uses
+  `http://s3:9000`), `DOJO_S3_REGION`, `DOJO_S3_BUCKET`, `DOJO_S3_ACCESS_KEY` and `DOJO_S3_SECRET_KEY` (both or
+  neither; neither means the task role), `DOJO_S3_PATH_STYLE` (true for the stand-in). Local defaults exist for all
+  of them; `pre` and `pro` require bucket and region and https endpoints. The host port is loopback only
+  (`DOJO_S3_PORT`, default 9000; the integration run takes a random one). Change the port and the public endpoint together.
 - `make admin-bootstrap LOGIN=ada` makes that GitHub login the first operator of the dev stack, so you can
   sign in to the operator service locally (the fake GitHub knows `ada`, `bob` and `cy`; sign-in needs a
   user with two-factor on: `ada` or `cy`, not `bob`). It runs `dojo-admin bootstrap` as a one-off with the migration

@@ -16,6 +16,7 @@ import (
 	"github.com/kibanbuild/dojo/internal/github"
 	"github.com/kibanbuild/dojo/internal/server"
 	"github.com/kibanbuild/dojo/internal/server/repo"
+	"github.com/kibanbuild/dojo/internal/storage"
 )
 
 func main() {
@@ -59,6 +60,15 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	storeCfg, err := storage.LoadConfig(os.Getenv, local)
+	if err != nil {
+		return err
+	}
+	// No endpoint uses the store yet (M2.3b hands out presigned URLs); building it here fails a bad config at boot.
+	if _, err := storage.New(storeCfg); err != nil {
+		return err
+	}
+	slog.Info("object store configured", "bucket", storeCfg.Bucket, "endpoint", storeCfg.Endpoint, "public_endpoint", storeCfg.PublicEndpoint)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

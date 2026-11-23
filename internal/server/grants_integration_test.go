@@ -173,6 +173,27 @@ var grantCases = []struct {
 	{"dojo_admin", "TRUNCATE admin_sessions", false},
 	{"dojo_api", "SELECT prune_admin_audit()", false},
 	{"dojo_admin", "SELECT prune_admin_audit()", false},
+
+	// email_outbox: both service roles select and insert the queueing columns; id, sent_at and
+	// created_at keep defaults; no UPDATE (mark_email_sent() lands in M3) and no DELETE.
+	{"dojo_api", "SELECT id, learner_id, to_address, kind, ref, sent_at, created_at FROM email_outbox", true},
+	{"dojo_api", "INSERT INTO email_outbox (learner_id, to_address, kind, ref) SELECT NULL, 'a@b.c', 'E1', 'x' WHERE false", true},
+	{"dojo_api", "INSERT INTO email_outbox (learner_id, to_address, kind, ref, sent_at) SELECT NULL, 'a@b.c', 'E1', 'x', now() WHERE false", false},
+	{"dojo_api", "INSERT INTO email_outbox (id, kind, ref) SELECT gen_random_uuid(), 'E1', 'x' WHERE false", false},
+	{"dojo_api", "UPDATE email_outbox SET sent_at = now() WHERE false", false},
+	{"dojo_api", "UPDATE email_outbox SET to_address = NULL WHERE false", false},
+	{"dojo_api", "DELETE FROM email_outbox WHERE false", false},
+	{"dojo_api", "TRUNCATE email_outbox", false},
+	{"dojo_admin", "SELECT id, learner_id, to_address, kind, ref, sent_at, created_at FROM email_outbox", true},
+	{"dojo_admin", "INSERT INTO email_outbox (learner_id, to_address, kind, ref) SELECT NULL, 'a@b.c', 'E1', 'x' WHERE false", true},
+	{"dojo_admin", "INSERT INTO email_outbox (learner_id, to_address, kind, ref, created_at) SELECT NULL, 'a@b.c', 'E1', 'x', now() WHERE false", false},
+	{"dojo_admin", "UPDATE email_outbox SET sent_at = now() WHERE false", false},
+	{"dojo_admin", "DELETE FROM email_outbox WHERE false", false},
+	{"dojo_admin", "TRUNCATE email_outbox", false},
+	// delete_learner() is the one way an account goes: executable by both service roles, and an
+	// unknown id is a no-op. Its EXECUTE list is also asserted in delete_learner_integration_test.go.
+	{"dojo_api", "SELECT delete_learner(gen_random_uuid())", true},
+	{"dojo_admin", "SELECT delete_learner(gen_random_uuid())", true},
 }
 
 // Connects by the container address: the image trusts loopback, other addresses use scram.

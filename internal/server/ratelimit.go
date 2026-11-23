@@ -143,7 +143,7 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 		switch {
 		// The callback has its own limiter inside the handler, taken once the state cookie checks out.
 		case pattern == "GET "+callbackPath && r.URL.Path == callbackPath:
-		case matches(pattern, r, isAuthPath):
+		case matches(pattern, r, isAuthPath), pattern == "DELETE /v1/me" && path.Clean("/"+r.URL.Path) == "/v1/me":
 			lim = rl.Auth
 		case matches(pattern, r, isTelemetryPath):
 			if p, authed := principalOf(r.Context()); authed {

@@ -44,6 +44,10 @@ type fakeSessions struct {
 	telemetry    []repo.InsertTelemetryEventsParams
 	telemetryErr error
 	learnerErr   error
+
+	deleted    []pgtype.UUID
+	deleteErr  error
+	deleteGone bool // delete_learner answers false: the learner is already gone
 }
 
 func (f *fakeSessions) GetActiveSession(_ context.Context, h []byte) (repo.GetActiveSessionRow, error) {

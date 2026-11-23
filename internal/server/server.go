@@ -28,6 +28,7 @@ func New(ready Readiness, auth Auth, limits *RateLimits, signin *SignIn, cli *CL
 	mux.HandleFunc("GET /v1/health", health(ready))
 	mux.HandleFunc("GET /v1/me", requireSession(auth.me))
 	mux.HandleFunc("PATCH /v1/me", requireSession(auth.patchMe))
+	mux.HandleFunc("DELETE /v1/me", requireAuthenticated(auth.deleteMe))
 	mux.HandleFunc("GET /v1/me/devices", requireSession(auth.devices))
 	mux.HandleFunc("DELETE /v1/me/devices/{id}", requireAuthenticated(auth.revokeDevice))
 	mux.HandleFunc("POST /v1/telemetry", auth.telemetry)

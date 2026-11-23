@@ -685,6 +685,18 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   cannot both win), `500 server_error`. Re-sending the current values is a `200`. It writes only the
   columns `dojo_api` may update (3.3). There is no availability-check route in M1: it would let a
   signed-in learner enumerate usernames for little gain, and S1 shows the `409` at save instead.
+- **Account deletion (S1):** `DELETE /v1/me`, by the cookie session only, with the CSRF header and a
+  JSON content type. Body `{"confirm": "<github_login>"}`, compared with the learner's GitHub login
+  case-insensitively; any other field, a missing or non-string `confirm`, or a non-JSON, oversized or
+  trailing body is `400 bad_request`. It calls `delete_learner` (section 3.5) and answers `204` with the
+  session cookie cleared, like web sign-out. A suspended learner may delete their own account
+  (erasure is a right, and it only ends their own data, like revoking their own tokens). A CLI
+  bearer is refused with `403 forbidden` even though the token is valid: a CLI token must not erase
+  an account, and a `401` would make the CLI ask for a new login. Errors, all `{"error": "<code>"}`:
+  `400 bad_request`, `400 confirm_mismatch`, `401 unauthenticated` (no session, or the learner was
+  already gone, so a repeat call queues no second E8), `403 forbidden`, `403 csrf_rejected`,
+  `429 rate_limited` (the same per-IP limit as the auth routes), `500 server_error`. Nothing personal
+  is logged.
 - **Age:** a self-declared confirmation of 14 or older at first sign-in. No other check.
 - **Exam SSH access:** the learner's public key is registered for one machine; no lookup by GitHub
   username, so a renamed login cannot be authorised by mistake.

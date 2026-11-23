@@ -102,7 +102,7 @@ down:
 	-@if $(SPA_UP); then kill $$(cat $(SPA_PID)); fi; rm -f $(SPA_PID)
 	-@cd web && corepack pnpm exec astro dev stop 2>/dev/null
 
-# Runs the nightly job (db/jobs/nightly.sql: telemetry retention) against the dev stack, as the migration role.
+# Runs the nightly job (db/jobs/nightly.sql: telemetry and audit retention) against the dev stack, as the migration role.
 prune:
 	$(DEV_COMPOSE) --profile jobs run --rm prune
 

@@ -8,6 +8,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AdminAudit struct {
+	ID            pgtype.UUID
+	OperatorID    pgtype.UUID
+	OperatorLogin string
+	Action        string
+	TargetType    string
+	TargetID      string
+	Reason        pgtype.Text
+	Before        []byte
+	After         []byte
+	At            pgtype.Timestamptz
+}
+
+type AdminSession struct {
+	ID         pgtype.UUID
+	OperatorID pgtype.UUID
+	TokenHash  []byte
+	CreatedAt  pgtype.Timestamptz
+	ExpiresAt  pgtype.Timestamptz
+	RevokedAt  pgtype.Timestamptz
+}
+
 type CliToken struct {
 	ID         pgtype.UUID
 	OrgID      pgtype.UUID
@@ -38,6 +60,15 @@ type Learner struct {
 	AnalyticsConsent pgtype.Bool
 	SuspendedAt      pgtype.Timestamptz
 	TermsVersion     string
+}
+
+type Operator struct {
+	ID          pgtype.UUID
+	GithubID    int64
+	GithubLogin string
+	AddedBy     pgtype.UUID
+	AddedAt     pgtype.Timestamptz
+	RevokedAt   pgtype.Timestamptz
 }
 
 type Org struct {

@@ -29,7 +29,7 @@ table PR adds its grant rows (allowed and refused) to `grantCases` in `internal/
 - `make test-integration` starts that stack as the isolated project `dojo-it` from a clean state, runs
   the tests tagged `integration`, and always removes the containers and volumes afterwards. It uses the
   fixed local values in `.env.example`, so a clean checkout needs no `.env`.
-- `make prune` runs the nightly job (`db/jobs/nightly.sql`: telemetry retention) once against the dev stack, as the
+- `make prune` runs the nightly job (`db/jobs/nightly.sql`: telemetry and audit retention) once against the dev stack, as the
   migration role; the AWS schedule comes in M0b.
 - `make dev` is the everyday loop: it starts the stack in the background (`docker compose up`, project
   `dojo`), then the Astro dev server on `http://localhost:4321` with live reload. That server proxies

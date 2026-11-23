@@ -17,11 +17,12 @@ const (
 )
 
 // sessionCookieFor is HttpOnly, host-only (no Domain) and Lax as design 3.7 says: Strict would drop
-// the cookie on the redirect that follows GitHub's cross-site callback. It cannot be Secure, the
-// service is plain HTTP inside the tunnel.
-func sessionCookieFor(v string, maxAge int) *http.Cookie {
-	return &http.Cookie{ //nolint:gosec // loopback http inside the tunnel: Secure cannot be set (design 3.7)
-		Name: sessionCookie, Value: v, Path: "/", MaxAge: maxAge, HttpOnly: true, SameSite: http.SameSiteLaxMode}
+// the cookie on the redirect that follows GitHub's cross-site callback. Secure follows
+// Deps.SecureCookies: off today, the service is plain HTTP on loopback inside the tunnel.
+func (s *signIn) sessionCookieFor(v string, maxAge int) *http.Cookie {
+	return &http.Cookie{ //nolint:gosec // Secure follows Deps.SecureCookies by design (3.7)
+		Name: sessionCookie, Value: v, Path: "/", MaxAge: maxAge, HttpOnly: true,
+		SameSite: http.SameSiteLaxMode, Secure: s.SecureCookies}
 }
 
 type operatorKey struct{}
@@ -49,7 +50,7 @@ func (s *signIn) authenticated(next http.HandlerFunc) http.HandlerFunc {
 			if !errors.Is(err, ErrNotFound) {
 				slog.Error("operator session lookup failed", "error", err)
 			}
-			http.SetCookie(w, sessionCookieFor("", -1))
+			http.SetCookie(w, s.sessionCookieFor("", -1))
 			toSignin(w, r, "")
 			return
 		}
@@ -81,7 +82,7 @@ func (s *signIn) signout(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	http.SetCookie(w, sessionCookieFor("", -1))
+	http.SetCookie(w, s.sessionCookieFor("", -1))
 	toSignin(w, r, "")
 }
 

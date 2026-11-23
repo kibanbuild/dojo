@@ -55,6 +55,9 @@ type Deps struct {
 	Now    func() time.Time
 	// Backoff is the wait before each GitHub revoke retry; nil means the default.
 	Backoff []time.Duration
+	// SecureCookies marks the cookies Secure. Off while the service is plain HTTP on loopback
+	// (design 3.7); turn it on if it is ever served over TLS.
+	SecureCookies bool
 }
 
 var defaultBackoff = []time.Duration{200 * time.Millisecond, 600 * time.Millisecond}
@@ -125,13 +128,14 @@ func (s *signIn) start(w http.ResponseWriter, r *http.Request) {
 		toSignin(w, r, "server_error")
 		return
 	}
-	http.SetCookie(w, oauthCookieFor(key, int(stateTTL.Seconds())))
+	http.SetCookie(w, s.oauthCookieFor(key, int(stateTTL.Seconds())))
 	http.Redirect(w, r, s.GitHub.AuthorizeURL(state, challenge, redirectURI), http.StatusSeeOther)
 }
 
-func oauthCookieFor(v string, maxAge int) *http.Cookie {
-	return &http.Cookie{ //nolint:gosec // loopback http inside the tunnel: Secure cannot be set (design 3.7)
-		Name: oauthCookie, Value: v, Path: oauthPath, MaxAge: maxAge, HttpOnly: true, SameSite: http.SameSiteLaxMode}
+func (s *signIn) oauthCookieFor(v string, maxAge int) *http.Cookie {
+	return &http.Cookie{ //nolint:gosec // Secure follows Deps.SecureCookies by design (3.7)
+		Name: oauthCookie, Value: v, Path: oauthPath, MaxAge: maxAge, HttpOnly: true,
+		SameSite: http.SameSiteLaxMode, Secure: s.SecureCookies}
 }
 
 // callback finishes the flow. Every failure redirects to the sign-in page with a stable code.
@@ -142,7 +146,7 @@ func (s *signIn) callback(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(oauthCookie); err == nil {
 		st, ok = s.pending.take(hashHex(c.Value), s.now()) // one use: gone whatever follows
 	}
-	http.SetCookie(w, oauthCookieFor("", -1))
+	http.SetCookie(w, s.oauthCookieFor("", -1))
 	if !ok || subtle.ConstantTimeCompare([]byte(st.state), []byte(q.Get("state"))) != 1 {
 		toSignin(w, r, "state_check")
 		return
@@ -191,7 +195,7 @@ func (s *signIn) callback(w http.ResponseWriter, r *http.Request) {
 		toSignin(w, r, "server_error")
 		return
 	}
-	http.SetCookie(w, sessionCookieFor(token, int(sessionTTL.Seconds())))
+	http.SetCookie(w, s.sessionCookieFor(token, int(sessionTTL.Seconds())))
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 

@@ -52,6 +52,16 @@ func TestAuthorizeURL(t *testing.T) {
 	}
 }
 
+func ptr[T any](v T) *T { return &v }
+
+func TestAuthorizeURLScopesOverride(t *testing.T) {
+	c := New(Config{ClientID: "cid", AuthorizeURL: "http://browser.test", Scopes: "read:user"})
+	u, err := url.Parse(c.AuthorizeURL("st", "ch", "http://app/cb"))
+	if err != nil || u.Query().Get("scope") != "read:user" {
+		t.Fatalf("%v %v", u, err)
+	}
+}
+
 func TestExchange(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -144,9 +154,15 @@ func TestUser(t *testing.T) {
 		user   User
 	}{
 		{"ok", 200, `{"id":7,"login":"ada","name":"Ada","email":"a@x.test"}`, "read:user, user:email", nil,
-			User{7, "ada", "Ada", "a@x.test", []string{"read:user", "user:email"}}},
+			User{7, "ada", "Ada", "a@x.test", []string{"read:user", "user:email"}, nil}},
 		{"null name and email", 200, `{"id":8,"login":"cy","name":null,"email":null}`, "read:user,user:email", nil,
-			User{8, "cy", "", "", []string{"read:user", "user:email"}}},
+			User{8, "cy", "", "", []string{"read:user", "user:email"}, nil}},
+		{"2fa on", 200, `{"id":9,"login":"d","two_factor_authentication":true}`, "read:user", nil,
+			User{9, "d", "", "", []string{"read:user"}, ptr(true)}},
+		{"2fa off", 200, `{"id":9,"login":"d","two_factor_authentication":false}`, "read:user", nil,
+			User{9, "d", "", "", []string{"read:user"}, ptr(false)}},
+		{"2fa null", 200, `{"id":9,"login":"d","two_factor_authentication":null}`, "read:user", nil,
+			User{9, "d", "", "", []string{"read:user"}, nil}},
 		{"bad token", 401, `{"message":"Bad credentials"}`, "", ErrRejected, User{}},
 		{"rate limited", 403, `{}`, "", ErrUnavailable, User{}},
 		{"server error", 502, ``, "", ErrUnavailable, User{}},

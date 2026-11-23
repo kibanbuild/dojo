@@ -30,7 +30,7 @@ func TestHostCheck(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := New(fakeReady{})
+			h := New(fakeReady{}, Deps{})
 			req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 			req.Host = tt.host
 			rec := httptest.NewRecorder()
@@ -48,7 +48,7 @@ func TestHostCheck(t *testing.T) {
 // Every path is behind the host check, including ones that do not exist: a rebinding page must not
 // learn which routes there are.
 func TestHostCheckCoversUnknownPaths(t *testing.T) {
-	h := New(fakeReady{})
+	h := New(fakeReady{}, Deps{})
 	for _, path := range []string{"/", "/nope", "/healthz/"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Host = "evil.example.com"
@@ -79,7 +79,7 @@ func TestHealth(t *testing.T) {
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			req.Host = Host
 			rec := httptest.NewRecorder()
-			New(fakeReady{err: tt.ready}).ServeHTTP(rec, req)
+			New(fakeReady{err: tt.ready}, Deps{}).ServeHTTP(rec, req)
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
 			}

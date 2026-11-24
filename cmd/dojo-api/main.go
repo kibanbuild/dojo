@@ -84,6 +84,7 @@ func run(args []string) error {
 	}
 	hub := server.NewHub(store.ListenConn)
 	go hub.Run(ctx)
+	go server.RunExpiry(ctx, store, server.ExpiryInterval)
 
 	auth := server.Auth{Store: store.Queries(), Catalog: store.Queries(),
 		Bundles: &server.Bundles{Store: store.Queries(), Signer: objects}, Secure: secure, Events: store,

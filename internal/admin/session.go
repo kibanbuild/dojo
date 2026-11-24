@@ -66,6 +66,7 @@ var landingPage = template.Must(template.New("landing").Parse(`<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1"></head>
 <body><main><h1>Dojo operator</h1>
 <p>Signed in as {{.Login}}</p>
+<nav aria-label="Operator tools"><a href="/learners">Learners</a></nav>
 <form method="post" action="/signout"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button type="submit">Sign out</button></form>
 </main></body></html>
 `))

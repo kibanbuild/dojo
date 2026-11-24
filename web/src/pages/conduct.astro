@@ -1,0 +1,56 @@
+---
+import LegalPage from '../components/LegalPage.astro';
+
+const sections = [
+  {
+    id: 'the-short-version',
+    title: 'The short version',
+    paragraphs: ['Learn, ask, help each other, and play fair. Dojo is for people aged 14 and over, so keep it respectful.'],
+  },
+  {
+    id: 'be-decent',
+    title: 'Be decent',
+    items: [
+      'Treat other learners and the people who run Dojo with respect.',
+      'No harassment, hate or threats, in a username or anywhere else.',
+      'Do not share another person’s private information.',
+    ],
+  },
+  {
+    id: 'play-fair',
+    title: 'Play fair',
+    items: [
+      'Exams are your own work: no hints, no AI, no help from another person.',
+      'Do not share exam tasks or solutions.',
+      'Practice tickets are for learning. Use your own AI on your side if you like, but understand what you submit.',
+    ],
+  },
+  {
+    id: 'keep-the-labs-safe',
+    title: 'Keep the labs safe',
+    items: [
+      'Labs and exam machines are for the task in front of you. Do not attack them, other learners or our servers.',
+      'If you find a security problem, tell us instead of using it. How to report: To be confirmed before launch.',
+    ],
+  },
+  {
+    id: 'what-happens-if-not',
+    title: 'What happens if the rules are broken',
+    paragraphs: [
+      'An operator may void an attempt, suspend an account or delete it. Each action is recorded with the reason. How to appeal: To be confirmed before launch.',
+    ],
+  },
+  {
+    id: 'contact',
+    title: 'Contact',
+    paragraphs: ['Contact details: To be confirmed before launch.'],
+  },
+];
+---
+
+<LegalPage
+  title="Code of conduct"
+  description="How we expect everyone to behave on Dojo."
+  current="conduct"
+  sections={sections}
+/>

@@ -1,0 +1,75 @@
+---
+import LegalPage from '../components/LegalPage.astro';
+
+const summary = [
+  'Your GitHub username, path progress and check results. The CLI sends check results, doctor results, your device name, OS and CLI version, and command-level usage stats. It does not send your files.',
+  'Usage stats from the web (only after you agree) and from the CLI, so we can fix where people get stuck. The CLI stats are command names, results and timings, never files or output, and you can turn them off any time with dojo telemetry off.',
+  'The AI hint sees the ticket, the written hints you opened and your last check, nothing else.',
+  'You can delete your account. A few records outlast deletion, and backups clear within 30 days (see How long we keep it).',
+];
+
+const sections = [
+  {
+    id: 'what-we-store',
+    title: 'What we store',
+    items: [
+      'Your GitHub identity: GitHub ID and login, and the username and language you pick.',
+      'The email address GitHub gives us, if any, and a record that you confirmed you are 14 or older and accepted the terms.',
+      'Your progress: tickets started, check results, the written hints you opened and an event record of these actions.',
+      'Up to the last 16 KB of check output for each ticket. If you report a broken ticket, that output is sent to us with your report.',
+      'Your devices: name, OS and CLI version.',
+      'AI hints: the answer, token counts and the model used, so we can count hints and control spend.',
+      'Usage stats from the CLI and, if you agree, from the web.',
+      'Operator actions on your account (such as a suspension), with who did it and why.',
+      'If you buy a plan or hour pack: your plan, hour balance and usage, and a reference to your customer record at our payment provider. The payment provider holds your payment details and invoices.',
+    ],
+  },
+  {
+    id: 'why-we-store-it',
+    title: 'Why we store it',
+    paragraphs: [
+      'To sign you in, show your progress, run checks and exams, send the emails the service needs, and take payments. Usage stats help us see where people get stuck. Use of data beyond this: To be confirmed before launch.',
+      'When you ask for an AI hint, we send the ticket, the written hints you already opened and your last check output to the AI provider, and nothing else. Legal basis and the handling of learners aged 14 to 17: To be confirmed before launch.',
+    ],
+  },
+  {
+    id: 'where-it-lives',
+    title: 'Where it lives',
+    paragraphs: [
+      'In our own database on AWS. Web analytics, when you agree to them, go to an EU-hosted provider. AI hints are produced by a model hosted on AWS. Region and processor list: To be confirmed before launch.',
+    ],
+  },
+  {
+    id: 'how-long-we-keep-it',
+    title: 'How long we keep it',
+    items: [
+      'CLI usage stats and the event record: 12 months, then they are deleted.',
+      'Web analytics: To be confirmed before launch.',
+      'Exam machine disk: until the appeal window ends, 7 days after publication, then it is deleted. Your exam answers and results stay with your account.',
+      'Your account data: until you delete your account. Deleting it removes your account data, with these exceptions: if you delete during an exam or while a retry wait is running, a record of your GitHub ID, the role and the retry date is kept until that date, so the retry wait still applies; operator audit records about your account are kept for their own retention period; and backups hold data for up to 30 days.',
+      'Billing invoices: kept by our payment provider for as long as the law requires.',
+      'Operator audit records: retention period To be confirmed before launch.',
+    ],
+  },
+  {
+    id: 'your-rights',
+    title: 'Your rights',
+    paragraphs: [
+      'You can delete your account yourself in your account settings. Other rights (access, correction, export, objection): how to use them is To be confirmed before launch.',
+    ],
+  },
+  {
+    id: 'contact',
+    title: 'Contact',
+    paragraphs: ['Contact details: To be confirmed before launch.'],
+  },
+];
+---
+
+<LegalPage
+  title="Privacy"
+  description="What Dojo stores, why, where it lives and how long we keep it."
+  current="privacy"
+  summary={summary}
+  sections={sections}
+/>

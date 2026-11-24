@@ -318,8 +318,8 @@ are SPA routes served under `/app`: L3 is `/app/t/support-l1/perms-03`, and `doj
 
 | Code | Route | Primary action | States |
 |---|---|---|---|
-| P1 Home | `/` | Pick your path (to O0); copyable install command | Static. The install command is a placeholder until the installer is served in M0b. |
-| P2 How it works | `/how-it-works` | Start Support L1 (to O0) | Static. Ends with the FAQ as a section of this page (no page of its own). |
+| P1 Home | `/` | Pick your path (to O0) | Static. No install command on the page: installing is O2, reached after sign-in; P1 shows none until the installer is served in M0b, and then only if the board adds it. |
+| P2 How it works | `/how-it-works` | Start Support L1 (to O0) | Static. The FAQ section is written in M9 from the questions real learners ask (M2 demo and first learners), then drawn on the board; no page of its own. |
 | P3 Paths and roles | `/paths` | Pick your path | Static. Four paths drawn; only Systems and DevOps is open, the others say "coming soon" (section 2.3). |
 | P4 The story | `/story` | Pick your path | Static. |
 | P6 Pricing | `/pricing` | Become a supporter (to sign-in, then Stripe Checkout); Buy hours | Monthly and yearly toggle. Signed-in learners see their own plan. Teams: "Contact us" mailto only. |
@@ -1412,7 +1412,7 @@ not designed here.
 | Exam states | Clock `3:00:00`, no paused, warning, extra time, confirm or Leave states | a11y review P0-2 | a11y review. Draw them. |
 | Exam screens | L6Run is a single-incident view; R3/H2 is the work day | | R3/H2 is the run screen. |
 | Belt screen L8 | "Yellow belt tied on Support L1" | White belt, belt marks as maturity | Decision. Redraw L8. |
-| FAQ page | None on the Map; Q&A on P6 | Brief lists FAQ among public pages | FAQ stays in scope as a section on P2 How it works, with no page of its own. The brief keeps it. |
+| FAQ page | None on the Map; Q&A on P6 | Brief lists FAQ among public pages | FAQ stays in scope as a section on P2 How it works, with no page of its own, written in M9 from real learner questions. The brief keeps it. |
 | Docs link in public nav | Present | Not in the brief | Brief. Omit in v1. |
 | Story moments (L4), defend step | Done on the Map | Not named in the brief's scope | Both stay in v1 (decided 2026-11-20); the brief should name them. |
 | O0 and O3 nav | Signed-in nav before sign-in | | O0 is signed out and shows the public nav. |
@@ -1479,8 +1479,8 @@ parallel (section 5).
 - **M2: Tickets on local labs, mirrored on the web.** The contracts are in section 3.8. Catalog
   sync and bundles (`catalog_items` only; `catalog_secrets` waits for M7), CLI verb changes
   (`ssh`, `stop`, `status`, `check` events; `dojo start` fetches its bundle with the CLI token, and a cached bundle starts logged out), `ticket_progress`,
-  SSE, Today, Path, ticket page, written hints, public pages P1 to P4 (the P1 install command is a
-  placeholder until M0b) and LG1 as a `noindex` draft. A learner with no chosen path gets the
+  SSE, Today, Path, ticket page, written hints, public pages P1 to P4 (no install command on P1, no FAQ
+  on P2 yet) and LG1 as a `noindex` draft. A learner with no chosen path gets the
   only available one until O0 lands in M3. `dojo check` reports a pass without a signed commit
   (it comes with the practice repo in M3) and `dojo hint` prints the L3 URL until M7. Operator A2
   learner lookup (searches and views write `admin_audit` rows) with suspend, unsuspend
@@ -1515,7 +1515,7 @@ parallel (section 5).
   entitlements, operator A2 comps, in Stripe test mode until the tax decision and the GDPR review for 14 to 17 year
   olds are done; live charges switch on only after both. Exams stay free and equal on every plan.
 - **M9: Launch.** Create `pro`, size the warm pool, domain and email, SES production access, legal
-  text (LG1 leaves draft and `noindex` after the review), live Stripe keys, a11y and UX fixes, E7 and E8, the first school. Launch checklist (phase 6).
+  text (LG1 leaves draft and `noindex` after the review), the P2 FAQ, live Stripe keys, a11y and UX fixes, E7 and E8, the first school. Launch checklist (phase 6).
 
 M7 and M8 can swap; M5a and M5b must precede M6b.
 

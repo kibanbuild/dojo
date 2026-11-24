@@ -3,6 +3,10 @@ services:
   db:
     ports:
       - "127.0.0.1::5432"
+  api:
+    environment:
+      # Short, so the stream tests see a heartbeat and a revoked session within seconds.
+      STREAM_HEARTBEAT_SECONDS: "1"
   fake-github:
     environment:
       # A short poll interval keeps the device-flow smoke test fast.

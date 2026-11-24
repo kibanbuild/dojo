@@ -44,6 +44,9 @@ func New(ready Readiness, auth Auth, limits *RateLimits, signin *SignIn, cli *CL
 		// A ticket id holds a slash, so the route is the subtree and the handler splits off /bundle.
 		mux.HandleFunc("GET "+bundleTicketsPrefix, requireSession(auth.Bundles.fetch))
 	}
+	if auth.Stream != nil {
+		mux.HandleFunc("GET "+streamPath, auth.stream)
+	}
 	mux.HandleFunc("POST "+logoutPath, auth.logout)
 	mux.HandleFunc("DELETE "+cliPath, auth.cliLogout)
 	if cli != nil {

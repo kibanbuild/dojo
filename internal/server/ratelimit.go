@@ -30,6 +30,8 @@ const (
 	// Read routes (catalog, path, today, ticket), one budget per learner across routes and devices.
 	readBurst = 120
 	readPer   = time.Minute
+	// Stream connections per learner (design 3.8).
+	streamBurst = 30
 
 	// Bundle fetches (GET /v1/tickets/{id}/bundle), their own budget per learner.
 	bundleBurst = 30
@@ -138,6 +140,8 @@ type RateLimits struct {
 	Read Limiter
 	// Bundle is keyed by learner id and covers only the bundle route.
 	Bundle Limiter
+	// Stream is keyed by learner id and covers connections to GET /v1/stream; nil disables it.
+	Stream Limiter
 	// Callback is taken inside the sign-in callback, after the state cookie checks out and before any GitHub call.
 	Callback Limiter
 	Hops     int
@@ -153,6 +157,7 @@ func NewRateLimits(hops int) *RateLimits {
 		Write:         newMemLimiter(writeBurst, writePer, maxKeys, time.Now),
 		Read:          newMemLimiter(readBurst, readPer, maxKeys, time.Now),
 		Bundle:        newMemLimiter(bundleBurst, bundlePer, maxKeys, time.Now),
+		Stream:        newMemLimiter(streamBurst, readPer, maxKeys, time.Now),
 		Callback:      newMemLimiter(authBurst, authPer, maxKeys, time.Now),
 		Hops:          hops,
 	}
@@ -189,6 +194,10 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 				lim, key = rl.TelemetryAuth, "learner:"+p.learner.String()
 			} else {
 				lim = rl.Telemetry
+			}
+		case rl.Stream != nil && pattern == "GET "+streamPath:
+			if p, authed := principalOf(r.Context()); authed && !p.bearer {
+				lim, key = rl.Stream, "learner:"+p.learner.String()
 			}
 		case rl.Events != nil && matches(pattern, r, isEventsPath):
 			if p, authed := principalOf(r.Context()); authed && p.bearer {

@@ -127,6 +127,9 @@ func (s *Store) RecordEvents(ctx context.Context, learnerID pgtype.UUID, evs []E
 		}
 		rows[e.ItemID] = &next
 	}
+	if err := notifyProgress(ctx, tx, l.ID, rows); err != nil {
+		return res, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return res, fmt.Errorf("commit: %w", err)
 	}

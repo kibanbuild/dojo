@@ -1,0 +1,196 @@
+import { useQuery } from '@tanstack/react-query';
+import { apiFetch } from './api';
+import { errorCode } from './settings';
+
+export type PathStatus = 'available' | 'planned';
+export type TicketState = 'started' | 'passed' | 'revisit';
+export type LabState = string;
+
+export interface CatalogPath {
+  slug: string;
+  title: string;
+  status: PathStatus;
+  position: number;
+}
+
+export interface CatalogRole {
+  slug: string;
+  title: string;
+  kind: string;
+  has_exam: boolean;
+  advanced: boolean;
+}
+
+export interface CatalogItem {
+  id: string;
+  role: string;
+  order: number;
+  kind: string;
+  title: string;
+  est_minutes: number;
+  tags: string[];
+}
+
+export interface Catalog {
+  catalog_version: string | null;
+  paths: CatalogPath[];
+  roles: CatalogRole[];
+  path_roles: { path: string; role: string; position: number }[];
+  items: CatalogItem[];
+}
+
+export interface PathItem {
+  id: string;
+  title: string;
+  order: number;
+  state: TicketState | null;
+  lab_state: LabState | null;
+}
+
+export interface PathRole {
+  slug: string;
+  title: string;
+  locked: boolean;
+  passed: boolean;
+  tickets_passed: number;
+  tickets_total: number;
+  items: PathItem[];
+}
+
+export interface LearnerPath {
+  path: string | null;
+  chosen: boolean;
+  roles: PathRole[];
+}
+
+export interface TodayTicket {
+  id: string;
+  title: string;
+  state: TicketState | null;
+  lab_state: LabState | null;
+}
+
+export interface Today {
+  current: TodayTicket | null;
+  next: TodayTicket | null;
+  role: { slug: string; title: string; tickets_passed: number; tickets_total: number } | null;
+  all_passed: boolean;
+}
+
+export interface TicketProgress {
+  state: TicketState;
+  lab: string | null;
+  lab_state: LabState | null;
+  check_count: number;
+  last_check_ok: boolean | null;
+  last_check_at: string | null;
+  last_check_passed: number | null;
+  last_check_total: number | null;
+  /** Untrusted lab output: render escaped, never log it. */
+  last_check_output: string | null;
+  first_passed_at: string | null;
+  passed_seconds: number | null;
+  passed_commit: string | null;
+}
+
+export interface Ticket {
+  id: string;
+  title: string;
+  role: string;
+  est_minutes: number;
+  tags: string[];
+  brief: string;
+  hint_count: number;
+  hints: { n: number; text: string }[];
+  progress: TicketProgress | null;
+}
+
+export type ReadFailure = 'signed_out' | 'suspended' | 'not_found' | 'rate_limited' | 'failed';
+
+export const READ_MESSAGES: Record<ReadFailure, string> = {
+  signed_out: 'Your session ended. Sign in again.',
+  suspended: 'This account is suspended.',
+  not_found: 'We could not find that ticket.',
+  rate_limited: 'Too many requests. Waiting a moment before trying again.',
+  failed: 'Could not load this. Please try again.',
+};
+
+export class ReadError extends Error {
+  constructor(
+    readonly reason: ReadFailure,
+    /** Milliseconds from a 429 Retry-After, else 0. */
+    readonly retryAfterMs = 0,
+  ) {
+    super(`read: ${reason}`);
+  }
+}
+
+// 120 reads a minute per learner: after a 429 no read goes out before Retry-After has passed.
+let blockedUntil = 0;
+
+/** Epoch ms before which live refetches must wait (0 when none). */
+export function readBlockedUntil(): number {
+  return blockedUntil;
+}
+
+export function resetReadBlock(): void {
+  blockedUntil = 0;
+}
+
+function retryAfterMs(res: Response): number {
+  const seconds = Number(res.headers.get('Retry-After'));
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) * 1000 : 1000;
+}
+
+async function getJSON<T>(path: string): Promise<T> {
+  for (let wait = blockedUntil - Date.now(); wait > 0; wait = blockedUntil - Date.now()) {
+    await new Promise((resolve) => setTimeout(resolve, wait));
+  }
+  let res: Response;
+  try {
+    res = await apiFetch(path);
+  } catch {
+    throw new ReadError('failed');
+  }
+  if (res.ok) {
+    try {
+      return (await res.json()) as T;
+    } catch {
+      throw new ReadError('failed');
+    }
+  }
+  if (res.status === 401) throw new ReadError('signed_out');
+  if (res.status === 403 && (await errorCode(res)) === 'account_suspended') throw new ReadError('suspended');
+  if (res.status === 404) throw new ReadError('not_found');
+  if (res.status === 429) {
+    const wait = retryAfterMs(res);
+    blockedUntil = Math.max(blockedUntil, Date.now() + wait);
+    throw new ReadError('rate_limited', wait);
+  }
+  throw new ReadError('failed');
+}
+
+export const fetchCatalog = () => getJSON<Catalog>('/v1/catalog');
+export const fetchPath = () => getJSON<LearnerPath>('/v1/path');
+export const fetchToday = () => getJSON<Today>('/v1/today');
+
+/** Ticket ids hold a slash (`support-l1/perms-03`); each segment is escaped, the slash stays. */
+export function fetchTicket(id: string): Promise<Ticket> {
+  const escaped = id.split('/').map(encodeURIComponent).join('/');
+  return getJSON<Ticket>(`/v1/tickets/${escaped}`);
+}
+
+export const CATALOG_KEY = ['catalog'] as const;
+export const PATH_KEY = ['path'] as const;
+export const TODAY_KEY = ['today'] as const;
+export const ticketKey = (id: string) => ['ticket', id] as const;
+export const TICKET_KEY_PREFIX = ['ticket'] as const;
+
+// Data is current until the stream or the poll says otherwise; retry only a transient failure.
+const retry = (count: number, err: Error) => !(err instanceof ReadError && err.reason !== 'failed') && count < 1;
+
+export const useCatalog = () => useQuery({ queryKey: CATALOG_KEY, queryFn: fetchCatalog, retry, staleTime: 5 * 60_000 });
+export const usePath = () => useQuery({ queryKey: PATH_KEY, queryFn: fetchPath, retry, staleTime: Infinity });
+export const useToday = () => useQuery({ queryKey: TODAY_KEY, queryFn: fetchToday, retry, staleTime: Infinity });
+export const useTicket = (id: string) =>
+  useQuery({ queryKey: ticketKey(id), queryFn: () => fetchTicket(id), retry, staleTime: Infinity });

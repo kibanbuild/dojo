@@ -32,6 +32,10 @@ func New(ready Readiness, auth Auth, limits *RateLimits, signin *SignIn, cli *CL
 	mux.HandleFunc("GET /v1/me/devices", requireSession(auth.devices))
 	mux.HandleFunc("DELETE /v1/me/devices/{id}", requireAuthenticated(auth.revokeDevice))
 	mux.HandleFunc("POST /v1/telemetry", auth.telemetry)
+	if auth.Catalog != nil {
+		mux.HandleFunc("GET /v1/catalog", requireSession(auth.catalog))
+		mux.HandleFunc("GET /v1/path", requireSession(auth.path))
+	}
 	mux.HandleFunc("POST "+logoutPath, auth.logout)
 	mux.HandleFunc("DELETE "+cliPath, auth.cliLogout)
 	if cli != nil {

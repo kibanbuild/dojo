@@ -3,6 +3,7 @@ import { useMe } from './lib/me';
 import { Today } from './pages/Today';
 import { Settings } from './pages/Settings';
 import { Machines } from './pages/Machines';
+import { PathPage } from './pages/Path';
 import { SignInPage } from './pages/SignIn';
 
 function Loading() {
@@ -58,6 +59,15 @@ export function MachinesRoute() {
   if (me.isError) return <LoadFailed retry={() => void me.refetch()} />;
   if (me.data === null) return <Navigate to="/signin" replace />;
   return <Machines me={me.data} />;
+}
+
+// /app/path: same guard as /app.
+export function PathRoute() {
+  const me = useMe();
+  if (me.isPending) return <Loading />;
+  if (me.isError) return <LoadFailed retry={() => void me.refetch()} />;
+  if (me.data === null) return <Navigate to="/signin" replace />;
+  return <PathPage me={me.data} />;
 }
 
 // /app/signin: a signed-in browser has nothing to do here.

@@ -13,7 +13,7 @@ what order). A ticket is a directory `<role>/<ticket>/`:
 | `check.sh` | verifies the final state after a reboot; prints one `PASS` or `FAIL` line per requirement and exits non-zero if anything fails |
 | `files/` | optional extra files for the lab, shipped in the ticket bundle |
 | `solution.sh` | reference fix for the end-to-end test (it never ships) |
-| `wrong-*.sh` | plausible but wrong fixes the end-to-end test makes sure the check rejects |
+| `wrong-fix/*.sh` | plausible but wrong fixes the end-to-end test makes sure the check rejects |
 
 Only `catalog.yaml`, `ticket.yaml`, `setup.sh` and `check.sh` are embedded in the `dojo` binary.
 Solutions and wrong fixes never are, and a ticket bundle holds only `ticket.yaml`, `setup.sh`,

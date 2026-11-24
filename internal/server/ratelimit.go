@@ -20,6 +20,8 @@ const (
 	telemetryPer   = time.Minute
 	// Authenticated CLI events, per learner across all devices: a valid token is no longer unlimited.
 	telemetryAuthBurst = 120
+	// Authenticated event batches, per learner across devices (design 3.8).
+	eventsBurst = 60
 	// Other authenticated writes (PATCH /v1/me, DELETE /v1/me, DELETE /v1/me/devices/{id}), one budget per
 	// learner across routes and devices: a PATCH /v1/me 409 tells whether a username is taken.
 	writeBurst = 10
@@ -124,6 +126,8 @@ type RateLimits struct {
 	Auth, Telemetry Limiter
 	// TelemetryAuth is keyed by learner id, so one learner's devices share it.
 	TelemetryAuth Limiter
+	// Events is keyed by learner id and covers POST /v1/events; nil disables it.
+	Events Limiter
 	// Write is keyed by learner id and covers the other authenticated writes.
 	Write Limiter
 	// Read is keyed by learner id and covers the authenticated read routes.
@@ -139,6 +143,7 @@ func NewRateLimits(hops int) *RateLimits {
 		Auth:          newMemLimiter(authBurst, authPer, maxKeys, time.Now),
 		Telemetry:     newMemLimiter(telemetryBurst, telemetryPer, maxKeys, time.Now),
 		TelemetryAuth: newMemLimiter(telemetryAuthBurst, telemetryPer, maxKeys, time.Now),
+		Events:        newMemLimiter(eventsBurst, telemetryPer, maxKeys, time.Now),
 		Write:         newMemLimiter(writeBurst, writePer, maxKeys, time.Now),
 		Read:          newMemLimiter(readBurst, readPer, maxKeys, time.Now),
 		Callback:      newMemLimiter(authBurst, authPer, maxKeys, time.Now),
@@ -173,6 +178,10 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 				lim, key = rl.TelemetryAuth, "learner:"+p.learner.String()
 			} else {
 				lim = rl.Telemetry
+			}
+		case rl.Events != nil && matches(pattern, r, isEventsPath):
+			if p, authed := principalOf(r.Context()); authed && p.bearer {
+				lim, key = rl.Events, "learner:"+p.learner.String()
 			}
 		}
 		refuse := func(retry time.Duration) {
@@ -238,4 +247,8 @@ func isAuthPath(p string) bool {
 
 func isTelemetryPath(p string) bool {
 	return strings.TrimSuffix(strings.ToLower(p), "/") == "/v1/telemetry"
+}
+
+func isEventsPath(p string) bool {
+	return strings.TrimSuffix(strings.ToLower(p), "/") == eventsPath
 }

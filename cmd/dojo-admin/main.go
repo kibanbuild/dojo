@@ -59,7 +59,7 @@ func run(args []string) error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           admin.New(pingReady{pool}, admin.Deps{GitHub: github.New(ghCfg), Store: admin.PGStore{Pool: pool}}),
+		Handler:           admin.New(pingReady{pool}, admin.Deps{GitHub: github.New(ghCfg), Store: admin.PGStore{Pool: pool}, Learners: admin.PGLearners{Pool: pool}}),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

@@ -142,6 +142,8 @@ type env struct {
 	gh    *ghStub
 	now   time.Time
 	mu    sync.Mutex
+
+	learners *fakeLearners
 }
 
 func newEnv(t *testing.T) *env {
@@ -154,7 +156,8 @@ func newEnv(t *testing.T) *env {
 	e.store.addOperator(1001, "ada")
 	client := github.New(github.Config{ClientID: "dojo-admin-local", ClientSecret: "s", AuthorizeURL: "http://browser.test",
 		OAuthURL: srv.URL, APIURL: srv.URL, Scopes: Scope})
-	e.h = New(fakeReady{}, Deps{GitHub: client, Store: e.store, Now: clock, Backoff: []time.Duration{time.Millisecond}})
+	e.learners = &fakeLearners{}
+	e.h = New(fakeReady{}, Deps{GitHub: client, Store: e.store, Learners: e.learners, Now: clock, Backoff: []time.Duration{time.Millisecond}})
 	return e
 }
 

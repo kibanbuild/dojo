@@ -35,8 +35,11 @@ func (a *App) status(ctx context.Context) error {
 }
 
 func (a *App) labState(ctx context.Context) string {
+	if a.NewBackend == nil {
+		return "unknown (the lab backend is not available)"
+	}
 	backend, err := a.NewBackend(a.BackendName)
-	if err != nil || backend.Available() != nil {
+	if err != nil || backend == nil || backend.Available() != nil {
 		return "unknown (the lab backend is not available)"
 	}
 	ok, err := backend.Exists(ctx)

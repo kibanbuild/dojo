@@ -1,0 +1,81 @@
+---
+import Public from '../layouts/Public.astro';
+import { PUBLIC_ORIGIN } from 'astro:env/client';
+
+const host = new URL(PUBLIC_ORIGIN).host;
+
+interface Section {
+  id: string;
+  title: string;
+  paragraphs?: string[];
+  items?: string[];
+}
+interface Props {
+  title: string;
+  description: string;
+  current: 'privacy' | 'terms' | 'conduct';
+  summary?: string[];
+  sections: Section[];
+}
+const { title, description, current, summary, sections } = Astro.props;
+
+const tabs = [
+  { key: 'privacy', href: '/privacy', label: 'Privacy' },
+  { key: 'terms', href: '/terms', label: 'Terms' },
+  { key: 'conduct', href: '/conduct', label: 'Code of conduct' },
+];
+const toc = [...(summary ? [{ id: 'short-version', title: 'The short version' }] : []), ...sections];
+const tab = 'inline-flex min-h-11 items-center md:h-9 md:min-h-0 rounded-[10px] px-3 text-[13px] font-bold no-underline';
+---
+
+<Public title={`${title} | Dojo`} description={description} noindex>
+  <main class="relative mx-auto flex max-w-[1180px] flex-col gap-6 px-4 pt-8 pb-12 md:gap-12 md:px-6 md:pt-16 md:pb-16">
+    <div class="flex flex-col gap-3.5">
+      <nav aria-label="Legal pages" class="flex flex-wrap gap-1.5">
+        {tabs.map((t) => (
+          <a
+            href={t.href}
+            class={`${tab} ${t.key === current ? 'bg-accentsoft text-accentink' : 'border border-line text-fg2'}`}
+            aria-current={t.key === current ? 'page' : undefined}
+          >{t.label}</a>
+        ))}
+      </nav>
+      <h1 class="m-0 text-[32px] font-extrabold tracking-[-1px] md:text-[56px]">{title}</h1>
+      <span class="font-mono text-[13px] text-muted">Draft of November 24, 2026 · applies to {host} and the dojo CLI</span>
+      <p role="note" class="m-0 max-w-[720px] rounded-xl border border-line bg-accentsoft px-4 py-3 text-sm leading-[1.5] text-accentink">
+        <b>Draft.</b> This text is under legal review and may change before launch.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 items-start gap-6 md:grid-cols-[220px_1fr] md:gap-12">
+      <nav aria-label="On this page" class="sticky top-6 hidden flex-col gap-1 md:flex">
+        {toc.map((s) => <a href={`#${s.id}`} class="py-1.5 text-sm font-medium text-fg2 no-underline hover:text-accentink">{s.title}</a>)}
+      </nav>
+
+      <div class="flex max-w-[720px] min-w-0 flex-col gap-7">
+        {summary && (
+          <section id="short-version" class="flex scroll-mt-6 flex-col gap-3 rounded-2xl border border-line bg-surface p-6">
+            <h2 class="m-0 text-base font-extrabold">The short version</h2>
+            {summary.map((line) => (
+              <p class="m-0 flex gap-2.5 text-sm leading-[1.5]">
+                <span class="font-extrabold text-ok" aria-hidden="true">✓</span>
+                <span>{line}</span>
+              </p>
+            ))}
+          </section>
+        )}
+        {sections.map((s) => (
+          <section id={s.id} class="flex scroll-mt-6 flex-col gap-2">
+            <h2 class="m-0 text-xl font-extrabold">{s.title}</h2>
+            {s.paragraphs?.map((p) => <p class="m-0 text-[15px] leading-[1.7] break-words text-fg2">{p}</p>)}
+            {s.items && (
+              <ul class="m-0 flex list-disc flex-col gap-1.5 pl-5 text-[15px] leading-[1.7] text-fg2">
+                {s.items.map((i) => <li>{i}</li>)}
+              </ul>
+            )}
+          </section>
+        ))}
+      </div>
+    </div>
+  </main>
+</Public>

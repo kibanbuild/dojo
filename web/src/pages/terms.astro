@@ -1,0 +1,64 @@
+---
+import LegalPage from '../components/LegalPage.astro';
+
+const sections = [
+  {
+    id: 'using-dojo',
+    title: 'Using Dojo',
+    paragraphs: [
+      'Dojo teaches job skills with practice tickets on labs that really break. It is not a degree, an official title or a promise of a job or salary.',
+      'You need a GitHub account to sign in. At your first sign-in you confirm that you are 14 or older and accept these terms.',
+    ],
+  },
+  {
+    id: 'your-account',
+    title: 'Your account',
+    paragraphs: [
+      'Keep your sign-in and your CLI devices to yourself. You can revoke a device or delete your account in your settings at any time.',
+      'We may suspend or delete an account that breaks these terms or the code of conduct. When we do, an operator records who acted and why.',
+    ],
+  },
+  {
+    id: 'hints-and-ai',
+    title: 'Hints and AI',
+    paragraphs: [
+      'Written hints and the AI hint button are there to help you learn. The AI hint is limited, can be paused, and is built not to give the full command or solution.',
+      'You may use your own AI on your own computer while you practice. Role exams are different: they are your own work, with no hints and no AI.',
+    ],
+  },
+  {
+    id: 'fair-use',
+    title: 'Fair use',
+    items: [
+      'Do not attack the labs, the exam machines, our servers or other learners.',
+      'Do not share exam tasks or solutions, or let someone else take your exam.',
+      'Do not try to get around limits, such as hint caps or exam waiting times.',
+    ],
+  },
+  {
+    id: 'plans-and-payments',
+    title: 'Plans and payments',
+    paragraphs: ['Prices, refunds and cancellation: To be confirmed before launch.'],
+  },
+  {
+    id: 'liability-and-law',
+    title: 'Liability and governing law',
+    paragraphs: ['To be confirmed before launch.'],
+  },
+  {
+    id: 'changes-and-contact',
+    title: 'Changes and contact',
+    paragraphs: [
+      'How we announce changes to these terms: To be confirmed before launch. The version you accepted is recorded with your account.',
+      'Contact details: To be confirmed before launch.',
+    ],
+  },
+];
+---
+
+<LegalPage
+  title="Terms"
+  description="The terms for using Dojo."
+  current="terms"
+  sections={sections}
+/>

@@ -163,7 +163,7 @@ describe('username card', () => {
     expect(notes()).toContain('Saved.');
     expect(saveBtn().textContent).toBe('Save');
     expect(saveBtn().disabled).toBe(true);
-    expect(container.querySelector('header a[href="/settings"]')?.textContent).toBe('irene-new');
+    expect(container.querySelector('header a[href="/settings"]')?.getAttribute('aria-label')).toBe('Settings, @irene-new');
   });
 
   it('shows the 409 inline and keeps the draft', async () => {

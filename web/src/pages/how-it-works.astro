@@ -99,7 +99,7 @@ const slideCount = 3;
         </div>
       </div>
 
-      <div data-controls hidden class="md:hidden"><div class="flex items-center justify-between">
+      <div data-controls class="invisible md:hidden"><div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
           <button type="button" data-step="-1" class="inline-flex h-11 min-w-11 items-center justify-center rounded-[10px] border border-line bg-surface px-3 text-sm font-bold text-fg disabled:opacity-40">Previous</button>
           <button type="button" data-step="1" class="inline-flex h-11 min-w-11 items-center justify-center rounded-[10px] border border-line bg-surface px-3 text-sm font-bold text-fg disabled:opacity-40">Next</button>
@@ -110,7 +110,7 @@ const slideCount = 3;
               <span data-dot class={`h-1.5 rounded-full ${i === 0 ? 'w-[18px] bg-accent' : 'w-1.5 bg-line'}`}></span>
             ))}
           </div>
-          <span class={`${mono} text-muted`} role="status"><span data-pos>1</span> / {slideCount}</span>
+          <span class={`${mono} text-muted`}><span data-pos>1</span> / {slideCount}</span>
         </div>
       </div></div>
     </section>
@@ -203,6 +203,7 @@ const slideCount = 3;
   prev?.addEventListener('click', () => go(-1));
   next?.addEventListener('click', () => go(1));
   track?.addEventListener('scroll', sync, { passive: true });
-  controls?.removeAttribute('hidden');
+  controls?.classList.remove('invisible');
+  if (track && track.scrollWidth > track.clientWidth) track.tabIndex = 0;
   sync();
 </script>

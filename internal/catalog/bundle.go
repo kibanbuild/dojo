@@ -68,13 +68,30 @@ func validName(name string) error {
 		if seg == "" || seg == "." || seg == ".." {
 			return fmt.Errorf("segment %q is not allowed", seg)
 		}
+		if strings.HasSuffix(seg, ".") || strings.HasSuffix(seg, " ") {
+			return fmt.Errorf("segment %q ends in a dot or space (not valid on Windows)", seg)
+		}
+		if windowsReserved(seg) {
+			return fmt.Errorf("segment %q is a reserved Windows device name", seg)
+		}
 	}
 	for i := 0; i < len(name); i++ {
-		if c := name[i]; c < 0x20 || c > 0x7e || c == '\\' {
-			return errors.New("only printable ASCII without backslash is allowed")
+		if c := name[i]; c < 0x20 || c > 0x7e || c == '\\' || c == ':' {
+			return errors.New("only printable ASCII without backslash or colon is allowed")
 		}
 	}
 	return nil
+}
+
+// windowsReserved reports a device name (CON, NUL, COM1...), with or without an extension, any case.
+func windowsReserved(seg string) bool {
+	base, _, _ := strings.Cut(seg, ".")
+	switch b := strings.ToUpper(strings.TrimRight(base, " ")); b {
+	case "CON", "PRN", "AUX", "NUL":
+		return true
+	default:
+		return len(b) == 4 && (strings.HasPrefix(b, "COM") || strings.HasPrefix(b, "LPT")) && b[3] >= '1' && b[3] <= '9'
+	}
 }
 
 func isScript(name string) bool { return strings.HasSuffix(name, ".sh") }

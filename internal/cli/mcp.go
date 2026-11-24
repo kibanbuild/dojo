@@ -45,7 +45,7 @@ func (a *App) mcpCurrent() (*state.State, *catalog.Ticket, error) {
 	if err != nil || st.Current == "" {
 		return st, nil, err
 	}
-	k, err := catalog.LoadTicket(a.Catalog, st.Current)
+	k, err := a.loadTicket(st.Current)
 	return st, k, err
 }
 

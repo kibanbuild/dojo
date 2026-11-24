@@ -25,12 +25,21 @@ type eventsAPI struct {
 	auths      []string
 	status     int
 	retryAfter string
+	version    string // catalog_version in the bundle answer
 }
 
 func newEventsAPI(t *testing.T) *eventsAPI {
 	t.Helper()
-	a := &eventsAPI{status: 200}
+	a := &eventsAPI{status: 200, version: "a1b2c3d4e5f6"}
+	b := testBundle(t, testCatalog, "white/a")
 	a.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && (r.URL.Path == "/v1/tickets/white/a/bundle" || r.URL.Path == "/dl/white/a") {
+			a.mu.Lock()
+			version := a.version
+			a.mu.Unlock()
+			serveBundle(w, r, b, version, "http://"+r.Host+"/dl/white/a")
+			return
+		}
 		raw, _ := io.ReadAll(r.Body)
 		a.mu.Lock()
 		defer a.mu.Unlock()
@@ -152,6 +161,7 @@ func TestStartStopCheckSendEvents(t *testing.T) {
 
 func TestNoTicketStartedWithoutBundleVersion(t *testing.T) {
 	e, api := eventsEnv(t, true)
+	api.version = ""
 	if err := e.run(t, "start", "white/a"); err != nil {
 		t.Fatal(err)
 	}
@@ -167,16 +177,23 @@ func TestLabFailedReasons(t *testing.T) {
 	if err := e.run(t, "start", "white/a"); err == nil {
 		t.Fatal("setup failure should fail")
 	}
-	evs := decodeEvents(t, api.sent()[0])
-	if len(evs) != 1 || evs[0].Type != "lab.failed" || evs[0].Reason != "setup" || !strings.Contains(evs[0].Detail, "exited 3") {
+	failures := func(bodies []string) (out []state.ProgressEvent) {
+		for _, b := range bodies {
+			for _, ev := range decodeEvents(t, b) {
+				if ev.Type == "lab.failed" {
+					out = append(out, ev)
+				}
+			}
+		}
+		return out
+	}
+	evs := failures(api.sent())
+	if len(evs) != 1 || evs[0].Reason != "setup" || !strings.Contains(evs[0].Detail, "exited 3") {
 		t.Errorf("events = %+v", evs)
 	}
 	e.lab.recreateErr = io.ErrUnexpectedEOF
 	_ = e.run(t, "start", "white/a")
-	var all []state.ProgressEvent
-	for _, b := range api.sent()[1:] {
-		all = append(all, decodeEvents(t, b)...)
-	}
+	all := failures(api.sent())[1:]
 	if len(all) != 1 || all[0].Reason != "other" {
 		t.Errorf("unmapped error should be other: %+v", all)
 	}
@@ -202,16 +219,25 @@ func TestEventsOffForDevCatalogAndNoAPI(t *testing.T) {
 }
 
 func TestLoggedOutEventsWaitForLogin(t *testing.T) {
-	e, api := eventsEnv(t, false)
-	_ = e.run(t, "start", "white/a")
-	if q, _ := state.LoadEvents(); len(q.Events) != 1 || len(api.sent()) != 0 {
-		t.Fatalf("queued %d, sent %d", len(q.Events), len(api.sent()))
+	e, api := eventsEnv(t, true)
+	if err := e.run(t, "start", "white/a"); err != nil { // fills the bundle cache
+		t.Fatal(err)
+	}
+	before := len(api.sent())
+	if err := state.RemoveToken(); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.run(t, "start", "white/a"); err != nil {
+		t.Fatal(err)
+	}
+	if q, _ := state.LoadEvents(); len(q.Events) != 2 || len(api.sent()) != before {
+		t.Fatalf("queued %d, sent %d, want 2 and %d", len(q.Events), len(api.sent()), before)
 	}
 	if err := state.SaveToken("tok"); err != nil {
 		t.Fatal(err)
 	}
 	e.app.flushEvents(context.Background())
-	if len(api.sent()) != 1 {
+	if len(api.sent()) != before+1 {
 		t.Errorf("sent %d", len(api.sent()))
 	}
 }

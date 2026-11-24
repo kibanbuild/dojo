@@ -23,7 +23,7 @@ export function SettingsLayout({ me, children }: { me: Me; children: ReactNode }
     <AppFrame me={me}>
       <div className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
-          <Link to="/" className="inline-flex min-h-11 items-center text-[13px] font-bold text-accentink no-underline md:min-h-6">
+          <Link to="/today" className="inline-flex min-h-11 items-center text-[13px] font-bold text-accentink no-underline md:min-h-6">
             &larr; Back to Today
           </Link>
           <h1 className="m-0 text-[32px] leading-[1.06] font-extrabold tracking-[-1px] md:text-[44px] md:tracking-[-1.5px]">Settings</h1>

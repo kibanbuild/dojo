@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router';
 import { Logo } from './Logo';
+import { TabBar, TopNav } from './PrimaryNav';
 import { apiFetch } from '../lib/api';
 import type { Me } from '../lib/me';
 
@@ -35,10 +36,13 @@ export function AppFrame({ me, children }: { me: Me; children: ReactNode }) {
     <div className="min-h-screen bg-bg font-sans text-fg">
       <header className="border-b border-line">
         <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-4 py-2 pr-2 pl-4 md:px-6 md:py-3.5">
-          <Link to="/" aria-label="Dojo, home" className="flex min-h-11 items-center gap-2.5 text-fg no-underline">
-            <Logo size={28} stroke={2.66} />
-            <span className="font-mono text-base font-semibold md:text-lg">dojo</span>
-          </Link>
+          <div className="flex items-center gap-5">
+            <Link to="/today" aria-label="Dojo, home" className="flex min-h-11 items-center gap-2.5 text-fg no-underline">
+              <Logo size={28} stroke={2.66} />
+              <span className="font-mono text-base font-semibold md:text-lg">dojo</span>
+            </Link>
+            <TopNav />
+          </div>
           <div className="flex items-center gap-3">
             <Link
               to="/settings"
@@ -58,12 +62,13 @@ export function AppFrame({ me, children }: { me: Me; children: ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-[1200px] px-4 py-8 md:px-6">
+      <main className="mx-auto max-w-[1200px] px-4 pt-6 pb-28 md:px-6 md:py-9">
         <p role="status" aria-live="polite" className="m-0 text-[13px] font-semibold text-bad empty:hidden">
           {failed ? 'Could not sign out. Please try again.' : ''}
         </p>
         {children}
       </main>
+      <TabBar />
     </div>
   );
 }

@@ -68,18 +68,18 @@ describe('bootstrap routing', () => {
     expect(calls[0]).toMatchObject({ url: '/v1/me', method: 'GET' });
   });
 
-  it('shows the shell with the username when signed in', async () => {
+  it('sends a signed-in visitor at /app to Today, with the username in the frame', async () => {
     stubApi(() => me);
     await mount('/');
-    expect(router.state.location.pathname).toBe('/');
+    expect(router.state.location.pathname).toBe('/today');
     expect(container.textContent).toContain('irene');
     expect(container.textContent).toContain('Sign out');
   });
 
-  it('sends a signed-in visitor at /signin to the shell', async () => {
+  it('sends a signed-in visitor at /signin to Today', async () => {
     stubApi(() => me);
     await mount('/signin');
-    expect(router.state.location.pathname).toBe('/');
+    expect(router.state.location.pathname).toBe('/today');
   });
 
   it('keeps the callback query on the sign-in screen and shows its notice', async () => {
@@ -119,7 +119,8 @@ describe('sign out', () => {
   });
 
   it.each([401, 404])('goes to O1 on %i', async (status) => {
-    stubApi((url, _m, out) => (url === '/v1/me' ? (out.loggedOut ? 401 : me) : status));
+    const today = { current: null, next: null, role: null, all_passed: false };
+    stubApi((url, _m, out) => (url === '/v1/me' ? (out.loggedOut ? 401 : me) : url === '/v1/today' ? today : status));
     await mount('/');
     await clickSignOut();
     expect(router.state.location.pathname).toBe('/signin');
@@ -129,7 +130,7 @@ describe('sign out', () => {
     stubApi((url) => (url === '/v1/me' ? me : 500));
     await mount('/');
     await clickSignOut();
-    expect(router.state.location.pathname).toBe('/');
+    expect(router.state.location.pathname).toBe('/today');
     expect(container.textContent).toContain('Could not sign out');
   });
 });

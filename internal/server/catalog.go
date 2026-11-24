@@ -1,0 +1,209 @@
+package server
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/kibanbuild/dojo/internal/server/repo"
+)
+
+// CatalogStore is what GET /v1/catalog and GET /v1/path read (design 3.8).
+type CatalogStore interface {
+	GetCatalogVersion(ctx context.Context) (string, error)
+	ListCatalogPaths(ctx context.Context) ([]repo.ListCatalogPathsRow, error)
+	ListCatalogRoles(ctx context.Context) ([]repo.ListCatalogRolesRow, error)
+	ListCatalogPathRoles(ctx context.Context) ([]repo.ListCatalogPathRolesRow, error)
+	ListCatalogItems(ctx context.Context) ([]repo.ListCatalogItemsRow, error)
+	ListLearnerTicketStates(ctx context.Context, learnerID pgtype.UUID) ([]repo.ListLearnerTicketStatesRow, error)
+}
+
+type catalogPath struct {
+	Slug     string `json:"slug"`
+	Title    string `json:"title"`
+	Status   string `json:"status"`
+	Position int32  `json:"position"`
+}
+
+type catalogRole struct {
+	Slug     string `json:"slug"`
+	Title    string `json:"title"`
+	Kind     string `json:"kind"`
+	HasExam  bool   `json:"has_exam"`
+	Advanced bool   `json:"advanced"`
+}
+
+type catalogPathRole struct {
+	Path     string `json:"path"`
+	Role     string `json:"role"`
+	Position int32  `json:"position"`
+}
+
+type catalogItem struct {
+	ID         string   `json:"id"`
+	Role       string   `json:"role"`
+	Order      int32    `json:"order"`
+	Kind       string   `json:"kind"`
+	Title      string   `json:"title"`
+	EstMinutes int32    `json:"est_minutes"`
+	Tags       []string `json:"tags"`
+}
+
+type catalogResponse struct {
+	Version  *string           `json:"catalog_version"`
+	Paths    []catalogPath     `json:"paths"`
+	Roles    []catalogRole     `json:"roles"`
+	PathRole []catalogPathRole `json:"path_roles"`
+	Items    []catalogItem     `json:"items"`
+}
+
+// catalog answers the public catalog. Before the first load there is no catalog_state row:
+// the version is null and the lists are empty.
+func (a Auth) catalog(w http.ResponseWriter, r *http.Request) {
+	c, s := a.Catalog, r.Context()
+	out := catalogResponse{Paths: []catalogPath{}, Roles: []catalogRole{}, PathRole: []catalogPathRole{}, Items: []catalogItem{}}
+	v, err := c.GetCatalogVersion(s)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		readFailed(w, r, err)
+		return
+	default:
+		out.Version = &v
+	}
+	paths, err1 := c.ListCatalogPaths(s)
+	roles, err2 := c.ListCatalogRoles(s)
+	prs, err3 := c.ListCatalogPathRoles(s)
+	items, err4 := c.ListCatalogItems(s)
+	if err := errors.Join(err1, err2, err3, err4); err != nil {
+		readFailed(w, r, err)
+		return
+	}
+	for _, p := range paths {
+		out.Paths = append(out.Paths, catalogPath{p.Slug, p.Title, p.Status, p.Position})
+	}
+	for _, x := range roles {
+		out.Roles = append(out.Roles, catalogRole{x.Slug, x.Title, x.Kind, x.HasExam, x.Advanced})
+	}
+	for _, x := range prs {
+		out.PathRole = append(out.PathRole, catalogPathRole{x.Path, x.Role, x.Position})
+	}
+	for _, i := range items {
+		tags := i.Tags
+		if tags == nil {
+			tags = []string{}
+		}
+		out.Items = append(out.Items, catalogItem{i.ID, i.Role, i.Position, i.Kind, i.Title, i.EstMinutes, tags})
+	}
+	writeNoStore(w, out)
+}
+
+type pathItem struct {
+	ID       string  `json:"id"`
+	Title    string  `json:"title"`
+	Order    int32   `json:"order"`
+	State    *string `json:"state"`
+	LabState *string `json:"lab_state"`
+}
+
+type pathRole struct {
+	Slug          string     `json:"slug"`
+	Title         string     `json:"title"`
+	Locked        bool       `json:"locked"`
+	Passed        bool       `json:"passed"`
+	TicketsPassed int        `json:"tickets_passed"`
+	TicketsTotal  int        `json:"tickets_total"`
+	Items         []pathItem `json:"items"`
+}
+
+type pathResponse struct {
+	Path   *string    `json:"path"`
+	Chosen bool       `json:"chosen"`
+	Roles  []pathRole `json:"roles"`
+}
+
+// path answers the learner's path with their ticket state. There is no chosen_path_id yet, so it
+// is always the first available path with chosen false (design 2.1, decision h).
+func (a Auth) path(w http.ResponseWriter, r *http.Request) {
+	p, _ := principalOf(r.Context())
+	c, s := a.Catalog, r.Context()
+	paths, err1 := c.ListCatalogPaths(s)
+	roles, err2 := c.ListCatalogRoles(s)
+	prs, err3 := c.ListCatalogPathRoles(s)
+	items, err4 := c.ListCatalogItems(s)
+	prog, err5 := c.ListLearnerTicketStates(s, p.learner)
+	if err := errors.Join(err1, err2, err3, err4, err5); err != nil {
+		readFailed(w, r, err)
+		return
+	}
+	out := pathResponse{Roles: []pathRole{}}
+	var chosen *repo.ListCatalogPathsRow
+	for i := range paths {
+		if paths[i].Status == "available" {
+			chosen = &paths[i]
+			break
+		}
+	}
+	if chosen == nil {
+		writeNoStore(w, out)
+		return
+	}
+	out.Path = &chosen.Slug
+	roleBySlug := make(map[string]repo.ListCatalogRolesRow, len(roles))
+	for _, x := range roles {
+		roleBySlug[x.Slug] = x
+	}
+	state := make(map[string]repo.ListLearnerTicketStatesRow, len(prog))
+	for _, x := range prog {
+		state[x.ItemID] = x
+	}
+	tickets := map[string][]repo.ListCatalogItemsRow{}
+	for _, i := range items {
+		if i.Kind == "ticket" {
+			tickets[i.Role] = append(tickets[i.Role], i)
+		}
+	}
+	for _, pr := range prs {
+		if pr.Path != chosen.Slug {
+			continue
+		}
+		role := roleBySlug[pr.Role]
+		pr := pathRole{Slug: role.Slug, Title: role.Title, Items: []pathItem{}}
+		for _, t := range tickets[role.Slug] {
+			it := pathItem{ID: t.ID, Title: t.Title, Order: t.Position}
+			if st, ok := state[t.ID]; ok {
+				it.State = &st.State
+				if st.LabState.Valid {
+					it.LabState = &st.LabState.String
+				}
+				if st.State == "passed" || st.State == "revisit" {
+					pr.TicketsPassed++
+				}
+			}
+			pr.Items = append(pr.Items, it)
+		}
+		pr.TicketsTotal = len(pr.Items)
+		pr.Locked = chosen.Status == "planned" || pr.TicketsTotal == 0
+		// Tickets alone pass only a role with no exam; an exam role waits for role_passes (M5).
+		pr.Passed = !role.HasExam && pr.TicketsTotal > 0 && pr.TicketsPassed == pr.TicketsTotal
+		out.Roles = append(out.Roles, pr)
+	}
+	writeNoStore(w, out)
+}
+
+func readFailed(w http.ResponseWriter, r *http.Request, err error) {
+	if r.Context().Err() != nil {
+		return
+	}
+	slog.Error("catalog read failed", "path", r.Pattern, "error", err)
+	writeError(w, http.StatusInternalServerError, "server_error")
+}
+
+func writeNoStore(w http.ResponseWriter, v any) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, v)
+}

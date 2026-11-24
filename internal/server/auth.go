@@ -49,8 +49,9 @@ type SessionStore interface {
 
 // Auth authenticates requests by session cookie or CLI bearer token.
 type Auth struct {
-	Store  SessionStore
-	Secure bool // cookie Secure flag, from PUBLIC_ORIGIN
+	Store   SessionStore
+	Catalog CatalogStore // nil leaves GET /v1/catalog and /v1/path out
+	Secure  bool         // cookie Secure flag, from PUBLIC_ORIGIN
 }
 
 // ParseOrigin validates PUBLIC_ORIGIN for the environment (local, pre or pro) and reports

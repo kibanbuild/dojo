@@ -25,6 +25,10 @@ const (
 	writeBurst = 10
 	writePer   = time.Minute
 
+	// Read routes (catalog, path, today, ticket), one budget per learner across routes and devices.
+	readBurst = 120
+	readPer   = time.Minute
+
 	maxKeys    = 50_000
 	sweepEvery = 30 * time.Second
 	// capSweepEvery bounds how often a full table is swept before evicting.
@@ -122,6 +126,8 @@ type RateLimits struct {
 	TelemetryAuth Limiter
 	// Write is keyed by learner id and covers the other authenticated writes.
 	Write Limiter
+	// Read is keyed by learner id and covers the authenticated read routes.
+	Read Limiter
 	// Callback is taken inside the sign-in callback, after the state cookie checks out and before any GitHub call.
 	Callback Limiter
 	Hops     int
@@ -134,6 +140,7 @@ func NewRateLimits(hops int) *RateLimits {
 		Telemetry:     newMemLimiter(telemetryBurst, telemetryPer, maxKeys, time.Now),
 		TelemetryAuth: newMemLimiter(telemetryAuthBurst, telemetryPer, maxKeys, time.Now),
 		Write:         newMemLimiter(writeBurst, writePer, maxKeys, time.Now),
+		Read:          newMemLimiter(readBurst, readPer, maxKeys, time.Now),
 		Callback:      newMemLimiter(authBurst, authPer, maxKeys, time.Now),
 		Hops:          hops,
 	}
@@ -150,6 +157,10 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 		var writeKey string
 		if p, authed := principalOf(r.Context()); authed && rl.Write != nil && isLearnerWrite(pattern) {
 			writeKey = "learner:" + p.learner.String()
+		}
+		var readKey string
+		if p, authed := principalOf(r.Context()); authed && rl.Read != nil && isLearnerRead(pattern) {
+			readKey = "learner:" + p.learner.String()
 		}
 		isStart := pattern == "POST "+startPath && r.URL.Path == startPath
 		switch {
@@ -188,8 +199,19 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 				return
 			}
 		}
+		if readKey != "" {
+			if ok, retry := rl.Read.Allow(readKey); !ok {
+				refuse(retry)
+				return
+			}
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isLearnerRead reports the routed patterns that take the per-learner read budget.
+func isLearnerRead(pattern string) bool {
+	return pattern == "GET /v1/catalog" || pattern == "GET /v1/path"
 }
 
 // isLearnerWrite reports the routed patterns that take the per-learner write budget.

@@ -1238,7 +1238,7 @@ the ticket route), `429 rate_limited` with `Retry-After`, `500 server_error`. An
 
 `GET /v1/path` is the learner's path with their state. With no `chosen_path_id` it returns the only
 available path and `"chosen": false` (section 2.1). A role is `locked` when its path is `planned` or it has no ticket items yet
-(`tickets_total` 0). Foundations' `passed` is the rule above, derived here:
+(`tickets_total` 0). `items` lists the role's `ticket` items only, and `catalog.items` lists every item that has a role (practice items have none). Until the exam tables exist (M5), a role with `has_exam` true is never `passed`. With no `available` path the answer is `{"path": null, "chosen": false, "roles": []}`. Foundations' `passed` is the rule above, derived here:
 
 ```json
 {"path": "systems-devops", "chosen": false,

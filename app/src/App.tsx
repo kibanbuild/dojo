@@ -5,6 +5,7 @@ import { Settings } from './pages/Settings';
 import { Machines } from './pages/Machines';
 import { PathPage } from './pages/Path';
 import { SignInPage } from './pages/SignIn';
+import { TicketPage } from './pages/Ticket';
 
 function Loading() {
   return (
@@ -68,6 +69,15 @@ export function PathRoute() {
   if (me.isError) return <LoadFailed retry={() => void me.refetch()} />;
   if (me.data === null) return <Navigate to="/signin" replace />;
   return <PathPage me={me.data} />;
+}
+
+// /app/t/<role>/<ticket>: same guard as /app.
+export function TicketRoute() {
+  const me = useMe();
+  if (me.isPending) return <Loading />;
+  if (me.isError) return <LoadFailed retry={() => void me.refetch()} />;
+  if (me.data === null) return <Navigate to="/signin" replace />;
+  return <TicketPage me={me.data} />;
 }
 
 // /app/signin: a signed-in browser has nothing to do here.

@@ -20,7 +20,7 @@ export const ticketHref = (id: string) => `/t/${id.split('/').map(encodeURICompo
 const shortId = (id: string) => id.slice(id.indexOf('/') + 1);
 
 /** The title with its last two words picked out by the accent gradient, as the board does. */
-function Headline({ text }: { text: string }) {
+export function Headline({ text }: { text: string }) {
   const words = text.split(' ');
   const head = words.length > 3 ? words.slice(0, -2).join(' ') + ' ' : '';
   const tail = words.length > 3 ? words.slice(-2).join(' ') : text;
@@ -65,7 +65,7 @@ function roleNote(role: TodayData['role'], allPassed: boolean): string {
   return `${left} ${left === 1 ? 'ticket' : 'tickets'} to go.`;
 }
 
-function CopyCommand({ command }: { command: string }) {
+export function CopyCommand({ command }: { command: string }) {
   const [notice, setNotice] = useState('');
   async function copy() {
     try {

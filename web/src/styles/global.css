@@ -1,3 +1,18 @@
 @import 'tailwindcss';
 @import '@fontsource-variable/plus-jakarta-sans/wght.css';
+@import '@fontsource-variable/jetbrains-mono/wght.css';
 @import './tokens.css';
+
+/* Gradient headline text; plain text in forced-colors mode (technical design, accessibility). */
+.hl {
+  background-image: var(--hlbg);
+  background-clip: text;
+  color: transparent;
+}
+
+@media (forced-colors: active) {
+  .hl {
+    background: none;
+    color: CanvasText;
+  }
+}

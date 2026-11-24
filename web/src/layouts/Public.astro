@@ -1,0 +1,43 @@
+---
+import '../styles/global.css';
+import { PUBLIC_ORIGIN } from 'astro:env/client';
+import SiteHeader from '../components/SiteHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  noindex?: boolean;
+}
+const { title, description, noindex = false } = Astro.props;
+const canonical = new URL(Astro.url.pathname, PUBLIC_ORIGIN).href;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    {noindex && <meta name="robots" content="noindex" />}
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Dojo" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta name="twitter:card" content="summary" />
+  </head>
+  <body class="relative min-h-screen overflow-x-hidden bg-bg font-sans text-fg antialiased">
+    <div
+      class="pointer-events-none absolute top-[-140px] left-1/2 hidden h-[560px] w-[1100px] -translate-x-1/2 md:block"
+      style="background: radial-gradient(closest-side, var(--glow), transparent)"
+      aria-hidden="true"
+    >
+    </div>
+    <SiteHeader />
+    <slot />
+    <SiteFooter />
+  </body>
+</html>

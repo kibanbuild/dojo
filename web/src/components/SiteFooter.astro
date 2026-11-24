@@ -1,0 +1,44 @@
+---
+import Logo from './Logo.astro';
+
+const columns = [
+  {
+    title: 'Learn',
+    links: [
+      { href: '/how-it-works', label: 'How it works' },
+      { href: '/paths', label: 'Paths' },
+      { href: '/story', label: 'The story' },
+    ],
+  },
+  {
+    title: 'Dojo',
+    links: [
+      { href: '/privacy', label: 'Privacy' },
+      { href: '/terms', label: 'Terms' },
+      { href: '/conduct', label: 'Conduct' },
+    ],
+  },
+];
+---
+
+<footer class="relative z-10 mt-10 border-t border-line md:mt-24">
+  <div class="mx-auto flex max-w-[1180px] flex-col gap-6 px-4 pt-7 pb-9 md:flex-row md:justify-between md:gap-10 md:px-6 md:pt-10 md:pb-12">
+    <div class="flex max-w-[280px] flex-col gap-2.5">
+      <div class="flex items-center gap-2.5">
+        <Logo size={24} />
+        <span class="font-mono text-base font-semibold">dojo</span>
+      </div>
+      <p class="m-0 text-[13px] leading-[1.55] text-muted">Free to learn. A Kiban project.</p>
+    </div>
+    <div class="grid grid-cols-2 gap-6 md:flex md:gap-[72px]">
+      {columns.map((c) => (
+        <nav aria-label={c.title} class="flex flex-col gap-0.5">
+          <div class="text-xs font-bold tracking-[0.8px] text-muted uppercase">{c.title}</div>
+          {c.links.map((l) => (
+            <a href={l.href} class="inline-flex min-h-11 items-center text-sm text-fg2 no-underline hover:text-fg md:min-h-7">{l.label}</a>
+          ))}
+        </nav>
+      ))}
+    </div>
+  </div>
+</footer>

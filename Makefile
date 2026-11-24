@@ -1,4 +1,4 @@
-.PHONY: build verify lint test test-integration e2e vuln tools sqlc sqlc-check dev down prune admin-bootstrap
+.PHONY: build verify lint test test-integration e2e vuln tools sqlc sqlc-check dev down prune admin-bootstrap catalog-load
 
 # Pinned tool versions, installed into the repo (never a shared bin) so the local gate and CI
 # run exactly the same ones. They are built for this machine; GOOS only changes what they check.
@@ -77,7 +77,7 @@ test-integration:
 	s3=$$($(COMPOSE) port s3 9000 | sed 's/.*://'); \
 	DOJO_S3_PORT=$$s3 DOJO_S3_ACCESS_KEY=$$(sed -n 's/^DOJO_S3_ACCESS_KEY=//p' .env.example) DOJO_S3_SECRET_KEY=$$(sed -n 's/^DOJO_S3_SECRET_KEY=//p' .env.example) \
 	DOJO_ADMIN_URL=http://127.0.0.1:$$admin DOJO_API_URL=http://127.0.0.1:$$port DOJO_EDGE_URL=http://127.0.0.1:$$edge DOJO_FAKE_GITHUB_URL=http://127.0.0.1:$$fake DOJO_COMPOSE_PROJECT=$(IT_PROJECT) \
-		go test -tags integration -count=1 -p 1 -v ./internal/server/ ./internal/github/ ./internal/admin/ ./internal/storage/ \
+		go test -tags integration -count=1 -p 1 -v ./internal/server/ ./internal/github/ ./internal/admin/ ./internal/storage/ ./internal/catalogload/ \
 		|| { rc=$$?; $(COMPOSE) logs --no-color --tail=100 api admin fake-github s3 s3-init; exit $$rc; }
 
 # Starts the stack in the background, then the SPA's Vite dev server (background, its own pid in app/.dev.pid)
@@ -115,6 +115,13 @@ prune:
 admin-bootstrap:
 	@test -n "$$LOGIN" || { echo "usage: make admin-bootstrap LOGIN=<github-login>"; exit 2; }
 	$(DEV_COMPOSE) --profile jobs run --rm admin-bootstrap bootstrap "$$LOGIN"
+
+# Loads a catalog checkout into the dev stack (`dojo-catalog-load`, migration role): uploads new ticket bundles
+# and upserts the catalog tables. VERSION is the catalog repo commit, e.g.
+# `make catalog-load CATALOG=~/catalog VERSION=$(git -C ~/catalog rev-parse HEAD)`.
+catalog-load:
+	@test -n "$(CATALOG)" -a -n "$(VERSION)" || { echo "usage: make catalog-load CATALOG=<dir> VERSION=<commit>"; exit 2; }
+	CATALOG_DIR="$(abspath $(CATALOG))" $(DEV_COMPOSE) --profile jobs run --rm catalog-load -version "$(VERSION)"
 
 # Boots a real Lima VM and takes minutes: not part of verify.
 e2e:

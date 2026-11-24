@@ -7,6 +7,9 @@
 !internal/storage
 !cmd/dojo-admin
 !internal/admin
+!cmd/dojo-catalog-load
+!internal/catalog
+!internal/catalogload
 !cmd/fake-github
 !internal/fakegithub
 !db/migrations

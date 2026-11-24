@@ -1,0 +1,269 @@
+---
+import Public from '../layouts/Public.astro';
+
+type State = 'open' | 'later' | 'soon';
+interface Node {
+  x: number;
+  y: number;
+  label: string;
+  sub?: string;
+  color: string;
+  end: boolean;
+  state: State;
+}
+interface Seg {
+  d: string;
+  color: string;
+}
+
+const violet = '#6A3DF5';
+const teal = '#0E7490';
+const blue = '#3F86C4';
+const lilac = '#8B6CF0';
+const stateText: Record<State, string> = { open: 'open', later: 'coming later', soon: 'coming soon' };
+
+const straight = (x1: number, y1: number, x2: number, y2: number) => `M${x1},${y1} L${x2},${y2}`;
+const branchH = (x0: number, y0: number, x1: number, y1: number, to: number) =>
+  `M${x0},${y0} C${x0 + 70},${y0} ${x1 - 70},${y1} ${x1},${y1} L${to},${y1}`;
+const branchV = (x0: number, y0: number, x1: number, to: number) =>
+  `M${x0},${y0} C${x0},${y0 + 26} ${x1},${y0 + 10} ${x1},${y0 + 34} L${x1},${to}`;
+
+const wide: { nodes: Node[]; segs: Seg[] } = {
+  segs: [
+    { d: straight(24, 44, 324, 44), color: violet },
+    { d: straight(324, 44, 624, 44), color: violet },
+    { d: straight(624, 44, 924, 44), color: violet },
+    { d: branchH(324, 44, 444, 122, 624), color: teal },
+    { d: branchH(24, 44, 144, 200, 324), color: blue },
+    { d: straight(324, 200, 624, 200), color: blue },
+    { d: branchH(324, 200, 444, 278, 624), color: lilac },
+  ],
+  nodes: [
+    { x: 24, y: 44, label: 'Foundations', color: violet, end: false, state: 'open' },
+    { x: 324, y: 44, label: 'Support L1', color: violet, end: false, state: 'open' },
+    { x: 624, y: 44, label: 'Systems L2', color: violet, end: false, state: 'later' },
+    { x: 924, y: 44, label: 'Junior DevOps', sub: 'Systems and DevOps', color: violet, end: true, state: 'later' },
+    { x: 624, y: 122, label: 'SOC L1', sub: 'Security', color: teal, end: true, state: 'soon' },
+    { x: 324, y: 200, label: 'Dev fundamentals', color: blue, end: false, state: 'soon' },
+    { x: 624, y: 200, label: 'Junior Backend', sub: 'Backend · Java, Python, Go or Node', color: blue, end: true, state: 'soon' },
+    { x: 624, y: 278, label: 'Junior Frontend', sub: 'Frontend', color: lilac, end: true, state: 'soon' },
+  ],
+};
+
+const step = 58;
+const row = (i: number) => 22 + i * step;
+const narrow: { nodes: Node[]; segs: Seg[] } = {
+  segs: [
+    { d: straight(16, row(0), 16, row(1)), color: violet },
+    { d: straight(16, row(1), 16, row(2)), color: violet },
+    { d: straight(16, row(2), 16, row(3)), color: violet },
+    { d: branchV(16, row(1), 38, row(4)), color: teal },
+    { d: branchV(16, row(0), 60, row(5)), color: blue },
+    { d: straight(60, row(5), 60, row(6)), color: blue },
+    { d: branchV(60, row(5), 82, row(7)), color: lilac },
+  ],
+  nodes: [
+    { x: 16, y: row(0), label: 'Foundations', color: violet, end: false, state: 'open' },
+    { x: 16, y: row(1), label: 'Support L1', color: violet, end: false, state: 'open' },
+    { x: 16, y: row(2), label: 'Systems L2', color: violet, end: false, state: 'later' },
+    { x: 16, y: row(3), label: 'Junior DevOps', sub: 'Systems and DevOps', color: violet, end: true, state: 'later' },
+    { x: 38, y: row(4), label: 'SOC L1', sub: 'Security', color: teal, end: true, state: 'soon' },
+    { x: 60, y: row(5), label: 'Dev fundamentals', color: blue, end: false, state: 'soon' },
+    { x: 60, y: row(6), label: 'Junior Backend', sub: 'Backend · Java, Python, Go or Node', color: blue, end: true, state: 'soon' },
+    { x: 82, y: row(7), label: 'Junior Frontend', sub: 'Frontend', color: lilac, end: true, state: 'soon' },
+  ],
+};
+const narrowH = row(7) + 28;
+
+const semantic = [
+  { path: 'Systems and DevOps', status: 'open now', roles: [['Foundations', 'open'], ['Support L1', 'open'], ['Systems L2', 'coming later'], ['Junior DevOps', 'coming later']] },
+  { path: 'Security', status: 'coming soon', roles: [['Foundations', 'open'], ['Support L1', 'open'], ['SOC L1', 'coming soon']] },
+  { path: 'Backend', status: 'coming soon', roles: [['Foundations', 'open'], ['Dev fundamentals', 'coming soon'], ['Junior Backend', 'coming soon']] },
+  { path: 'Frontend', status: 'coming soon', roles: [['Foundations', 'open'], ['Dev fundamentals', 'coming soon'], ['Junior Frontend', 'coming soon']] },
+];
+
+const role = [
+  'Tickets from colleagues in one company: vague, urgent, sometimes friendly',
+  'You fix them in your own terminal; checks prove it, a reboot included',
+  'Each role says which real certification it lines up with, like LPIC-1 for Systems L2',
+];
+const exam = [
+  'Four tickets, a vague brief, an incident and a handoff',
+  'No hints and no AI. Extra time if you need it',
+];
+const belts = [
+  ['Reply to a ticket in English', 'Support L1'],
+  ['A runbook someone else can follow', 'Systems L2'],
+  ['A change request with a rollback', 'Systems L2'],
+  ['A clear handoff at the end of a shift', 'every role'],
+  ['A standup update in English', 'every role'],
+  ['A blameless postmortem', 'Junior DevOps'],
+];
+const nots = ['Not a degree or an official title', 'No salary promises', 'Not a video course: you fix things'];
+
+const card = 'flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5';
+const btn = 'inline-flex h-11 items-center justify-center rounded-[10px] px-[18px] text-[15px] font-bold no-underline';
+const tick = 'inline-flex size-5 flex-none items-center justify-center rounded-full bg-oksoft text-xs font-extrabold text-ok';
+---
+
+<Public
+  title="Paths and roles | Dojo"
+  description="A path ends in the job you want. On the way you work real jobs, one role at a time, and each one ends with a work day on a broken machine."
+>
+  <main class="relative mx-auto flex max-w-[1200px] flex-col gap-[18px] px-4 pt-5 pb-24 md:gap-6 md:px-6 md:pt-9 md:pb-12">
+    <section class="flex flex-col items-start gap-[14px] text-left md:items-center md:pt-6 md:text-center">
+      <h1 class="m-0 max-w-[900px] text-[34px] leading-[1.04] font-extrabold tracking-[-2px] md:text-6xl">
+        Pick a job. <span class="hl">Work the roles that lead to it</span>
+      </h1>
+      <p class="m-0 max-w-[640px] text-[15px] leading-[1.55] text-fg2 md:text-[17px]">A path ends in the job you want. On the way you work real jobs, one role at a time, and each one ends with a work day on a broken machine.</p>
+    </section>
+
+    <section class={card} aria-labelledby="paths-h">
+      <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <h2 id="paths-h" class="m-0 text-xs font-bold tracking-[0.8px] text-muted uppercase">Four paths at launch</h2>
+        <p class="m-0 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-fg2" aria-hidden="true">
+          <span class="inline-flex items-center gap-1.5"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" class="fill-surface stroke-accent" stroke-width="3"></circle></svg>a role</span>
+          <span class="inline-flex items-center gap-1.5"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" class="fill-accent"></circle><circle cx="8" cy="8" r="3" class="fill-surface"></circle></svg>the job you are going for</span>
+          <span class="inline-flex items-center gap-1.5"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" class="fill-surface stroke-muted" stroke-width="2" stroke-dasharray="3 2"></circle></svg>not open yet</span>
+        </p>
+      </div>
+
+      <svg viewBox="0 0 1080 322" width="100%" aria-hidden="true" focusable="false" class="hidden overflow-visible md:block">
+        {wide.segs.map((s) => <path d={s.d} fill="none" stroke={s.color} stroke-width="4" stroke-linecap="round" />)}
+        {wide.nodes.map((n) => (
+          <g>
+            {n.end ? (
+              <>
+                <circle cx={n.x} cy={n.y} r="11" fill={n.color} />
+                <circle cx={n.x} cy={n.y} r="4.5" class="fill-surface" />
+              </>
+            ) : (
+              <circle cx={n.x} cy={n.y} r="8" class="fill-surface" stroke={n.color} stroke-width="4" stroke-dasharray={n.state === 'open' ? undefined : '5 4'} />
+            )}
+            {n.end ? (
+              <>
+                <text x={n.x + 20} y={n.y + 5} class="fill-fg" font-size="15" font-weight="800">{n.label}</text>
+                <text x={n.x + 20} y={n.y + 23} class="fill-muted" font-size="12" font-weight="500">{n.sub}</text>
+                <text x={n.x + 20} y={n.y + 39} class="fill-fg2" font-size="12" font-weight="700">{stateText[n.state]}</text>
+              </>
+            ) : (
+              <text x={n.x - 10} y={n.y - 20} class="fill-fg" font-size="15" font-weight="600">
+                {n.label}<tspan class="fill-fg2" font-size="12" font-weight="700" dx="6">{stateText[n.state]}</tspan>
+              </text>
+            )}
+          </g>
+        ))}
+      </svg>
+
+      <svg viewBox={`0 0 326 ${narrowH}`} width="100%" aria-hidden="true" focusable="false" class="block overflow-visible md:hidden">
+        {narrow.segs.map((s) => <path d={s.d} fill="none" stroke={s.color} stroke-width="4" stroke-linecap="round" />)}
+        {narrow.nodes.map((n) => (
+          <g>
+            {n.end ? (
+              <>
+                <circle cx={n.x} cy={n.y} r="11" fill={n.color} />
+                <circle cx={n.x} cy={n.y} r="4.5" class="fill-surface" />
+              </>
+            ) : (
+              <circle cx={n.x} cy={n.y} r="8" class="fill-surface" stroke={n.color} stroke-width="4" stroke-dasharray={n.state === 'open' ? undefined : '5 4'} />
+            )}
+            <text x="120" y={n.y + 5} class="fill-fg" font-size="15" font-weight={n.end ? 800 : 600}>{n.label}</text>
+            {n.sub && <text x="120" y={n.y + 23} class="fill-muted" font-size="12" font-weight="500">{n.sub}</text>}
+            <text x="120" y={n.y + (n.sub ? 39 : 23)} class="fill-fg2" font-size="12" font-weight="700">{stateText[n.state]}</text>
+          </g>
+        ))}
+      </svg>
+
+      <ul class="sr-only">
+        {semantic.map((p) => (
+          <li>
+            {p.path} path, {p.status}. Roles in order:
+            <ol>
+              {p.roles.map(([name, state]) => <li>{name}, {state}</li>)}
+            </ol>
+          </li>
+        ))}
+      </ul>
+
+      <p class="m-0 text-sm leading-[1.55] text-fg2">Paths branch where the jobs split. Switch any time: a role you passed counts on every path that goes through it. Data comes later, when someone who does the job daily builds it with us.</p>
+      <div class="flex flex-wrap items-center gap-3">
+        <span class="inline-flex h-[26px] items-center rounded-md bg-oksoft px-2.5 text-xs font-bold whitespace-nowrap text-ok">Open now: Systems and DevOps</span>
+        <a href="/app" class={`${btn} bg-accent text-accentfg`}>Start this path</a>
+      </div>
+    </section>
+
+    <div class="grid grid-cols-1 gap-[18px] md:grid-cols-2 md:gap-6">
+      <section class={card}>
+        <h2 class="m-0 text-xs font-bold tracking-[0.8px] text-muted uppercase">What a role is</h2>
+        <p class="m-0 text-[17px] font-extrabold">A real job, with a team that needs you</p>
+        <ul class="m-0 flex list-none flex-col gap-3 p-0">
+          {role.map((t) => (
+            <li class="flex items-start gap-2.5 text-sm leading-[1.45]">
+              <span class={tick}><span aria-hidden="true">✓</span><span class="sr-only">Done</span></span>
+              <span>{t}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section class={card}>
+        <h2 class="m-0 text-xs font-bold tracking-[0.8px] text-muted uppercase">The role exam</h2>
+        <p class="m-0 text-[17px] font-extrabold">One work day, on our machine</p>
+        <ul class="m-0 flex list-none flex-col gap-3 p-0">
+          {exam.map((t) => (
+            <li class="flex items-start gap-2.5 text-sm leading-[1.45]">
+              <span class={tick}><span aria-hidden="true">✓</span><span class="sr-only">Done</span></span>
+              <span>{t}</span>
+            </li>
+          ))}
+          <li class="flex items-start gap-2.5 text-sm leading-[1.45]">
+            <span class={tick}><span aria-hidden="true">✓</span><span class="sr-only">Done</span></span>
+            <span>Pass and your record says <b>Ready for Support L1</b>, with the work to prove it</span>
+          </li>
+        </ul>
+        <p class="m-0 text-sm leading-[1.55] text-fg2">Studying ASIR or SMR? Test out: take the exam first and skip the tickets you already know.</p>
+      </section>
+    </div>
+
+    <div class="grid grid-cols-1 gap-[18px] md:grid-cols-[1.4fr_1fr] md:gap-6">
+      <section class={card}>
+        <div class="flex flex-wrap items-center gap-4">
+          <h2 class="m-0 text-xs font-bold tracking-[0.8px] text-muted uppercase">Belts · how you work, on every path</h2>
+          <div aria-hidden="true" class="box-border flex h-[18px] w-40 items-center justify-end gap-1 rounded border border-line bg-surface px-2.5">
+            <span class="h-3 w-[3px] rounded-[1px] bg-fg"></span>
+            <span class="h-3 w-[3px] rounded-[1px] bg-fg"></span>
+            <span class="h-3 w-[3px] rounded-[1px] bg-fg opacity-25"></span>
+            <span class="h-3 w-[3px] rounded-[1px] bg-fg opacity-25"></span>
+          </div>
+        </div>
+        <p class="m-0 text-[17px] font-extrabold md:text-xl">From white to black, as you work more like a professional</p>
+        <p class="m-0 text-sm leading-[1.55] text-fg2">Belt marks come from what you write and how you work with others, in English. They never unlock or block a role.</p>
+        <ul class="m-0 flex list-none flex-col p-0">
+          {belts.map(([what, where]) => (
+            <li class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-line py-2.5 text-sm">
+              <span>{what}</span>
+              <span class="font-mono text-xs whitespace-nowrap text-muted">{where}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section class={card}>
+        <h2 class="m-0 text-xs font-bold tracking-[0.8px] text-muted uppercase">What Dojo is not</h2>
+        <ul class="m-0 flex list-none flex-col gap-3 p-0">
+          {nots.map((n) => (
+            <li class="flex items-start gap-2.5 text-sm leading-[1.45]">
+              <span class="inline-flex size-5 flex-none items-center justify-center rounded-full border-2 border-muted"><span class="sr-only">Not yet</span></span>
+              <span>{n}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-3 md:justify-center">
+      <a href="/app" class={`${btn} bg-accent text-accentfg`}>Pick your path</a>
+      <a href="/how-it-works" class={`${btn} border border-line bg-surface text-fg`}>See a work day</a>
+    </div>
+  </main>
+</Public>

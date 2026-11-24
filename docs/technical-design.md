@@ -1041,7 +1041,7 @@ which roles a path has and in what order). The load fills `paths`, `roles`, `pat
 role and its own S3 credentials, which can only put objects under `bundles/` (the API's credentials
 can only read them). It is one transaction: it upserts everything, then refuses and rolls back
 if any `catalog_items` row that has `ticket_progress` or `hint_opens` rows would disappear, found
-by a `NOT EXISTS` check inside that transaction (so a concurrent first start cannot slip past it).
+by a `NOT EXISTS` check inside that transaction (so a concurrent first start cannot slip past it). Loads are serialized by `pg_advisory_xact_lock(3, 0)`, taken first in the transaction (class 3 is the catalog load).
 
 **Bundle.** A `tar.gz` with `ticket.yaml`, `setup.sh`, `check.sh` and an optional `files/` tree at
 the archive root (no leading directory). Solutions, wrong-fix tests and anything else in the

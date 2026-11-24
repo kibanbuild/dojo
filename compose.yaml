@@ -82,6 +82,32 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # `dojo-catalog-load -version <commit>` (design 3.8), run on demand with `make catalog-load CATALOG=<dir> VERSION=<commit>`.
+  # The migration role writes the catalog tables; the S3 keys are the stand-in's only account (production
+  # gives the job its own, put-only under bundles/). CATALOG_DIR defaults to the repo's fixture catalog.
+  catalog-load:
+    profiles: ["jobs"]
+    build:
+      context: .
+      target: dojo-catalog-load
+    environment:
+      DOJO_ENV: local
+      CATALOG_DATABASE_URL: postgres://dojo:${POSTGRES_PASSWORD}@db:5432/dojo?sslmode=disable&application_name=dojo-catalog-load
+      DOJO_S3_ENDPOINT: http://s3:9000
+      DOJO_S3_REGION: ${DOJO_S3_REGION:-us-east-1}
+      DOJO_S3_BUCKET: ${DOJO_S3_BUCKET:-dojo-catalog}
+      DOJO_S3_ACCESS_KEY: ${DOJO_S3_ACCESS_KEY:?copy .env.example to .env}
+      DOJO_S3_SECRET_KEY: ${DOJO_S3_SECRET_KEY:?copy .env.example to .env}
+      DOJO_S3_PATH_STYLE: "true"
+    volumes:
+      - ${CATALOG_DIR:-./internal/catalog/testdata/catalog}:/catalog:ro
+    depends_on:
+      db-roles:
+        condition: service_completed_successfully
+      s3-init:
+        condition: service_completed_successfully
+    restart: "no"
+
   # The S3 stand-in (design 1.7): ticket bundles live here, as in S3 in production. RustFS, not MinIO:
   # MinIO's community repo is archived and its images are gone from Docker Hub and Quay. The API reaches it
   # as s3:9000 on the compose network; the published port is loopback only, for the presigned URLs the CLI

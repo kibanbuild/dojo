@@ -23,6 +23,16 @@ COPY internal/admin ./internal/admin
 COPY internal/github ./internal/github
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/dojo-admin ./cmd/dojo-admin
 
+FROM ${GO_IMAGE} AS build-catalog-load
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/dojo-catalog-load ./cmd/dojo-catalog-load
+COPY internal/catalog ./internal/catalog
+COPY internal/catalogload ./internal/catalogload
+COPY internal/storage ./internal/storage
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/dojo-catalog-load ./cmd/dojo-catalog-load
+
 FROM ${GO_IMAGE} AS build-fake-github
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -52,6 +62,13 @@ COPY --from=build-admin /out/dojo-admin /dojo-admin
 USER 65532:65532
 EXPOSE 8090
 ENTRYPOINT ["/dojo-admin"]
+
+# The catalog load job (design 3.8): a one-off task with the migration role, never a service.
+FROM scratch AS dojo-catalog-load
+COPY --from=build-catalog-load /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build-catalog-load /out/dojo-catalog-load /dojo-catalog-load
+USER 65532:65532
+ENTRYPOINT ["/dojo-catalog-load"]
 
 # The GitHub stand-in for local and test stacks only; never part of the api image.
 FROM scratch AS fake-github

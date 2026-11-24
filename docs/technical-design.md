@@ -1213,7 +1213,7 @@ collide.
   writes a `hint.opened` event with a server-made id, in one transaction. A hint never gates
   anything and nothing gates it: a ticket that was not started can still open its hints, and doing
   so does not create a `ticket_progress` row or mark the ticket started. Errors: `404 not_found` (unknown ticket, or `n` outside 1 to `hint_count`),
-  `409 hint_locked` (`n` above 1 and hint `n - 1` not open, unless the ticket is passed), plus the
+  `409 hint_locked` (`n` above 1 and hint `n - 1` not open; the order check is skipped when the ticket's `state` is passed or revisit), plus the
   usual `401`, `403`, `429` (it shares the events budget) and `500`.
 
 **Read routes.** `GET /v1/catalog`, `/v1/path`, `/v1/today` and `/v1/tickets/{id}` take the cookie
@@ -1272,7 +1272,8 @@ the role that holds `current`, or else `next`. When every ticket of every open r
 ```
 
 `GET /v1/tickets/{id}` is L3. `hints` holds only the opened ones, as `{n, text}`; a locked hint is
-absent, and `hint_count` says how many exist. A ticket never started has `"progress": null`:
+absent, and `hint_count` says how many exist. `role` is null for a practice ticket (one with no role).
+A ticket never started has `"progress": null`:
 
 ```json
 {"id": "support-l1/perms-03", "title": "Fix the shared folder", "role": "support-l1",

@@ -40,9 +40,12 @@ func New(ready Readiness, auth Auth, limits *RateLimits, signin *SignIn, cli *CL
 	if auth.Events != nil {
 		mux.HandleFunc("POST "+eventsPath, auth.postEvents)
 	}
-	if auth.Bundles != nil {
-		// A ticket id holds a slash, so the route is the subtree and the handler splits off /bundle.
-		mux.HandleFunc("GET "+bundleTicketsPrefix, requireSession(auth.Bundles.fetch))
+	if auth.Bundles != nil || auth.Tickets != nil {
+		// A ticket id holds a slash, so the routes are the subtree and the dispatchers split the path.
+		mux.HandleFunc("GET "+ticketsPrefix, requireSession(auth.getTicketRoute))
+	}
+	if auth.Tickets != nil {
+		mux.HandleFunc("POST "+ticketsPrefix, requireSession(auth.postTicketRoute))
 	}
 	if auth.Stream != nil {
 		mux.HandleFunc("GET "+streamPath, auth.stream)

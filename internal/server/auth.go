@@ -52,6 +52,8 @@ type Auth struct {
 	Store   SessionStore
 	Catalog CatalogStore // nil leaves GET /v1/catalog and /v1/path out
 	Secure  bool         // cookie Secure flag, from PUBLIC_ORIGIN
+	// Events backs POST /v1/events; nil leaves the route out.
+	Events EventStore
 }
 
 // ParseOrigin validates PUBLIC_ORIGIN for the environment (local, pre or pro) and reports
@@ -181,7 +183,8 @@ func parseBearer(header []string) (string, bool) {
 func CSRF(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// start is a browser form POST that acts on no session; a signed-in browser must still reach it.
-		if p, ok := principalOf(r.Context()); ok && !p.bearer && !safeMethod(r.Method) && r.URL.Path != startPath {
+		// events is bearer only: a cookie call reaches the handler to be answered 401, never to act.
+		if p, ok := principalOf(r.Context()); ok && !p.bearer && !safeMethod(r.Method) && r.URL.Path != startPath && r.URL.Path != eventsPath {
 			mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 			if err != nil || mt != "application/json" || r.Header.Get(CSRFHeader) == "" {
 				writeError(w, http.StatusForbidden, "csrf_rejected")

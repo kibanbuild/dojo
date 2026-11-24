@@ -1127,7 +1127,9 @@ learner `403 account_suspended`. Body `Content-Type: application/json`, at most 
 
 - **Output:** the CLI keeps the last 16 KB of the check output, cut on a character boundary, and
   cuts further, still keeping the tail, if the whole event would pass 64 KB. The API refuses a
-  longer `output` rather than cut it. It is stored only in `ticket_progress.last_check_output`;
+  longer `output` rather than cut it (the 16,384 bytes are counted after the next rule). The API
+  replaces each NUL in `output` and in a `lab.failed` `detail` with U+FFFD, because Postgres text
+  cannot hold NUL, rather than refuse the batch. It is stored only in `ticket_progress.last_check_output`;
   the `events` row keeps the payload without it, and the API never writes it to a log.
 - **`hint.opened` is server-side only.** It is written by `POST /v1/tickets/{id}/hints/{n}` (below)
   and a CLI that sends it gets `400 bad_request`, as does any other unknown type.
@@ -1178,7 +1180,7 @@ collide.
 
 | Event | Effect |
 |---|---|
-| `ticket.started` | No row: insert with `state` started, `first_started_at` the event's `client_at`. A `passed` row becomes `revisit` only when the event's `client_at` is after `first_passed_at`; an older one (replayed from a queue, sent before the pass) updates the lab fields by the ordering rule and nothing else. `started` and `revisit` stay. Sets `lab` and, by the ordering rule, `lab_state` starting. |
+| `ticket.started` | No row: insert with `state` started, `first_started_at` the event's `client_at`. A `passed` row becomes `revisit` only when the event's `client_at` is after `first_passed_at`; an older one (replayed from a queue, sent before the pass) updates the lab fields by the ordering rule and nothing else. `started` and `revisit` stay. Sets `lab` and `lab_state` starting together, both only under the ordering rule, so an older event changes neither. |
 | `lab.started` | `lab_state` running (ordering rule). |
 | `lab.failed` | `lab_state` failed (ordering rule). |
 | `lab.stopped` | `lab_state` stopped (ordering rule). |

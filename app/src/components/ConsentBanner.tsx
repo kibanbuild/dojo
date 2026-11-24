@@ -50,11 +50,12 @@ export function ConsentBanner() {
 
   return (
     <>
-      <div aria-hidden="true" className="h-64 md:h-44" />
+      <div aria-hidden="true" className="h-80 md:h-44" />
+      {/* Sits above the phone tab bar (fixed, about 76px tall) so both stay usable. */}
       <section
         role="region"
         aria-label="Analytics consent"
-        className="fixed right-4 bottom-4 left-4 z-50 mx-auto flex max-w-[560px] flex-col gap-3 rounded-2xl border border-line bg-surface p-5 font-sans text-fg shadow-card"
+        className="fixed right-4 bottom-24 left-4 z-50 md:bottom-4 mx-auto flex max-w-[560px] flex-col gap-3 rounded-2xl border border-line bg-surface p-5 font-sans text-fg shadow-card"
       >
         <h2 className="m-0 text-base font-extrabold">Help us improve the Dojo?</h2>
         <p className="m-0 text-sm leading-[1.55] text-fg2">

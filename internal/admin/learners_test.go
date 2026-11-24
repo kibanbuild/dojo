@@ -19,6 +19,28 @@ type fakeLearners struct {
 	more     bool
 	view     LearnerView
 	viewErr  error
+
+	status    LearnerStatus
+	statusErr error
+	setErr    error
+	sets      []setCall
+}
+
+type setCall struct {
+	Op, ID, Reason string
+	Suspend        bool
+}
+
+func (f *fakeLearners) Status(context.Context, string) (LearnerStatus, error) {
+	return f.status, f.statusErr
+}
+
+func (f *fakeLearners) SetSuspended(_ context.Context, op Operator, id string, suspend bool, reason string) error {
+	if f.setErr != nil {
+		return f.setErr
+	}
+	f.sets = append(f.sets, setCall{op.Login, id, reason, suspend})
+	return nil
 }
 
 func (f *fakeLearners) Search(_ context.Context, op Operator, field, query, reason string) ([]LearnerSummary, bool, error) {

@@ -38,6 +38,10 @@ func New(ready Readiness, d Deps) http.Handler {
 			l := &lookup{Learners: d.Learners}
 			mux.HandleFunc("GET /learners", s.authenticated(l.search))
 			mux.HandleFunc("GET /learners/{id}", s.authenticated(l.view))
+			mux.HandleFunc("GET /learners/{id}/suspend", s.authenticated(l.confirm(true)))
+			mux.HandleFunc("POST /learners/{id}/suspend", s.authenticated(l.act(true)))
+			mux.HandleFunc("GET /learners/{id}/unsuspend", s.authenticated(l.confirm(false)))
+			mux.HandleFunc("POST /learners/{id}/unsuspend", s.authenticated(l.act(false)))
 		}
 	}
 	return onlyHost(Host, secureHeaders(mux))

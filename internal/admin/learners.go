@@ -27,6 +27,11 @@ const (
 	SearchAction = "learner.search"
 	ViewAction   = "learner.view"
 
+	// SuspendAction and UnsuspendAction are the admin_audit actions of the A2 writes.
+	SuspendAction   = "learner.suspend"
+	UnsuspendAction = "learner.unsuspend"
+
+	historyLimit   = 20
 	maxQueryLen    = 254
 	minPrefixLen   = 2
 	maxReasonLen   = 1000
@@ -77,10 +82,40 @@ type LearnerView struct {
 	SuspendedAt *time.Time
 	Roles       []RoleProgress
 	Recent      []TicketProgress
+	History     []HistoryRow
 }
 
-// LearnerStore is the A2 data. Both methods write their audit row in the transaction that reads.
+// HistoryRow is one admin_audit row that targets the learner.
+type HistoryRow struct {
+	At       time.Time
+	Operator string
+	Action   string
+	Reason   string
+}
+
+// Label is the action as the page prints it.
+func (h HistoryRow) Label() string {
+	switch h.Action {
+	case ViewAction:
+		return "Viewed"
+	case SuspendAction:
+		return "Suspended"
+	case UnsuspendAction:
+		return "Unsuspended"
+	}
+	return h.Action
+}
+
+// When is the row's time as the page prints it.
+func (h HistoryRow) When() string { return stamp(h.At) }
+
+// LearnerStore is the A2 data. Search and View write their audit row in the transaction that reads.
 type LearnerStore interface {
+	// Status reads the minimum a confirm page needs, without an audit row. ErrNotFound for no learner.
+	Status(ctx context.Context, id string) (LearnerStatus, error)
+	// SetSuspended suspends or unsuspends the learner and writes the audit row in one transaction.
+	// ErrNotFound, ErrAlreadyInState and errBadReason write nothing.
+	SetSuspended(ctx context.Context, op Operator, id string, suspend bool, reason string) error
 	// Search returns up to searchLimit learners matching query on field and audits learner.search with
 	// the field only. more is true when there were further matches.
 	Search(ctx context.Context, op Operator, field, query, reason string) (found []LearnerSummary, more bool, err error)
@@ -192,12 +227,34 @@ func (s PGLearners) View(ctx context.Context, op Operator, id, reason string) (L
 		if email != nil {
 			v.Email = *email
 		}
-		return s.progress(ctx, tx, &v)
+		if err := s.progress(ctx, tx, &v); err != nil {
+			return err
+		}
+		return history(ctx, tx, &v)
 	})
 	if err != nil {
 		return LearnerView{}, err
 	}
 	return v, nil
+}
+
+// history reads the newest audit rows that target the learner. The row of this very view is written
+// after, so it appears from the next one.
+func history(ctx context.Context, tx pgx.Tx, v *LearnerView) error {
+	rows, err := tx.Query(ctx, `SELECT at, operator_login, action, coalesce(reason, '') FROM admin_audit
+		WHERE target_type = 'learner' AND target_id = $1 ORDER BY at DESC, id DESC LIMIT $2`, v.ID, historyLimit)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var h HistoryRow
+		if err := rows.Scan(&h.At, &h.Operator, &h.Action, &h.Reason); err != nil {
+			return err
+		}
+		v.History = append(v.History, h)
+	}
+	return rows.Err()
 }
 
 func (s PGLearners) progress(ctx context.Context, tx pgx.Tx, v *LearnerView) error {
@@ -283,7 +340,7 @@ var searchPage = template.Must(template.New("search").Parse(layoutTemplates + `{
 {{else if not .Error}}<p>No learner found.</p>{{end}}{{end}}
 {{template "foot" .}}`))
 
-// learnerPage leaves the "actions" block empty: suspend, unsuspend and delete add their forms there.
+// learnerPage links each action to its confirm page; later actions add their links to the Actions section.
 var learnerPage = template.Must(template.New("learner").Parse(layoutTemplates + `{{template "head" .}}
 <p><a href="/learners">Back to search</a></p>
 <h1>@{{.V.Username}}</h1>
@@ -297,7 +354,10 @@ var learnerPage = template.Must(template.New("learner").Parse(layoutTemplates + 
 <dt>Created</dt><dd>{{.Joined}}</dd>
 <dt>Status</dt><dd>{{if .V.SuspendedAt}}Suspended since {{.Suspended}}{{else}}Active{{end}}</dd>
 </dl></section>
-{{block "actions" .}}{{end}}
+<section aria-labelledby="actions"><h2 id="actions">Actions</h2>
+{{if .V.SuspendedAt}}<p><a href="/learners/{{.V.ID}}/unsuspend">Unsuspend this account</a></p>
+{{else}}<p><a href="/learners/{{.V.ID}}/suspend">Suspend this account</a></p>
+{{end}}</section>
 <section aria-labelledby="progress"><h2 id="progress">Progress</h2>
 {{if .V.Roles}}<table><caption>Tickets passed by role</caption>
 <thead><tr><th scope="col">Role</th><th scope="col">Passed</th></tr></thead>
@@ -308,6 +368,12 @@ var learnerPage = template.Must(template.New("learner").Parse(layoutTemplates + 
 <thead><tr><th scope="col">Ticket</th><th scope="col">State</th><th scope="col">Lab</th><th scope="col">Checks</th><th scope="col">Last check</th><th scope="col">Last seen</th></tr></thead>
 <tbody>{{range .V.Recent}}<tr><td>{{.Title}} ({{.ItemID}})</td><td>{{.State}}</td><td>{{if .LabState}}{{.LabState}}{{else}}-{{end}}</td><td>{{.Checks}}</td><td>{{if .LastCheck}}{{.LastCheck}}{{else}}-{{end}}</td><td>{{.Seen}}</td></tr>
 {{end}}</tbody></table>{{else}}<p>No tickets started yet.</p>{{end}}
+</section>
+<section aria-labelledby="history"><h2 id="history">Operator history</h2>
+{{if .V.History}}<table><caption>Latest actions on this learner, newest first</caption>
+<thead><tr><th scope="col">When</th><th scope="col">Operator</th><th scope="col">Action</th><th scope="col">Reason</th></tr></thead>
+<tbody>{{range .V.History}}<tr><td>{{.When}}</td><td>{{.Operator}}</td><td>{{.Label}}</td><td>{{if .Reason}}{{.Reason}}{{else}}-{{end}}</td></tr>
+{{end}}</tbody></table>{{else}}<p>No operator has acted on this learner yet.</p>{{end}}
 </section>
 <section aria-labelledby="later"><h2 id="later">Not available yet</h2>
 <p>Plan, comps, hosted hours, exam attempts, devices and the last doctor report.</p></section>

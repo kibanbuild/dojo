@@ -347,7 +347,7 @@ func (l *lookup) search(w http.ResponseWriter, r *http.Request) {
 		render(w, http.StatusBadRequest, searchPage, data)
 		return
 	case err != nil:
-		slog.Error("learner search failed", "error", err)
+		slog.Error("learner search failed", "error", oneLine(err))
 		http.Error(w, "search failed", http.StatusInternalServerError)
 		return
 	}
@@ -386,7 +386,7 @@ func (l *lookup) view(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "reason too long", http.StatusBadRequest)
 		return
 	case err != nil:
-		slog.Error("learner view failed", "error", err)
+		slog.Error("learner view failed", "error", oneLine(err))
 		http.Error(w, "view failed", http.StatusInternalServerError)
 		return
 	}
@@ -395,4 +395,10 @@ func (l *lookup) view(w http.ResponseWriter, r *http.Request) {
 		d.Suspended = stamp(*v.SuspendedAt)
 	}
 	render(w, http.StatusOK, learnerPage, d)
+}
+
+// oneLine keeps a logged error on one line: the error can carry operator input (go/log-injection).
+func oneLine(err error) string {
+	s := strings.ReplaceAll(err.Error(), "\n", " ")
+	return strings.ReplaceAll(s, "\r", " ")
 }

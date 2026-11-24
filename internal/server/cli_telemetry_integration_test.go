@@ -57,8 +57,8 @@ func TestCLITelemetryLoggedInRowIsLinked(t *testing.T) {
 	if n := eventCount(t, marker); n != "0" {
 		t.Fatalf("rows before the notice was shown on a prior command: %s", n)
 	}
-	_, _ = runCLI(t, "", "status") // no kata: result error, still an event
-	linked := asOwner(t, "SELECT count(*) FROM telemetry_events e JOIN learners l ON l.id = e.learner_id WHERE l.github_id = 1001 AND e.cli_version = '"+marker+"' AND e.command = 'status' AND e.result = 'error'")
+	_, _ = runCLI(t, "", "hint") // no ticket: result error, still an event
+	linked := asOwner(t, "SELECT count(*) FROM telemetry_events e JOIN learners l ON l.id = e.learner_id WHERE l.github_id = 1001 AND e.cli_version = '"+marker+"' AND e.command = 'hint' AND e.result = 'error'")
 	if linked != "1" {
 		t.Fatalf("linked rows: %q, want 1", linked)
 	}

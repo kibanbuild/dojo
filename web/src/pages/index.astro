@@ -1,21 +1,73 @@
 ---
-import '../styles/global.css';
-import { PUBLIC_ORIGIN } from 'astro:env/client';
+import Public from '../layouts/Public.astro';
+
+const steps = [
+  { title: 'Pick a path', body: 'A destination job: DevOps, Security, Backend or Frontend.' },
+  { title: 'Work the roles', body: 'Support L1, Systems L2... each one a real job with a real team.' },
+  { title: 'Pass the work day', body: 'One exam per role: tickets, a vague brief, an incident, a handoff.' },
+  { title: 'Show the record', body: 'Verified work for an internship or your first job.' },
+];
+const nots = ['Not a degree or an official title', 'No salary promises', 'Not a video course: you fix things'];
+const crew = [
+  { src: '/cast/lucia.png', alt: 'Lucía' },
+  { src: '/cast/javi.png', alt: 'Javi' },
+  { src: '/cast/nora.png', alt: 'Nora' },
+  { src: '/cast/pablo.png', alt: 'Pablo' },
+];
+const card = 'flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5';
+const btn = 'inline-flex h-11 items-center justify-center rounded-[10px] px-[18px] text-[15px] font-bold no-underline';
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Dojo, coming soon</title>
-    <meta name="description" content="Dojo is coming soon." />
-    <link rel="canonical" href={`${PUBLIC_ORIGIN}/`} />
-  </head>
-  <body class="bg-white text-neutral-900 antialiased">
-    <main class="mx-auto flex min-h-screen max-w-2xl flex-col justify-center gap-4 px-4">
-      <h1 class="text-4xl font-semibold">Dojo, coming soon</h1>
-      <p class="text-lg text-neutral-600">Hands-on practice for the work of a sysadmin, one ticket at a time.</p>
-    </main>
-  </body>
-</html>
+<Public
+  title="Dojo: learn the job by doing the job"
+  description="Real tickets on servers that really break. Pick the job you want and pass a work day for each role on the way."
+>
+  <main class="relative mx-auto flex max-w-[1200px] flex-col gap-[18px] px-4 pt-5 pb-24 md:gap-6 md:px-6 md:pt-9 md:pb-12">
+    <section class="flex flex-col items-start gap-[18px] text-left md:items-center md:pt-6 md:text-center">
+      <span class="inline-flex h-[26px] flex-none items-center rounded-md bg-accentsoft px-2.5 text-xs font-bold whitespace-nowrap text-accentink">New · Systems and DevOps path</span>
+      <h1 class="m-0 max-w-[900px] text-[34px] leading-[1.04] font-extrabold tracking-[-2px] md:text-6xl">
+        Learn the job <span class="hl">by doing the job</span>
+      </h1>
+      <p class="m-0 max-w-[640px] text-[15px] leading-[1.55] text-fg2 md:text-[17px]">Real tickets on servers that really break. Pick the job you want and pass a work day for each role on the way.</p>
+      <div class="flex flex-wrap items-center gap-3 md:justify-center">
+        <a href="/paths" class={`${btn} bg-accent text-accentfg`}>Pick your path</a>
+        <a href="/how-it-works" class={`${btn} border border-line bg-surface text-fg`}>See a work day</a>
+      </div>
+      <p class="m-0 text-[13px] leading-[1.55] text-muted">Free to learn. In English, because the job is.</p>
+    </section>
+
+    <ol class="m-0 grid list-none grid-cols-1 gap-4 p-0 md:grid-cols-4">
+      {steps.map((s, i) => (
+        <li class={card}>
+          <span class="inline-flex h-[30px] w-[30px] items-center justify-center rounded-full bg-accentsoft font-extrabold text-accentink">{i + 1}</span>
+          <h2 class="m-0 text-[17px] font-extrabold">{s.title}</h2>
+          <p class="m-0 text-sm leading-[1.55] text-fg2">{s.body}</p>
+        </li>
+      ))}
+    </ol>
+
+    <div class="grid grid-cols-1 items-center gap-[18px] md:grid-cols-2 md:gap-6">
+      <section class="flex flex-wrap items-center gap-2.5 max-md:order-2">
+        <img src="/cast/carmen.png" alt="Carmen, your mentor" width="96" height="96" class="block size-24 flex-none" />
+        {crew.map((p) => (
+          <span class="relative inline-block size-12 flex-none overflow-hidden rounded-full bg-accentsoft">
+            <img src={p.src} alt={p.alt} width="52" height="52" class="absolute -bottom-0.5 -left-0.5 size-[52px] max-w-none" />
+          </span>
+        ))}
+        <p class="m-0 text-sm leading-[1.55] text-fg2"><b>Carmen</b> mentors you. Lucía, Javi, Nora and Pablo send the tickets.</p>
+      </section>
+
+      <section class={`${card} max-md:order-1`}>
+        <h2 class="m-0 text-xs font-bold tracking-[0.8px] text-muted uppercase">What Dojo is not</h2>
+        <ul class="m-0 flex list-none flex-col gap-3 p-0">
+          {nots.map((n) => (
+            <li class="flex items-start gap-2.5 text-sm leading-[1.45]">
+              <span class="inline-flex size-5 flex-none items-center justify-center rounded-full border-2 border-muted"><span class="sr-only">Not yet</span></span>
+              <span>{n}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
+  </main>
+</Public>

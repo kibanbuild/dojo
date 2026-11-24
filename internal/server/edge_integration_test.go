@@ -35,8 +35,8 @@ func TestEdgeServesTheSite(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
 		t.Fatalf("got %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
 	}
-	if !strings.Contains(string(b), "Dojo, coming soon") {
-		t.Fatalf("hello text missing in %q", b)
+	if !strings.Contains(string(b), "Learn the job") {
+		t.Fatalf("home page headline missing in %q", b)
 	}
 }
 

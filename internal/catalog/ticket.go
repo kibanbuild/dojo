@@ -257,9 +257,6 @@ func checkLine(s string, maxChars int) string {
 	return ""
 }
 
-// ValidTicketID reports whether id has the <role>/<ticket> shape of a ticket id.
-func ValidTicketID(id string) bool { return idRE.MatchString(id) && len(id) <= maxIDLen }
-
 // LoadTicket reads and validates the ticket at <role>/<ticket> with its setup.sh and check.sh. It
 // is what the CLI runs for a local tree; it does not need catalog.yaml (Load does the cross checks).
 func LoadTicket(catalog fs.FS, id string) (*Ticket, error) {

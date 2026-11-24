@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/kibanbuild/dojo/internal/catalog"
 	"github.com/kibanbuild/dojo/internal/state"
 )
 
@@ -20,7 +19,7 @@ func (a *App) status(ctx context.Context) error {
 		fmt.Fprintf(a.Out, "Ticket: unreadable (progress file %s is damaged or locked; remove it, DOJO_HOME moves it)\n\n", p)
 	} else if st.Current == "" {
 		fmt.Fprintln(a.Out, "No ticket in progress: run dojo start <role>/<ticket>.")
-	} else if k, err := catalog.LoadTicket(a.Catalog, st.Current); err == nil {
+	} else if k, err := a.loadTicket(st.Current); err == nil {
 		a.printBrief(k)
 		if t, ok := st.Passed[k.ID]; ok {
 			fmt.Fprintf(a.Out, "Passed on %s.\n", t.Format("2006-01-02"))

@@ -148,7 +148,12 @@ func TestHintPrintsTheTicketPageWhenAnAPIIsConfigured(t *testing.T) {
 	if err := e.run(t, "hint"); err == nil || !strings.Contains(err.Error(), "no ticket in progress") {
 		t.Errorf("no ticket: %v", err)
 	}
-	e.run(t, "start", "white/a")
+	// Set the ticket directly: with an API configured, start would fetch a bundle.
+	cur, _ := state.Load()
+	cur.Current = "white/a"
+	if err := cur.Save(); err != nil {
+		t.Fatal(err)
+	}
 	if err := e.run(t, "hint"); err != nil || !strings.Contains(e.out.String(), "https://dojo.example/app/t/white/a") {
 		t.Errorf("hint: %v\n%s", err, e.out)
 	}

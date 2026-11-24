@@ -10,6 +10,13 @@
 		respond 404
 	}
 
+	# Server-sent events: no response buffering (design 3.8).
+	handle /v1/stream {
+		reverse_proxy api:8080 {
+			flush_interval -1
+		}
+	}
+
 	handle /v1/* {
 		reverse_proxy api:8080
 	}

@@ -55,6 +55,9 @@ type Auth struct {
 	Secure  bool         // cookie Secure flag, from PUBLIC_ORIGIN
 	// Events backs POST /v1/events; nil leaves the route out.
 	Events EventStore
+	// Stream backs GET /v1/stream; nil leaves the route out. StreamHeartbeat defaults to 25 s.
+	Stream          *Hub
+	StreamHeartbeat time.Duration
 }
 
 // ParseOrigin validates PUBLIC_ORIGIN for the environment (local, pre or pro) and reports

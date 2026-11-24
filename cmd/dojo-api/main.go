@@ -78,8 +78,16 @@ func run(args []string) error {
 	}
 	defer store.Close()
 
+	heartbeat, err := server.ParseStreamHeartbeat(os.Getenv("STREAM_HEARTBEAT_SECONDS"))
+	if err != nil {
+		return err
+	}
+	hub := server.NewHub(store.ListenConn)
+	go hub.Run(ctx)
+
 	auth := server.Auth{Store: store.Queries(), Catalog: store.Queries(),
-		Bundles: &server.Bundles{Store: store.Queries(), Signer: objects}, Secure: secure, Events: store}
+		Bundles: &server.Bundles{Store: store.Queries(), Signer: objects}, Secure: secure, Events: store,
+		Stream: hub, StreamHeartbeat: heartbeat}
 	gh := github.New(ghCfg)
 	cli := &server.CLILogin{GitHub: gh, Store: store.Queries()}
 	signin := &server.SignIn{GitHub: gh, Store: store.Queries(), Auth: auth,
@@ -90,6 +98,7 @@ func run(args []string) error {
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+	srv.RegisterOnShutdown(hub.Shutdown) // open streams never end on their own
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	slog.Info("listening", "addr", addr)

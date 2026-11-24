@@ -96,7 +96,7 @@ export interface TicketProgress {
 export interface Ticket {
   id: string;
   title: string;
-  role: string;
+  role: string | null;
   est_minutes: number;
   tags: string[];
   brief: string;
@@ -178,6 +178,41 @@ export const fetchToday = () => getJSON<Today>('/v1/today');
 export function fetchTicket(id: string): Promise<Ticket> {
   const escaped = id.split('/').map(encodeURIComponent).join('/');
   return getJSON<Ticket>(`/v1/tickets/${escaped}`);
+}
+
+export interface Hint {
+  n: number;
+  text: string;
+}
+
+export type HintResult = { ok: true; hint: Hint } | { ok: false; reason: 'hint_locked' | ReadFailure; retryAfterMs?: number };
+
+/** POST /v1/tickets/{id}/hints/{n}: opens one written hint, in order. */
+export async function openHint(id: string, n: number): Promise<HintResult> {
+  const escaped = id.split('/').map(encodeURIComponent).join('/');
+  let res: Response;
+  try {
+    res = await apiFetch(`/v1/tickets/${escaped}/hints/${n}`, { method: 'POST', body: '{}' });
+  } catch {
+    return { ok: false, reason: 'failed' };
+  }
+  if (res.ok) {
+    try {
+      return { ok: true, hint: (await res.json()) as Hint };
+    } catch {
+      return { ok: false, reason: 'failed' };
+    }
+  }
+  if (res.status === 401) return { ok: false, reason: 'signed_out' };
+  if (res.status === 404) return { ok: false, reason: 'not_found' };
+  if (res.status === 429) {
+    const wait = retryAfterMs(res);
+    blockedUntil = Math.max(blockedUntil, Date.now() + wait);
+    return { ok: false, reason: 'rate_limited', retryAfterMs: wait };
+  }
+  if (res.status === 409 && (await errorCode(res)) === 'hint_locked') return { ok: false, reason: 'hint_locked' };
+  if (res.status === 403 && (await errorCode(res)) === 'account_suspended') return { ok: false, reason: 'suspended' };
+  return { ok: false, reason: 'failed' };
 }
 
 export const CATALOG_KEY = ['catalog'] as const;

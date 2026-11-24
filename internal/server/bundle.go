@@ -84,7 +84,7 @@ func (b *Bundles) fetch(w http.ResponseWriter, r *http.Request) {
 	url, err := b.Signer.PresignGet(r.Context(), row.BundleKey.String, bundleTTL)
 	if err != nil {
 		if r.Context().Err() == nil {
-			slog.Error("bundle presign failed", "item", id, "error", err)
+			slog.Error("bundle presign failed", "item", row.ID, "error", err)
 			writeError(w, http.StatusInternalServerError, "server_error")
 		}
 		return

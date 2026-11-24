@@ -107,6 +107,9 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	if record {
 		a.telemetryEnd(ctx, name, a.now().Sub(t0), err)
 	}
+	if name != "mcp" {
+		a.flushEvents(ctx)
+	}
 	return err
 }
 
@@ -207,9 +210,13 @@ func (a *App) run(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
+		ended := st.Current
 		st.Current, st.HintsShown, st.LastCheck = "", 0, ""
 		if err := a.save(st); err != nil {
 			return err
+		}
+		if ended != "" {
+			a.recordEvent(state.ProgressEvent{Type: "lab.stopped", ItemID: ended})
 		}
 		return a.removeSSH()
 	}
@@ -292,7 +299,18 @@ func (a *App) start(ctx context.Context, backend lab.Backend, id, key string) er
 	if err := a.save(st); err != nil {
 		return err
 	}
+	// Without a bundle sidecar (dojo start does not fetch bundles yet) the version is unknown and
+	// the server requires it, so ticket.started waits for the bundle work.
+	if v := catalogVersion(k.ID); v != "" {
+		a.recordEvent(state.ProgressEvent{Type: "ticket.started", ItemID: k.ID, Lab: "local", CatalogVersion: v})
+	}
+	failed := func(reason string, err error) {
+		a.recordEvent(state.ProgressEvent{Type: "lab.failed", ItemID: k.ID, Reason: reason, Detail: lastLine(err.Error())})
+	}
 	if err := backend.Recreate(ctx); err != nil {
+		if ctx.Err() == nil {
+			failed(labFailureReason(err), err)
+		}
 		return orCanceled(ctx, err)
 	}
 	out, code, err := backend.Run(ctx, k.Setup)
@@ -300,11 +318,14 @@ func (a *App) start(ctx context.Context, backend lab.Backend, id, key string) er
 		return cerr
 	}
 	if err != nil {
+		failed(labFailureReason(err), err)
 		return fmt.Errorf("ticket setup: %w", err)
 	}
 	if code != 0 {
+		failed("setup", fmt.Errorf("setup exited %d: %s", code, lastLine(string(out))))
 		return fmt.Errorf("ticket setup failed (exit %d)\n%s", code, out)
 	}
+	a.recordEvent(state.ProgressEvent{Type: "lab.started", ItemID: k.ID})
 	st.Current = k.ID
 	if err := a.save(st); err != nil {
 		return err
@@ -432,12 +453,16 @@ func (a *App) check(ctx context.Context, backend lab.Backend, quick bool) error 
 			return err
 		}
 	}
+	t0 := a.now() // duration_ms is the check.sh run only, not the reboot
 	out, code, err := backend.Run(ctx, k.Check)
 	if cerr := ctx.Err(); cerr != nil {
 		return cerr
 	}
 	if err != nil {
 		return err
+	}
+	if !quick { // a quick run is not a verdict: it skips the reboot a pass needs
+		a.recordCheck(k.ID, code, out, a.now().Sub(t0))
 	}
 	a.printResults(out)
 	// Kept for the mentor, after the check ran and whatever its verdict.

@@ -1122,7 +1122,7 @@ learner `403 account_suspended`. Body `Content-Type: application/json`, at most 
 | `lab.started` | none | `dojo start`, once `setup.sh` has run |
 | `lab.failed` | `reason` (`disk`, `memory`, `vm`, `setup`, `other`; M2.4c maps the errors of `internal/lab` to it, and anything unmapped is `other`), optional `detail` (at most 512 characters) | `dojo start` |
 | `lab.stopped` | none | `dojo stop` |
-| `check.run` | `result` (`pass` or `fail`), `duration_ms` (0 to 86400000), optional `passed` and `total` (integers 0 to 1000, both or neither, `passed` at most `total`), `output` (UTF-8, at most 16,384 bytes) | `dojo check` |
+| `check.run` | `result` (`pass` or `fail`), `duration_ms` (0 to 86400000; the duration of the `check.sh` run, not the reboot before it), optional `passed` and `total` (integers 0 to 1000, both or neither, `passed` at most `total`), `output` (UTF-8, at most 16,384 bytes) | `dojo check`; `dojo check --quick` sends no `check.run`, because it skips the reboot and is not a verdict |
 
 - **Output:** the CLI keeps the last 16 KB of the check output, cut on a character boundary, and
   cuts further, still keeping the tail, if the whole event would pass 64 KB. The API refuses a

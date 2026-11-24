@@ -43,12 +43,12 @@ func (l *Lima) Exists(ctx context.Context) (bool, error) {
 
 func (l *Lima) Recreate(ctx context.Context) error {
 	if err := l.Delete(ctx); err != nil {
-		return err
+		return withReason(err, ReasonVM)
 	}
 	// --plain: no host folders, no port forwarding, no containerd. The lab sees nothing of the host.
 	_, err := l.output(ctx, "start", "--tty=false", "--name="+Instance, "--plain",
 		"--cpus=2", "--memory=2", "--disk=10", "template:ubuntu-lts")
-	return err
+	return withReason(err, ReasonVM)
 }
 
 func (l *Lima) Run(ctx context.Context, script []byte) ([]byte, int, error) {
@@ -123,7 +123,7 @@ func (l *Lima) output(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, l.Bin, args...) //nolint:gosec // Bin is a constant or caller-controlled, never learner input
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("limactl %s: %w\n%s", args[0], err, lastLines(stderr.String(), 15))
+		return nil, withReason(fmt.Errorf("limactl %s: %w\n%s", args[0], err, lastLines(stderr.String(), 15)), classify(stderr.String()))
 	}
 	return stdout.Bytes(), nil
 }

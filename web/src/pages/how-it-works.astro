@@ -1,0 +1,208 @@
+---
+import Public from '../layouts/Public.astro';
+
+const card = 'flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5 md:p-6';
+const tag = 'font-mono text-[13px] font-bold text-accentink';
+const h2 = 'm-0 text-xl font-extrabold';
+const body = 'm-0 text-sm leading-[1.55] text-fg2';
+const mono = 'font-mono text-xs';
+const prompt = (user: string, path: string) => ({ user, path });
+const you = prompt('irene@laptop', '~/dojo');
+const lab = prompt('root@lab-perms03', '/srv');
+const checks = ['the team can write to /srv/shared', 'nobody else can', 'still true after a reboot'];
+const slideCount = 3;
+---
+
+<Public
+  title="How Dojo works: a real ticket, a real fix, checked"
+  description="Every ticket works the same way on every path: a colleague asks for help, you fix it in your own terminal, and the lab checks it after a reboot."
+>
+  <main class="relative mx-auto flex max-w-[1180px] flex-col gap-6 px-4 pt-5 pb-24 md:gap-12 md:px-6 md:pt-16 md:pb-16">
+    <section class="flex flex-col items-center gap-[18px]">
+      <h1 class="m-0 text-center text-[40px] leading-[1.04] font-extrabold tracking-[-1.3px] md:text-6xl md:tracking-[-2.1px]">
+        A real ticket.<br /><span class="hl">A real fix. Checked</span>.
+      </h1>
+      <p class="m-0 max-w-[640px] text-center text-base leading-[1.6] text-fg2 md:text-lg">Every ticket works the same way, on every path.</p>
+    </section>
+
+    <section aria-labelledby="steps-title" class="flex flex-col gap-3">
+      <h2 id="steps-title" class="sr-only">The three steps of a ticket</h2>
+      <div
+        id="steps"
+        role="region"
+        aria-roledescription="carousel"
+        aria-label="How a ticket works"
+        class="-mx-4 flex snap-x snap-mandatory scroll-pl-4 gap-3 overflow-x-auto px-4 pt-0.5 pb-1 [scrollbar-width:none] md:mx-0 md:grid md:grid-cols-3 md:gap-[18px] md:overflow-visible md:px-0"
+      >
+        <div role="group" aria-roledescription="slide" aria-label="1 of 3" class="grid flex-[0_0_min(310px,calc(100%-32px))] snap-start md:flex-auto">
+          <div class={card}>
+            <div class={tag}>01 · ticket</div>
+            <h3 class={h2}>A colleague needs help</h3>
+            <p class={body}>Vague, like real tickets. Sometimes friendly, sometimes in capitals.</p>
+            <div class="mt-auto flex flex-col gap-2.5 rounded-2xl border border-line bg-surface p-[18px]">
+              <div class="flex items-center gap-2.5">
+                <span aria-hidden="true" class="inline-flex size-[34px] flex-none items-center justify-center rounded-full bg-[#e9dccb] font-bold text-[#5a3e1e]">E</span>
+                <div class="flex flex-col">
+                  <span class="text-sm font-bold">Elena · Finance</span>
+                  <span class={`${mono} text-muted`}>OPS-114 · 09:12</span>
+                </div>
+              </div>
+              <p class="m-0 text-[15px] leading-[1.55]">Hi! Sorry to bother you again. The team can't save files in /srv/shared since the migration. Could you take a look when you have a minute?</p>
+            </div>
+          </div>
+        </div>
+
+        <div role="group" aria-roledescription="slide" aria-label="2 of 3" class="grid flex-[0_0_min(310px,calc(100%-32px))] snap-start md:flex-auto">
+          <div class={card}>
+            <div class={tag}>02 · your machine</div>
+            <h3 class={h2}>You fix it in your own terminal</h3>
+            <p class={body}>A lab starts on your computer. Your editor, your shell, Windows, macOS or Linux.</p>
+            <div class="mt-auto overflow-hidden rounded-xl border border-[#2a2e36] bg-[#121419] text-left font-mono text-[#e6e7e3]">
+              <div class="flex items-center gap-1.5 bg-[#1c1f25] px-3 py-[9px]">
+                <span aria-hidden="true" class="size-2.5 rounded-full bg-[#4a4f59]"></span>
+                <span aria-hidden="true" class="size-2.5 rounded-full bg-[#4a4f59]"></span>
+                <span aria-hidden="true" class="size-2.5 rounded-full bg-[#4a4f59]"></span>
+                <span class="min-w-0 flex-1 truncate text-center text-xs text-[#9095a0]">irene@laptop: ~/dojo, zsh</span>
+              </div>
+              <div class="px-4 py-3.5 text-xs leading-[1.75] break-words">
+                <div><span class="text-[#6fcf97]">{you.user}</span><span class="text-[#8c919b]">:</span><span class="text-[#8fa7f2]">{you.path}</span><span class="text-[#8c919b]">$ </span>dojo start support-l1/perms-03</div>
+                <div class="text-[#b9bdc4]">Lab ready in 48s.</div>
+                <div><span class="text-[#6fcf97]">{you.user}</span><span class="text-[#8c919b]">:</span><span class="text-[#8fa7f2]">{you.path}</span><span class="text-[#8c919b]">$ </span>dojo ssh</div>
+                <div><span class="text-[#e8b04b]">{lab.user}</span><span class="text-[#8c919b]">:</span><span class="text-[#8fa7f2]">{lab.path}</span><span class="text-[#8c919b]"># </span>ls -ld shared</div>
+                <div><span class="text-[#e8b04b]">{lab.user}</span><span class="text-[#8c919b]">:</span><span class="text-[#8fa7f2]">{lab.path}</span><span class="text-[#8c919b]"># </span><span aria-hidden="true" class="inline-block h-[15px] w-2 bg-[#e6e7e3] align-[-2px]"></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div role="group" aria-roledescription="slide" aria-label="3 of 3" class="grid flex-[0_0_min(310px,calc(100%-32px))] snap-start md:flex-auto">
+          <div class={card}>
+            <div class={tag}>03 · dojo check</div>
+            <h3 class={h2}>The lab reboots, then checks</h3>
+            <p class={body}>Only fixes that survive a restart pass. A passed ticket is a signed commit in your practice history.</p>
+            <div class="mt-auto overflow-hidden rounded-2xl border border-line bg-surface">
+              <div class="flex items-center justify-between border-b border-line px-[18px] py-3.5">
+                <span class="text-[15px] font-extrabold">Last check</span>
+                <span class={`${mono} inline-flex h-[26px] flex-none items-center rounded-md bg-oksoft px-2.5 font-bold whitespace-nowrap text-ok`}>3/3 passed</span>
+              </div>
+              <div class="flex flex-col gap-2.5 px-[18px] py-3.5 font-mono text-[13px] text-fg2">
+                <div class="text-xs text-muted">after reboot · 3 min ago</div>
+                {checks.map((c) => (
+                  <div class="flex items-center gap-2.5">
+                    <span aria-hidden="true" class="size-2 flex-none rounded-full bg-ok"></span>
+                    <span class="sr-only">Passed:</span>{c}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div data-controls hidden class="md:hidden"><div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <button type="button" data-step="-1" class="inline-flex h-11 min-w-11 items-center justify-center rounded-[10px] border border-line bg-surface px-3 text-sm font-bold text-fg disabled:opacity-40">Previous</button>
+          <button type="button" data-step="1" class="inline-flex h-11 min-w-11 items-center justify-center rounded-[10px] border border-line bg-surface px-3 text-sm font-bold text-fg disabled:opacity-40">Next</button>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="flex gap-1.5" aria-hidden="true">
+            {Array.from({ length: slideCount }, (_, i) => (
+              <span data-dot class={`h-1.5 rounded-full ${i === 0 ? 'w-[18px] bg-accent' : 'w-1.5 bg-line'}`}></span>
+            ))}
+          </div>
+          <span class={`${mono} text-muted`} role="status"><span data-pos>1</span> / {slideCount}</span>
+        </div>
+      </div></div>
+    </section>
+
+    <section class="rounded-2xl border border-line bg-surface p-5 md:p-7">
+      <div class="grid items-center gap-5 md:grid-cols-2 md:gap-7">
+        <div class="flex flex-col gap-3">
+          <h2 class="m-0 text-2xl font-extrabold tracking-[-0.6px] md:text-[26px]">Hints, not answers</h2>
+          <p class={`${body} md:hidden`}>Written by people, never the command. Stuck after a failed check? Ask Carmen, our AI, for a hint. Your own AI gets an AGENTS.md: mentor, do not solve.</p>
+          <p class={`${body} max-md:hidden`}>Three hints per ticket, written by people: a question, the concept and its man page, a narrow pointer. Never the command. Still stuck after a failed check? Ask Carmen, our AI, for a hint about where you are. Using your own AI? The Dojo hands it the ticket through MCP and an AGENTS.md that tells it to mentor, not solve.</p>
+        </div>
+        <ul class="m-0 flex list-none flex-col gap-2 p-0 text-sm leading-[1.45]">
+          <li class="rounded-xl border border-line bg-surface px-3 py-2.5">
+            <span class={`${mono} font-bold text-accentink`}>hint 1</span><br />What does <span class={mono}>ls -ld</span> say about the group?
+          </li>
+          <li class="rounded-xl border border-dashed border-line px-3 py-2.5 text-muted">
+            <span class={mono}>hint 2 · locked</span> the concept and its man page
+          </li>
+          <li class="rounded-xl border border-dashed border-line px-3 py-2.5 text-muted">
+            <span class={mono}>hint 3 · locked</span> a pointer, never the command
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5 md:p-7">
+      <h2 class="m-0 text-2xl font-extrabold tracking-[-0.6px] md:text-[26px]">And then you write it down</h2>
+      <p class={body}>The ticket reply, the runbook, the postmortem. AI can help, as it does at work, but the review checks that a real reader gets what they need.</p>
+    </section>
+
+    <div class="flex md:justify-center">
+      <a href="/app" class="inline-flex h-12 w-full items-center justify-center gap-2 rounded-[10px] bg-accent px-[22px] text-base font-bold text-accentfg no-underline shadow-[0_8px_24px_var(--glow)] md:w-auto">Start Support L1 <span aria-hidden="true">&rarr;</span></a>
+    </div>
+  </main>
+</Public>
+
+<script>
+  const track = document.getElementById('steps');
+  const slides = track ? Array.from(track.querySelectorAll<HTMLElement>('[role="group"]')) : [];
+  const prev = document.querySelector<HTMLButtonElement>('[data-step="-1"]');
+  const next = document.querySelector<HTMLButtonElement>('[data-step="1"]');
+  const dots = Array.from(document.querySelectorAll<HTMLElement>('[data-dot]'));
+  const pos = document.querySelector<HTMLElement>('[data-pos]');
+
+  const controls = document.querySelector<HTMLElement>('[data-controls]');
+  const last = slides.length - 1;
+
+  const snapLeft = (i: number) => {
+    if (!track) return 0;
+    const pad = parseFloat(getComputedStyle(track).scrollPaddingLeft) || 0;
+    const rel = slides[i].getBoundingClientRect().left - track.getBoundingClientRect().left + track.scrollLeft;
+    return rel - pad;
+  };
+
+  const current = () => {
+    if (!track) return 0;
+    if (track.scrollLeft <= 1) return 0;
+    if (track.scrollLeft + track.clientWidth >= track.scrollWidth - 1) return last;
+    let best = 0;
+    slides.forEach((_, i) => {
+      if (Math.abs(snapLeft(i) - track.scrollLeft) < Math.abs(snapLeft(best) - track.scrollLeft)) best = i;
+    });
+    return best;
+  };
+
+  const sync = () => {
+    const i = current();
+    if (pos) pos.textContent = String(i + 1);
+    if (prev) prev.disabled = i === 0;
+    if (next) next.disabled = i === slides.length - 1;
+    dots.forEach((d, n) => {
+      d.className = `h-1.5 rounded-full ${n === i ? 'w-[18px] bg-accent' : 'w-1.5 bg-line'}`;
+    });
+  };
+
+  const go = (delta: number) => {
+    if (!track) return;
+    const max = track.scrollWidth - track.clientWidth;
+    // Clamped stops, so a slide that can't reach its snap point never blocks Previous or Next.
+    const stops = slides.map((_, i) => (i === 0 ? 0 : i === last ? max : Math.min(max, Math.max(0, snapLeft(i)))));
+    const at = track.scrollLeft;
+    const left =
+      delta > 0
+        ? (stops.find((s) => s > at + 1) ?? max)
+        : ([...stops].reverse().find((s) => s < at - 1) ?? 0);
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    track.scrollTo({ left, behavior: reduce ? 'auto' : 'smooth' });
+  };
+
+  prev?.addEventListener('click', () => go(-1));
+  next?.addEventListener('click', () => go(1));
+  track?.addEventListener('scroll', sync, { passive: true });
+  controls?.removeAttribute('hidden');
+  sync();
+</script>

@@ -87,7 +87,8 @@ func run(args []string) error {
 
 	auth := server.Auth{Store: store.Queries(), Catalog: store.Queries(),
 		Bundles: &server.Bundles{Store: store.Queries(), Signer: objects}, Secure: secure, Events: store,
-		Stream: hub, StreamHeartbeat: heartbeat}
+		Stream: hub, StreamHeartbeat: heartbeat,
+		Tickets: &server.Tickets{Reader: store.Queries(), Opener: store}}
 	gh := github.New(ghCfg)
 	cli := &server.CLILogin{GitHub: gh, Store: store.Queries()}
 	signin := &server.SignIn{GitHub: gh, Store: store.Queries(), Auth: auth,

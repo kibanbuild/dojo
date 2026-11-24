@@ -176,11 +176,11 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 			writeKey = "learner:" + p.learner.String()
 		}
 		var readKey string
-		if p, authed := principalOf(r.Context()); authed && rl.Read != nil && isLearnerRead(pattern) {
+		if p, authed := principalOf(r.Context()); authed && rl.Read != nil && (isLearnerRead(pattern) || (pattern == "GET "+ticketsPrefix && isTicketRequest(r, routeTicket))) {
 			readKey = "learner:" + p.learner.String()
 		}
 		var bundleKey string
-		if p, authed := principalOf(r.Context()); authed && rl.Bundle != nil && pattern == "GET "+bundleTicketsPrefix && isBundleRequest(r) {
+		if p, authed := principalOf(r.Context()); authed && rl.Bundle != nil && pattern == "GET "+ticketsPrefix && isTicketRequest(r, routeBundle) {
 			bundleKey = "learner:" + p.learner.String()
 		}
 		isStart := pattern == "POST "+startPath && r.URL.Path == startPath
@@ -201,6 +201,11 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 			}
 		case rl.Events != nil && matches(pattern, r, isEventsPath):
 			if p, authed := principalOf(r.Context()); authed && p.bearer {
+				lim, key = rl.Events, "learner:"+p.learner.String()
+			}
+		case rl.Events != nil && pattern == "POST "+ticketsPrefix && isTicketRequest(r, routeHint):
+			// Opening a hint shares the events budget, cookie or bearer (design 3.8).
+			if p, authed := principalOf(r.Context()); authed {
 				lim, key = rl.Events, "learner:"+p.learner.String()
 			}
 		}

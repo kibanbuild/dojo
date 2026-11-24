@@ -58,6 +58,8 @@ type Auth struct {
 	// Stream backs GET /v1/stream; nil leaves the route out. StreamHeartbeat defaults to 25 s.
 	Stream          *Hub
 	StreamHeartbeat time.Duration
+	// Tickets backs GET /v1/tickets/{id} and POST /v1/tickets/{id}/hints/{n}; nil leaves them out.
+	Tickets *Tickets
 }
 
 // ParseOrigin validates PUBLIC_ORIGIN for the environment (local, pre or pro) and reports

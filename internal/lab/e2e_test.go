@@ -18,7 +18,7 @@ import (
 	"github.com/kibanbuild/dojo/internal/lab"
 )
 
-// katasDir is DOJO_KATAS, or the repo's katas/ directory. Solutions and wrong-*.sh are
+// katasDir is DOJO_KATAS, or the repo's katas/ directory. Solutions and wrong-fix/*.sh are
 // not embedded in the binary, so the test reads the catalog from disk.
 func katasDir(t *testing.T) string {
 	t.Helper()
@@ -73,8 +73,8 @@ func TestKatasEndToEnd(t *testing.T) {
 			}
 			mustRun(t, ctx, backend, "check", k.Check, 0)
 
-			// Every wrong-*.sh is a plausible fix that must not pass.
-			wrongs, _ := fs.Glob(tree, path.Join(k.ID, "wrong-*.sh"))
+			// Every wrong-fix/*.sh is a plausible fix that must not pass.
+			wrongs, _ := fs.Glob(tree, path.Join(k.ID, "wrong-fix", "*.sh"))
 			for _, w := range wrongs {
 				t.Run(path.Base(w), func(t *testing.T) {
 					wrong, err := fs.ReadFile(tree, w)

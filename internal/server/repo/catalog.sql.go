@@ -22,6 +22,32 @@ func (q *Queries) GetCatalogVersion(ctx context.Context) (string, error) {
 	return catalog_version, err
 }
 
+const getTicketBundle = `-- name: GetTicketBundle :one
+SELECT id, catalog_version, bundle_key, bundle_sha256, bundle_bytes
+FROM catalog_items WHERE id = $1 AND bundle_key IS NOT NULL
+`
+
+type GetTicketBundleRow struct {
+	ID             string
+	CatalogVersion string
+	BundleKey      pgtype.Text
+	BundleSha256   pgtype.Text
+	BundleBytes    pgtype.Int4
+}
+
+func (q *Queries) GetTicketBundle(ctx context.Context, id string) (GetTicketBundleRow, error) {
+	row := q.db.QueryRow(ctx, getTicketBundle, id)
+	var i GetTicketBundleRow
+	err := row.Scan(
+		&i.ID,
+		&i.CatalogVersion,
+		&i.BundleKey,
+		&i.BundleSha256,
+		&i.BundleBytes,
+	)
+	return i, err
+}
+
 const listCatalogItems = `-- name: ListCatalogItems :many
 SELECT i.id, r.slug AS role, i.position, i.kind, i.title, i.est_minutes, i.tags
 FROM catalog_items i

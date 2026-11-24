@@ -21,5 +21,9 @@ FROM catalog_items i
 JOIN roles r ON r.id = i.role_id
 ORDER BY r.slug, i.position;
 
+-- name: GetTicketBundle :one
+SELECT id, catalog_version, bundle_key, bundle_sha256, bundle_bytes
+FROM catalog_items WHERE id = $1 AND bundle_key IS NOT NULL;
+
 -- name: ListLearnerTicketStates :many
 SELECT item_id, state, lab_state, last_seen_at FROM ticket_progress WHERE learner_id = $1;

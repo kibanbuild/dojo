@@ -38,6 +38,11 @@ var (
 	tagRE  = regexp.MustCompile(`^[a-z0-9-]{1,24}$`)
 )
 
+// ValidTicketID reports whether id is exactly <role-slug>/<ticket-slug>.
+func ValidTicketID(id string) bool {
+	return len(id) <= maxIDLen && idRE.MatchString(id)
+}
+
 // ErrNotFound means the catalog has no ticket with that id.
 var ErrNotFound = errors.New("ticket not found")
 

@@ -51,6 +51,7 @@ type SessionStore interface {
 type Auth struct {
 	Store   SessionStore
 	Catalog CatalogStore // nil leaves GET /v1/catalog, /v1/path and /v1/today out
+	Bundles *Bundles     // nil leaves GET /v1/tickets/{id}/bundle out
 	Secure  bool         // cookie Secure flag, from PUBLIC_ORIGIN
 	// Events backs POST /v1/events; nil leaves the route out.
 	Events EventStore

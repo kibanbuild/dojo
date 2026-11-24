@@ -18,7 +18,6 @@ func (a *App) status(ctx context.Context) error {
 	if err != nil {
 		p, _ := state.Path()
 		fmt.Fprintf(a.Out, "Ticket: unreadable (progress file %s is damaged or locked; remove it, DOJO_HOME moves it)\n\n", p)
-		st = &state.State{}
 	} else if st.Current == "" {
 		fmt.Fprintln(a.Out, "No ticket in progress: run dojo start <role>/<ticket>.")
 	} else if k, err := catalog.LoadTicket(a.Catalog, st.Current); err == nil {

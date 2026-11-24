@@ -313,7 +313,8 @@ Today and Path work without a pick.
 ### 2.2 Screens
 
 Routes are a proposal; the Map's codes are the contract. "State" lists the first-run, empty and
-error cases the page must draw. Status is the Map's.
+error cases the page must draw. Status is the Map's. The signed-in pages (the L, R, N and K rows)
+are SPA routes served under `/app`: L3 is `/app/t/support-l1/perms-03`, and `dojo hint` prints that URL.
 
 | Code | Route | Primary action | States |
 |---|---|---|---|
@@ -331,7 +332,7 @@ error cases the page must draw. Status is the Map's.
 | O5 First ticket | `/start/first` | Copy `dojo start support-l1/terminal-01` | Updates when the lab is ready, then when the ticket passes (a signed commit). |
 | L1 Today | `/today` | Continue the ticket / Start the next one | First run (after O5): "day one done", next ticket, role progress. Empty never occurs after onboarding. Maintenance and offline show a banner. |
 | R1 Your path | `/path` | Start or continue the role; Test out of Support L1 | Systems L2 and Junior DevOps show as locked "coming later" with no test-out card. Foundations passed; belt on the side. |
-| L3 Ticket | `/t/*id` (for example `/t/support-l1/perms-03`) | Copy `dojo start <id>`; Show hint; Ask Carmen (AI hint) | States below. |
+| L3 Ticket | `/t/*id` (for example `/t/support-l1/perms-03`; served at `/app/t/support-l1/perms-03`) | Copy `dojo start <id>`; Show hint; Ask Carmen (AI hint) | States below. |
 | L9 Writing task | `/t/*id` (kind `writing`) | Ask for review; Save draft | Draft saved as you type; review shows criteria and one fix. Passes when submitted (feedback only). |
 | L11 Quiz | `/quiz/:id` | Check answer, Next | Never blocks. Done screen offers the missed question again. |
 | L4 Story moment | `/story/:id` | Choose a reply | Tone review; Today shows the next moment. In v1. |

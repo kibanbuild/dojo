@@ -150,7 +150,7 @@ func TestHelpAndUnknownCommand(t *testing.T) {
 }
 
 func TestCommandsNeedAKataInProgress(t *testing.T) {
-	for _, cmd := range []string{"status", "hint", "ssh", "check"} {
+	for _, cmd := range []string{"hint", "ssh", "check"} {
 		e := newEnv(t)
 		if err := e.run(t, cmd); err == nil || !strings.Contains(err.Error(), "no ticket in progress") {
 			t.Errorf("%s: err = %v", cmd, err)
@@ -252,7 +252,7 @@ func TestCleanClearsCurrentKeepsHistory(t *testing.T) {
 	if err := e.run(t, "stop"); err != nil {
 		t.Fatal(err)
 	}
-	for _, cmd := range []string{"status", "hint", "ssh", "check"} {
+	for _, cmd := range []string{"hint", "ssh", "check"} {
 		if err := e.run(t, cmd); err == nil || !strings.Contains(err.Error(), "no ticket in progress") {
 			t.Errorf("%s after stop: err = %v", cmd, err)
 		}
@@ -311,8 +311,8 @@ func TestFailedStartLeavesNoActiveKata(t *testing.T) {
 			if c := current(t); c != "" {
 				t.Errorf("current = %q after a failed start", c)
 			}
-			if err := e.run(t, "status"); err == nil || !strings.Contains(err.Error(), "no ticket in progress") {
-				t.Errorf("status err = %v", err)
+			if err := e.run(t, "status"); err != nil || !strings.Contains(e.out.String(), "No ticket in progress") {
+				t.Errorf("status err = %v\n%s", err, e.out)
 			}
 		})
 	}
@@ -438,7 +438,7 @@ func TestCorruptStateNamesTheFile(t *testing.T) {
 	home := os.Getenv("DOJO_HOME")
 	os.MkdirAll(home, 0o700)
 	os.WriteFile(filepath.Join(home, "state.json"), []byte("{nope"), 0o600)
-	if err := e.run(t, "status"); err == nil || !strings.Contains(err.Error(), "state.json") || !strings.Contains(err.Error(), "remove it") {
+	if err := e.run(t, "hint"); err == nil || !strings.Contains(err.Error(), "state.json") || !strings.Contains(err.Error(), "remove it") {
 		t.Errorf("err = %v", err)
 	}
 }

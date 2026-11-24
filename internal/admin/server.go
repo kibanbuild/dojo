@@ -34,6 +34,11 @@ func New(ready Readiness, d Deps) http.Handler {
 		mux.HandleFunc("GET "+callbackPath, s.callback)
 		mux.HandleFunc("GET /{$}", s.authenticated(s.landing))
 		mux.HandleFunc("POST /signout", s.authenticated(s.signout))
+		if d.Learners != nil {
+			l := &lookup{Learners: d.Learners}
+			mux.HandleFunc("GET /learners", s.authenticated(l.search))
+			mux.HandleFunc("GET /learners/{id}", s.authenticated(l.view))
+		}
 	}
 	return onlyHost(Host, secureHeaders(mux))
 }

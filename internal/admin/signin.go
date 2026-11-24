@@ -52,7 +52,9 @@ type OAuth interface {
 type Deps struct {
 	GitHub OAuth
 	Store  Store
-	Now    func() time.Time
+	// Learners serves the A2 lookup; nil leaves its routes unmounted.
+	Learners LearnerStore
+	Now      func() time.Time
 	// Backoff is the wait before each GitHub revoke retry; nil means the default.
 	Backoff []time.Duration
 	// SecureCookies marks the cookies Secure. Off while the service is plain HTTP on loopback

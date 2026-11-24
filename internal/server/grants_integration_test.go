@@ -270,13 +270,18 @@ var grantCases = []struct {
 	{"dojo_api", "UPDATE catalog_state SET catalog_version = '000000000000' WHERE false", false},
 	{"dojo_api", "DELETE FROM catalog_state WHERE false", false},
 	{"dojo_api", "TRUNCATE catalog_state", false},
+	// dojo_admin (A2 progress view): reads roles and catalog_items, nothing else of the catalog.
 	{"dojo_admin", "SELECT count(*) FROM paths", false},
-	{"dojo_admin", "SELECT count(*) FROM roles", false},
+	{"dojo_admin", "SELECT id, title, kind FROM roles", true},
 	{"dojo_admin", "SELECT count(*) FROM path_roles", false},
-	{"dojo_admin", "SELECT count(*) FROM catalog_items", false},
+	{"dojo_admin", "SELECT id, role_id, kind, title FROM catalog_items", true},
 	{"dojo_admin", "SELECT count(*) FROM catalog_state", false},
 	{"dojo_admin", "INSERT INTO paths (org_id, slug, title, status, position) SELECT id, 'x', 'X', 'planned', 1 FROM orgs WHERE false", false},
+	{"dojo_admin", "UPDATE roles SET title = 'x' WHERE false", false},
+	{"dojo_admin", "DELETE FROM roles WHERE false", false},
 	{"dojo_admin", "UPDATE catalog_items SET title = 'x' WHERE false", false},
+	{"dojo_admin", "DELETE FROM catalog_items WHERE false", false},
+	{"dojo_admin", "TRUNCATE catalog_items", false},
 	{"dojo_admin", "DELETE FROM catalog_state WHERE false", false},
 }
 

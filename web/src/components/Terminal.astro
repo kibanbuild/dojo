@@ -1,0 +1,21 @@
+---
+interface Props {
+  title: string;
+  label: string;
+  class?: string;
+  bodyClass?: string;
+}
+const { title, label, class: cls = '', bodyClass = 'text-xs' } = Astro.props;
+---
+
+<div role="img" aria-label={label} class={`overflow-hidden rounded-xl border border-[#2a2e36] bg-[#121419] text-left font-mono text-[#e6e7e3] ${cls}`}>
+  <div class="flex items-center gap-1.5 bg-[#1c1f25] px-3 py-[9px]" aria-hidden="true">
+    <span class="size-2.5 rounded-full bg-[#4a4f59]"></span>
+    <span class="size-2.5 rounded-full bg-[#4a4f59]"></span>
+    <span class="size-2.5 rounded-full bg-[#4a4f59]"></span>
+    <span class="mr-[42px] min-w-0 flex-1 truncate text-center text-xs text-[#9095a0]">{title}</span>
+  </div>
+  <div class={`px-4 py-3.5 leading-[1.75] ${bodyClass}`} aria-hidden="true">
+    <slot />
+  </div>
+</div>

@@ -1,73 +1,347 @@
 ---
+import { PUBLIC_ORIGIN } from 'astro:env/client';
 import Public from '../layouts/Public.astro';
+import Terminal from '../components/Terminal.astro';
 
-const steps = [
-  { title: 'Pick a path', body: 'A destination job: DevOps, Security, Backend or Frontend.' },
-  { title: 'Work the roles', body: 'Support L1, Systems L2... each one a real job with a real team.' },
-  { title: 'Pass the work day', body: 'One exam per role: tickets, a vague brief, an incident, a handoff.' },
-  { title: 'Show the record', body: 'Verified work for an internship or your first job.' },
+const host = new URL(PUBLIC_ORIGIN).host;
+const heat = [
+  [1, 0, 1, 0, 0, 2, 0],
+  [1, 2, 1, 0, 1, 1, 2],
+  [0, 1, 0, 0, 2, 1, 1],
+  [2, 3, 1, 1, 1, 1, 2],
+  [2, 2, 2, 4, 3, 4, 4],
+  [1, 2, 4, 4, 0, 0, 2],
+  [0, 1, 0, 3, 3, 4, 0],
+  [3, 3, 0, 4, 4, 1, 4],
+  [2, 2, 4, 4, 0, 2, 2],
+  [1, 1, 1, 3, 0, 2, 2],
+  [0, 1, 2, 2, 0, 4, 3],
+  [4, 0, 1, 0, 3, 1, 0],
+  [2, 4, 4, 1, 0, 4, 2],
+  [3, 0, 0, 3, 2, 0, 4],
+  [2, 3, 0, 4, 0, 4, 2],
+  [1, 2, 4, 1, 0, 2, 1],
 ];
-const nots = ['Not a degree or an official title', 'No salary promises', 'Not a video course: you fix things'];
-const crew = [
-  { src: '/cast/lucia.png', alt: 'Lucía' },
-  { src: '/cast/javi.png', alt: 'Javi' },
-  { src: '/cast/nora.png', alt: 'Nora' },
-  { src: '/cast/pablo.png', alt: 'Pablo' },
+const heatClass = ['bg-[#f2f3f7]', 'bg-[#dcd3fd]', 'bg-[#a996f7]', 'bg-[#5ba3d9]', 'bg-[#0e7490]'];
+const dark = 'bg-[#0e0f14]';
+const light = 'bg-white';
+const belts = [
+  { marks: 4, bg: 'bg-white border border-[#c9cac4]', mark: dark },
+  { marks: 2, bg: 'bg-[#e8c33a]', mark: dark },
+  { marks: 0, bg: 'bg-[#e07a2e]', mark: light },
+  { marks: 0, bg: 'bg-[#3c8d4f]', mark: light },
+  { marks: 0, bg: 'bg-[#2f64b8]', mark: light },
+  { marks: 0, bg: 'bg-[#7a5233]', mark: light },
+  { marks: 0, bg: 'bg-[#0e0f12] border border-[#c9cac4]', mark: light },
 ];
-const card = 'flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5';
-const btn = 'inline-flex h-11 items-center justify-center rounded-[10px] px-[18px] text-[15px] font-bold no-underline';
 ---
 
 <Public
   title="Dojo: learn the job by doing the job"
   description="Real tickets on servers that really break. Pick the job you want and pass a work day for each role on the way."
 >
-  <main class="relative mx-auto flex max-w-[1200px] flex-col gap-[18px] px-4 pt-5 pb-24 md:gap-6 md:px-6 md:pt-9 md:pb-12">
-    <section class="flex flex-col items-start gap-[18px] text-left md:items-center md:pt-6 md:text-center">
-      <span class="inline-flex h-[26px] flex-none items-center rounded-md bg-accentsoft px-2.5 text-xs font-bold whitespace-nowrap text-accentink">New · Systems and DevOps path</span>
-      <h1 class="m-0 max-w-[900px] text-[34px] leading-[1.04] font-extrabold tracking-[-2px] md:text-6xl">
-        Learn the job <span class="hl">by doing the job</span>
+  <main class="relative z-[1]">
+    <section class="mx-auto flex max-w-[1180px] flex-col items-center gap-5 px-4 pt-9 text-center md:gap-[26px] md:px-6 md:pt-[72px]">
+      <a href="/paths" class="inline-flex h-[34px] items-center gap-2.5 rounded-full border border-line bg-white p-1.5 text-[13px] font-medium text-fg2 no-underline">
+        <span class="inline-flex h-6 items-center rounded-full bg-accentsoft px-2.5 text-xs font-bold text-accentink">New</span>
+        Systems and DevOps path
+        <span class="pr-2" aria-hidden="true">→</span>
+      </a>
+
+      <h1 class="m-0 max-w-[1120px] text-[44px] leading-[1.04] font-extrabold tracking-[-1.6px] md:text-[76px] md:leading-[1.02] md:tracking-[-2.6px]">
+        Learn the job <br class="hidden md:inline" /><span class="hl">by doing the job</span><span class="-ml-[0.12em]">.</span>
       </h1>
-      <p class="m-0 max-w-[640px] text-[15px] leading-[1.55] text-fg2 md:text-[17px]">Real tickets on servers that really break. Pick the job you want and pass a work day for each role on the way.</p>
-      <div class="flex flex-wrap items-center gap-3 md:justify-center">
-        <a href="/paths" class={`${btn} bg-accent text-accentfg`}>Pick your path</a>
-        <a href="/how-it-works" class={`${btn} border border-line bg-surface text-fg`}>See a work day</a>
+
+      <p class="m-0 max-w-[620px] text-base leading-[1.55] text-fg2 md:text-xl">Real tickets on servers that really break.</p>
+
+      <div class="flex w-full flex-col items-stretch gap-2.5 md:w-auto md:flex-row md:items-center md:gap-3.5">
+        <a href="/paths" class="inline-flex h-12 items-center justify-center gap-2 rounded-[10px] bg-accent px-[22px] text-base font-bold text-accentfg no-underline shadow-[0_8px_24px_var(--glow)]">
+          Pick your path <span aria-hidden="true">→</span>
+        </a>
+        <div class="flex min-h-12 min-w-0 items-center gap-3 rounded-xl border border-line bg-surface py-1.5 pr-2 pl-4 text-left font-mono text-xs md:text-sm">
+          <span class="text-muted" aria-hidden="true">$</span>
+          <span class="min-w-0 flex-1 break-all md:whitespace-nowrap">curl -fsSL {host}/install | sh</span>
+          <span class="flex h-[34px] flex-none items-center rounded-lg bg-surface2 px-2.5 font-sans text-[11px] font-semibold text-fg2">Coming soon</span>
+        </div>
       </div>
-      <p class="m-0 text-[13px] leading-[1.55] text-muted">Free to learn. In English, because the job is.</p>
+
+      <div class="mt-4 w-full text-left md:hidden">
+        <Terminal
+          title="~/dojo, zsh"
+          label="Terminal: dojo check runs, both checks pass and the ticket is passed."
+          class="shadow-card"
+        >
+          <div><span class="text-[#6fcf97]">irene@laptop</span><span class="text-[#8c919b]">:</span><span class="text-[#8fa7f2]">~/dojo</span><span class="text-[#8c919b]">$ </span>dojo check</div>
+          <div class="text-[#b9bdc4]">Rebooting the lab...</div>
+          <div><span class="text-[#6fcf97]">✓</span> the team can write</div>
+          <div><span class="text-[#6fcf97]">✓</span> nobody else can</div>
+          <div>Ticket passed. <span class="text-[#8fa7f2]">[main 3f9a1c2]</span></div>
+          <div><span class="text-[#6fcf97]">irene@laptop</span><span class="text-[#8c919b]">:</span><span class="text-[#8fa7f2]">~/dojo</span><span class="text-[#8c919b]">$ </span><span class="inline-block h-[15px] w-2 bg-[#e6e7e3] align-[-2px]"></span></div>
+        </Terminal>
+      </div>
+
+      <div class="mt-9 hidden w-full max-w-[1100px] md:block" aria-hidden="true">
+        <div class="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-card">
+          <div class="flex items-center gap-1.5 border-b border-line bg-surface2 px-3.5 py-2.5">
+            <span class="size-2.5 rounded-full bg-line"></span>
+            <span class="size-2.5 rounded-full bg-line"></span>
+            <span class="size-2.5 rounded-full bg-line"></span>
+            <span class="mx-auto rounded-md border border-line bg-surface px-10 py-[3px] font-mono text-xs text-muted">{host}/today</span>
+          </div>
+          <div class="grid min-h-[420px] text-left md:grid-cols-[150px_1fr] lg:grid-cols-[170px_1fr_280px]">
+            <div class="flex flex-col gap-0.5 border-r border-line px-2.5 py-3.5">
+              <div class="flex h-[34px] items-center gap-2.5 rounded-lg bg-accentsoft px-2.5 text-[13px] font-bold text-accentink">Today</div>
+              <div class="flex h-[34px] items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-fg2">Path</div>
+              <div class="flex h-[34px] items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-fg2">Practice</div>
+            </div>
+            <div class="flex min-w-0 flex-col gap-3.5 px-6 py-[22px]">
+              <div class="font-mono text-xs text-muted">in progress · support-l1/perms-03</div>
+              <div class="text-2xl leading-[1.15] font-extrabold tracking-[-0.6px]">The shared folder stopped accepting uploads</div>
+              <div class="flex items-start gap-2.5 rounded-xl border border-line px-3.5 py-3">
+                <div class="flex size-[30px] flex-none items-center justify-center rounded-full bg-[#e9dccb] text-[13px] font-bold text-[#5a3e1e]">M</div>
+                <div class="text-[13px] leading-[1.5]"><b>Elena · Finance</b><br />Hi! The team can't save files in /srv/shared since the migration...</div>
+              </div>
+              <div class="overflow-hidden rounded-xl border border-[#2a2e36] bg-[#121419] font-mono text-[#e6e7e3]">
+                <div class="flex items-center gap-1.5 bg-[#1c1f25] px-3 py-[9px]">
+                  <span class="size-2.5 rounded-full bg-[#4a4f59]"></span>
+                  <span class="size-2.5 rounded-full bg-[#4a4f59]"></span>
+                  <span class="size-2.5 rounded-full bg-[#4a4f59]"></span>
+                  <span class="mr-[42px] flex-1 text-center text-xs text-[#9095a0]">irene@laptop: ~/dojo, zsh</span>
+                </div>
+                <div class="px-4 py-3.5 text-xs leading-[1.75]">
+                  <div><span class="text-[#6fcf97]">irene@laptop</span><span class="text-[#8c919b]">:</span><span class="text-[#8fa7f2]">~/dojo</span><span class="text-[#8c919b]">$ </span>dojo check</div>
+                  <div class="text-[#b9bdc4]">Rebooting the lab...</div>
+                  <div><span class="text-[#6fcf97]">✓</span> the team can write</div>
+                  <div><span class="text-[#f28b82]">✗</span> nobody else can</div>
+                  <div><span class="text-[#6fcf97]">irene@laptop</span><span class="text-[#8c919b]">:</span><span class="text-[#8fa7f2]">~/dojo</span><span class="text-[#8c919b]">$ </span><span class="inline-block h-[15px] w-2 bg-[#e6e7e3] align-[-2px]"></span></div>
+                </div>
+              </div>
+            </div>
+            <div class="hidden flex-col gap-3.5 border-l border-line p-[18px] lg:flex">
+              <div class="text-xs font-bold tracking-[0.6px] text-muted uppercase">Role</div>
+              <div class="flex items-baseline justify-between">
+                <span class="text-lg font-extrabold">Support L1</span>
+                <span class="font-mono text-xs text-muted">7/12</span>
+              </div>
+              <div class="h-2 overflow-hidden rounded-full bg-surface2"><div class="h-full w-[58%] rounded-full bg-accent"></div></div>
+              <div class="mt-2 text-xs font-bold tracking-[0.6px] text-muted uppercase">Activity</div>
+              <div class="flex gap-[3px]">
+                {heat.map((col) => (
+                  <div class="flex flex-col gap-[3px]">
+                    {col.map((v) => <div class={`size-2.5 rounded-sm ${heatClass[v]}`}></div>)}
+                  </div>
+                ))}
+              </div>
+              <div class="font-mono text-xs leading-[1.9] text-muted"><span class="text-accentink">3f9a1c2</span> sudo-01<br /><span class="text-accentink">a71e0b4</span> perms-02</div>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
-    <ol class="m-0 grid list-none grid-cols-1 gap-4 p-0 md:grid-cols-4">
-      {steps.map((s, i) => (
-        <li class={card}>
-          <span class="inline-flex h-[30px] w-[30px] items-center justify-center rounded-full bg-accentsoft font-extrabold text-accentink">{i + 1}</span>
-          <h2 class="m-0 text-[17px] font-extrabold">{s.title}</h2>
-          <p class="m-0 text-sm leading-[1.55] text-fg2">{s.body}</p>
-        </li>
-      ))}
-    </ol>
+    <section class="mx-auto flex max-w-[1180px] flex-col gap-3.5 px-4 pt-16 md:gap-9 md:px-6 md:pt-[110px]">
+      <div class="flex flex-col gap-3.5 md:items-center md:gap-2.5 md:text-center">
+        <p class="m-0 font-mono text-xs font-semibold text-accentink md:text-[13px]">how it works</p>
+        <h2 class="m-0 mb-1.5 text-[32px] leading-[1.1] font-extrabold tracking-[-1px] md:mb-0 md:text-[46px] md:leading-normal md:tracking-[-1.4px]">Everything a first job throws at you.</h2>
+      </div>
 
-    <div class="grid grid-cols-1 items-center gap-[18px] md:grid-cols-2 md:gap-6">
-      <section class="flex flex-wrap items-center gap-2.5 max-md:order-2">
-        <img src="/cast/carmen.png" alt="Carmen, your mentor" width="96" height="96" class="block size-24 flex-none" />
-        {crew.map((p) => (
-          <span class="relative inline-block size-12 flex-none overflow-hidden rounded-full bg-accentsoft">
-            <img src={p.src} alt={p.alt} width="52" height="52" class="absolute -bottom-0.5 -left-0.5 size-[52px] max-w-none" />
-          </span>
-        ))}
-        <p class="m-0 text-sm leading-[1.55] text-fg2"><b>Carmen</b> mentors you. Lucía, Javi, Nora and Pablo send the tickets.</p>
-      </section>
+      <div
+        id="bento"
+        role="region"
+        aria-label="How it works"
+        class="-mx-4 flex snap-x snap-mandatory scroll-pl-4 gap-3 overflow-x-auto px-4 pt-0.5 pb-1 [scrollbar-width:none] md:mx-0 md:grid md:grid-cols-3 md:gap-[18px] md:overflow-visible md:p-0 [&::-webkit-scrollbar]:hidden"
+      >
+        <article class="flex w-[300px] flex-none snap-start flex-col gap-[18px] overflow-hidden rounded-[20px] border border-line bg-surface p-5 md:col-span-2 md:w-auto md:p-[26px]">
+          <div class="flex flex-col gap-1.5">
+            <h3 class="m-0 text-[19px] font-extrabold tracking-[-0.3px]">Real labs on your laptop</h3>
+            <p class="m-0 text-[15px] leading-[1.55] text-fg2">
+              <span class="md:hidden">dojo start breaks a machine for you. Your terminal, your editor.</span>
+              <span class="hidden md:inline">dojo start breaks a machine for you. Your terminal, your editor, Windows, macOS or Linux.</span>
+            </p>
+          </div>
+          <Terminal
+            title="irene@laptop: ~/dojo, zsh"
+            label="Terminal: dojo start support-l1/perms-03 boots a lab in 48 seconds, then dojo ssh opens a shell on the broken machine."
+            bodyClass="text-[11px] md:text-xs"
+          >
+            <div><span class="text-[#6fcf97]">irene@laptop</span><span class="text-[#8c919b]">:</span><span class="text-[#8fa7f2]">~/dojo</span><span class="text-[#8c919b]">$ </span>dojo start support-l1/perms-03</div>
+            <div class="text-[#b9bdc4]">Lab ready in 48s.</div>
+            <div><span class="text-[#6fcf97]">irene@laptop</span><span class="text-[#8c919b]">:</span><span class="text-[#8fa7f2]">~/dojo</span><span class="text-[#8c919b]">$ </span>dojo ssh</div>
+            <div class="hidden md:block"><span class="text-[#e8b04b]">root@lab-perms03</span><span class="text-[#8c919b]">:</span><span class="text-[#8fa7f2]">/srv</span><span class="text-[#8c919b]"># </span>ls -ld shared</div>
+            <div class="hidden text-[#b9bdc4] md:block">drwxr-xr-x 2 root root shared</div>
+            <div><span class="text-[#e8b04b]">root@lab-perms03</span><span class="text-[#8c919b]">:</span><span class="text-[#8fa7f2]">/srv</span><span class="text-[#8c919b]"># </span><span class="inline-block h-[15px] w-2 bg-[#e6e7e3] align-[-2px]"></span></div>
+          </Terminal>
+        </article>
 
-      <section class={`${card} max-md:order-1`}>
-        <h2 class="m-0 text-xs font-bold tracking-[0.8px] text-muted uppercase">What Dojo is not</h2>
-        <ul class="m-0 flex list-none flex-col gap-3 p-0">
-          {nots.map((n) => (
-            <li class="flex items-start gap-2.5 text-sm leading-[1.45]">
-              <span class="inline-flex size-5 flex-none items-center justify-center rounded-full border-2 border-muted"><span class="sr-only">Not yet</span></span>
-              <span>{n}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
-    </div>
+        <article class="flex w-[300px] flex-none snap-start flex-col gap-[18px] overflow-hidden rounded-[20px] border border-line bg-surface p-5 md:w-auto md:p-[26px]">
+          <div class="flex flex-col gap-1.5">
+            <h3 class="m-0 text-[19px] font-extrabold tracking-[-0.3px]">Hints, not answers</h3>
+            <p class="m-0 text-[15px] leading-[1.55] text-fg2">
+              <span class="md:hidden">Written by people. Your own AI is told to mentor, not solve.</span>
+              <span class="hidden md:inline">Three hints per ticket, written by people. Bring your own AI: the Dojo tells it to mentor, not solve.</span>
+            </p>
+          </div>
+          <div class="flex flex-col gap-2 text-sm leading-[1.45]">
+            <div class="rounded-xl border border-line bg-surface px-3 py-2.5">
+              <span class="font-mono text-xs font-bold text-accentink">hint 1</span><br />What does <span class="font-mono text-xs">ls -ld</span> say about the group?
+            </div>
+            <div class="rounded-xl border border-dashed border-line px-3 py-2.5 text-muted"><span class="font-mono text-xs">hint 2 · locked</span> the concept and its man page</div>
+            <div class="rounded-xl border border-dashed border-line px-3 py-2.5 text-muted"><span class="font-mono text-xs">hint 3 · locked</span> a pointer, never the command</div>
+          </div>
+        </article>
+
+        <article class="flex w-[300px] flex-none snap-start flex-col gap-[18px] overflow-hidden rounded-[20px] border border-line bg-surface p-5 md:w-auto md:p-[26px]">
+          <div class="flex flex-col gap-1.5">
+            <h3 class="m-0 text-[19px] font-extrabold tracking-[-0.3px]">Tickets from people</h3>
+            <p class="m-0 text-[15px] leading-[1.55] text-fg2">
+              <span class="md:hidden">Vague, grumpy or in capitals. Like real work.</span>
+              <span class="hidden md:inline">Elena, Lucía and Javi. Vague, grumpy or in capitals. Like real work.</span>
+            </p>
+          </div>
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center gap-2.5 rounded-xl border border-line px-3 py-2.5 text-[13px]">
+              <span class="inline-flex size-7 flex-none items-center justify-center rounded-full bg-[#e9dccb] font-bold text-[#5a3e1e]" aria-hidden="true">E</span>
+              <span class="min-w-0 truncate"><b>Elena</b> The team can't save files in /srv/shared</span>
+            </div>
+            <div class="flex items-center gap-2.5 rounded-xl border border-line px-3 py-2.5 text-[13px]">
+              <span class="inline-flex size-7 flex-none items-center justify-center rounded-full bg-[#d5dce6] font-bold text-[#24364f]" aria-hidden="true">L</span>
+              <span class="min-w-0 truncate"><b>Lucía</b> Disk on web-02 at 97% again.</span>
+            </div>
+            <div class="flex items-center gap-2.5 rounded-xl border border-line px-3 py-2.5 text-[13px]">
+              <span class="inline-flex size-7 flex-none items-center justify-center rounded-full bg-[#ead3d0] font-bold text-[#6a2620]" aria-hidden="true">J</span>
+              <span class="min-w-0 truncate"><b>Javi</b> THE NEW EMPLOYEE CANNOT LOG IN.</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="flex w-[300px] flex-none snap-start flex-col gap-[18px] overflow-hidden rounded-[20px] border border-line bg-surface p-5 md:w-auto md:p-[26px]">
+          <div class="flex flex-col gap-1.5">
+            <h3 class="m-0 text-[19px] font-extrabold tracking-[-0.3px]">Paths, roles and belts</h3>
+            <p class="m-0 text-[15px] leading-[1.55] text-fg2">
+              <span class="md:hidden">A work-day exam per role. Belt marks for how you work.</span>
+              <span class="hidden md:inline">A work-day exam at the end of each role. Belt marks for how you work.</span>
+            </p>
+          </div>
+          <div class="flex flex-col gap-2">
+            {belts.map((b) => (
+              <div role="img" aria-label={`belt, ${b.marks} of 4 marks`} class={`box-border flex h-3.5 items-center justify-end gap-[3px] rounded px-[7px] ${b.bg}`}>
+                {[0, 1, 2, 3].map((i) => (
+                  <span class={`h-2 w-0.5 rounded-[1px] ${b.mark} ${i < b.marks ? '' : 'opacity-25'}`}></span>
+                ))}
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article class="flex w-[300px] flex-none snap-start flex-col gap-[18px] overflow-hidden rounded-[20px] border border-line bg-surface p-5 md:w-auto md:p-[26px]">
+          <div class="flex flex-col gap-1.5">
+            <h3 class="m-0 text-[19px] font-extrabold tracking-[-0.3px]">Quizzes, then a real exam</h3>
+            <p class="m-0 text-[15px] leading-[1.55] text-fg2">
+              <span class="md:hidden">Quizzes between tickets. A work-day exam per role: no hints, no AI.</span>
+              <span class="hidden md:inline">Short quizzes check the ideas between tickets. Each role ends with a work day on a broken machine: no hints, no AI.</span>
+            </p>
+          </div>
+          <div class="flex flex-col gap-2 text-[13px]">
+            <div class="font-bold">Who logged in last night?</div>
+            <div class="flex items-center gap-2.5 rounded-[10px] border border-line bg-surface px-2.5 py-2"><span class="font-mono text-xs">who</span></div>
+            <div class="flex items-center gap-2.5 rounded-[10px] border border-ok bg-oksoft px-2.5 py-2">
+              <span class="font-mono text-xs">last</span>
+              <span class="ml-auto font-extrabold text-ok"><span aria-hidden="true">✓</span><span class="sr-only">Correct answer</span></span>
+            </div>
+            <div class="flex items-center gap-2.5 rounded-[10px] border border-line bg-surface px-2.5 py-2"><span class="font-mono text-xs">w</span></div>
+          </div>
+        </article>
+      </div>
+
+      <div data-controls class="invisible md:hidden">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <button type="button" data-step="-1" class="inline-flex h-11 min-w-11 items-center justify-center rounded-[10px] border border-line bg-surface px-3 text-sm font-bold text-fg disabled:opacity-40">Previous</button>
+            <button type="button" data-step="1" class="inline-flex h-11 min-w-11 items-center justify-center rounded-[10px] border border-line bg-surface px-3 text-sm font-bold text-fg disabled:opacity-40">Next</button>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="flex gap-1.5" aria-hidden="true">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <span data-dot class={`h-1.5 rounded-full ${i === 0 ? 'w-[18px] bg-accent' : 'w-1.5 bg-line'}`}></span>
+              ))}
+            </div>
+            <span class="font-mono text-xs text-muted"><span data-pos>1</span> / 5 · swipe</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="mx-auto mt-10 max-w-[1180px] px-4 md:mt-[110px] md:px-6">
+      <div class="flex flex-col gap-4 rounded-[22px] bg-fg px-[22px] py-7 text-bg md:flex-row md:items-center md:justify-between md:gap-8 md:rounded-[28px] md:p-14">
+        <div class="flex flex-col gap-2.5">
+          <h2 class="m-0 text-[28px] leading-[1.1] font-extrabold tracking-[-0.8px] md:text-[40px] md:leading-normal md:tracking-[-1.2px]">Support L1 is waiting.</h2>
+          <p class="m-0 hidden text-[17px] opacity-75 md:block">Sign in with GitHub, install the CLI, first ticket in ten minutes.</p>
+        </div>
+        <a href="/app/signin" class="inline-flex h-[50px] flex-none items-center justify-center gap-2 rounded-[10px] bg-bg px-6 text-base font-bold text-fg no-underline md:h-[52px]">
+          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" class="fill-current"><path d="M12 .5a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A11.5 11.5 0 0 0 12 .5z"></path></svg>
+          Start with GitHub
+        </a>
+      </div>
+    </section>
   </main>
 </Public>
+
+<script>
+  const track = document.getElementById('bento');
+  const slides = track ? Array.from(track.querySelectorAll<HTMLElement>(':scope > article')) : [];
+  const prev = document.querySelector<HTMLButtonElement>('[data-step="-1"]');
+  const next = document.querySelector<HTMLButtonElement>('[data-step="1"]');
+  const dots = Array.from(document.querySelectorAll<HTMLElement>('[data-dot]'));
+  const pos = document.querySelector<HTMLElement>('[data-pos]');
+  const controls = document.querySelector<HTMLElement>('[data-controls]');
+  const last = slides.length - 1;
+
+  const snapLeft = (i: number) => {
+    if (!track) return 0;
+    const pad = parseFloat(getComputedStyle(track).scrollPaddingLeft) || 0;
+    const rel = slides[i].getBoundingClientRect().left - track.getBoundingClientRect().left + track.scrollLeft;
+    return rel - pad;
+  };
+
+  const current = () => {
+    if (!track) return 0;
+    if (track.scrollLeft <= 1) return 0;
+    if (track.scrollLeft + track.clientWidth >= track.scrollWidth - 1) return last;
+    let best = 0;
+    slides.forEach((_, i) => {
+      if (Math.abs(snapLeft(i) - track.scrollLeft) < Math.abs(snapLeft(best) - track.scrollLeft)) best = i;
+    });
+    return best;
+  };
+
+  const sync = () => {
+    const i = current();
+    if (pos) pos.textContent = String(i + 1);
+    if (prev) prev.disabled = i === 0;
+    if (next) next.disabled = i === last;
+    dots.forEach((d, n) => {
+      d.className = `h-1.5 rounded-full ${n === i ? 'w-[18px] bg-accent' : 'w-1.5 bg-line'}`;
+    });
+  };
+
+  const go = (delta: number) => {
+    if (!track) return;
+    const max = track.scrollWidth - track.clientWidth;
+    // Clamped stops, so a slide that can't reach its snap point never blocks Previous or Next.
+    const stops = slides.map((_, i) => (i === 0 ? 0 : i === last ? max : Math.min(max, Math.max(0, snapLeft(i)))));
+    const at = track.scrollLeft;
+    const left =
+      delta > 0
+        ? (stops.find((s) => s > at + 1) ?? max)
+        : ([...stops].reverse().find((s) => s < at - 1) ?? 0);
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    track.scrollTo({ left, behavior: reduce ? 'auto' : 'smooth' });
+  };
+
+  prev?.addEventListener('click', () => go(-1));
+  next?.addEventListener('click', () => go(1));
+  track?.addEventListener('scroll', sync, { passive: true });
+  controls?.classList.remove('invisible');
+  if (track && track.scrollWidth > track.clientWidth) track.tabIndex = 0;
+  sync();
+</script>

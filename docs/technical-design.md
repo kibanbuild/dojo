@@ -318,7 +318,7 @@ are SPA routes served under `/app`: L3 is `/app/t/support-l1/perms-03`, and `doj
 
 | Code | Route | Primary action | States |
 |---|---|---|---|
-| P1 Home | `/` | Pick your path (to O0) | Static. No install command on the page: installing is O2, reached after sign-in; P1 shows none until the installer is served in M0b, and then only if the board adds it. |
+| P1 Home | `/` | Pick your path (to O0); install line | Static. Board: SuAuroraLanding on the canvas Public page. The install line shows `curl -fsSL <host>/install \| sh` with a "Coming soon" label and no copy control until the installer is served in M0b. |
 | P2 How it works | `/how-it-works` | Start Support L1 (to O0) | Static. The FAQ section is written in M9 from the questions real learners ask (M2 demo and first learners), then drawn on the board; no page of its own. |
 | P3 Paths and roles | `/paths` | Pick your path | Static. Four paths drawn; only Systems and DevOps is open, the others say "coming soon" (section 2.3). |
 | P4 The story | `/story` | Pick your path | Static. |
@@ -1479,7 +1479,7 @@ parallel (section 5).
 - **M2: Tickets on local labs, mirrored on the web.** The contracts are in section 3.8. Catalog
   sync and bundles (`catalog_items` only; `catalog_secrets` waits for M7), CLI verb changes
   (`ssh`, `stop`, `status`, `check` events; `dojo start` fetches its bundle with the CLI token, and a cached bundle starts logged out), `ticket_progress`,
-  SSE, Today, Path, ticket page, written hints, public pages P1 to P4 (no install command on P1, no FAQ
+  SSE, Today, Path, ticket page, written hints, public pages P1 to P4 (P1 install line marked coming soon, no FAQ
   on P2 yet) and LG1 as a `noindex` draft. A learner with no chosen path gets the
   only available one until O0 lands in M3. `dojo check` reports a pass without a signed commit
   (it comes with the practice repo in M3) and `dojo hint` prints the L3 URL until M7. Operator A2

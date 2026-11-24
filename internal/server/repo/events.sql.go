@@ -11,6 +11,61 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const expireLearnerLabs = `-- name: ExpireLearnerLabs :many
+UPDATE ticket_progress
+SET updated_at = now(), lab_state = 'expired', lab_state_at = last_seen_at + interval '7 days'
+WHERE learner_id = $1 AND item_id = ANY($2::text[])
+  AND lab_state IN ('starting', 'running') AND last_seen_at < now() - interval '7 days'
+RETURNING org_id, learner_id, item_id, created_at, updated_at, state, lab, lab_state, lab_state_at, first_started_at, last_seen_at, check_count, last_check_at, last_check_ok, last_check_passed, last_check_total, last_check_output, first_passed_at, passed_seconds, passed_commit
+`
+
+type ExpireLearnerLabsParams struct {
+	LearnerID pgtype.UUID
+	ItemIds   []string
+}
+
+// lab_state_at is the logical expiry instant, so any event after it wins the ordering rule.
+func (q *Queries) ExpireLearnerLabs(ctx context.Context, arg ExpireLearnerLabsParams) ([]TicketProgress, error) {
+	rows, err := q.db.Query(ctx, expireLearnerLabs, arg.LearnerID, arg.ItemIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TicketProgress
+	for rows.Next() {
+		var i TicketProgress
+		if err := rows.Scan(
+			&i.OrgID,
+			&i.LearnerID,
+			&i.ItemID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.State,
+			&i.Lab,
+			&i.LabState,
+			&i.LabStateAt,
+			&i.FirstStartedAt,
+			&i.LastSeenAt,
+			&i.CheckCount,
+			&i.LastCheckAt,
+			&i.LastCheckOk,
+			&i.LastCheckPassed,
+			&i.LastCheckTotal,
+			&i.LastCheckOutput,
+			&i.FirstPassedAt,
+			&i.PassedSeconds,
+			&i.PassedCommit,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTicketProgress = `-- name: GetTicketProgress :one
 SELECT org_id, learner_id, item_id, created_at, updated_at, state, lab, lab_state, lab_state_at, first_started_at, last_seen_at, check_count, last_check_at, last_check_ok, last_check_passed, last_check_total, last_check_output, first_passed_at, passed_seconds, passed_commit FROM ticket_progress WHERE learner_id = $1 AND item_id = $2
 `
@@ -155,6 +210,46 @@ func (q *Queries) InsertTicketProgress(ctx context.Context, arg InsertTicketProg
 	return i, err
 }
 
+const listStaleLabs = `-- name: ListStaleLabs :many
+SELECT learner_id, item_id FROM ticket_progress
+WHERE lab_state IN ('starting', 'running') AND last_seen_at < now() - interval '7 days'
+  AND (learner_id, item_id) > ($1::uuid, $2::text)
+ORDER BY learner_id, item_id
+LIMIT 100
+`
+
+type ListStaleLabsParams struct {
+	AfterLearner pgtype.UUID
+	AfterItem    string
+}
+
+type ListStaleLabsRow struct {
+	LearnerID pgtype.UUID
+	ItemID    string
+}
+
+// One batch of live labs unseen for 7 days, after the given key. Read without the learner lock, so
+// ExpireLearnerLabs repeats the test once the lock is held.
+func (q *Queries) ListStaleLabs(ctx context.Context, arg ListStaleLabsParams) ([]ListStaleLabsRow, error) {
+	rows, err := q.db.Query(ctx, listStaleLabs, arg.AfterLearner, arg.AfterItem)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListStaleLabsRow
+	for rows.Next() {
+		var i ListStaleLabsRow
+		if err := rows.Scan(&i.LearnerID, &i.ItemID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTicketIDs = `-- name: ListTicketIDs :many
 SELECT id FROM catalog_items WHERE org_id = $1 AND kind = 'ticket' AND id = ANY($2::text[])
 `
@@ -206,6 +301,18 @@ func (q *Queries) TransactionNow(ctx context.Context) (pgtype.Timestamptz, error
 	var now pgtype.Timestamptz
 	err := row.Scan(&now)
 	return now, err
+}
+
+const tryLockExpirySweep = `-- name: TryLockExpirySweep :one
+SELECT pg_try_advisory_xact_lock(2, 0) AS locked
+`
+
+// The expiry sweeper (design 3.8): class 2 = one sweep at a time, released at commit.
+func (q *Queries) TryLockExpirySweep(ctx context.Context) (bool, error) {
+	row := q.db.QueryRow(ctx, tryLockExpirySweep)
+	var locked bool
+	err := row.Scan(&locked)
+	return locked, err
 }
 
 const updateTicketProgress = `-- name: UpdateTicketProgress :exec

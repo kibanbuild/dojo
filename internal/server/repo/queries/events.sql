@@ -38,3 +38,24 @@ SET updated_at = now(), state = @state, lab = @lab, lab_state = @lab_state, lab_
     last_check_total = @last_check_total, last_check_output = @last_check_output,
     first_passed_at = @first_passed_at, passed_seconds = @passed_seconds
 WHERE learner_id = @learner_id AND item_id = @item_id;
+
+-- The expiry sweeper (design 3.8): class 2 = one sweep at a time, released at commit.
+-- name: TryLockExpirySweep :one
+SELECT pg_try_advisory_xact_lock(2, 0) AS locked;
+
+-- One batch of live labs unseen for 7 days, after the given key. Read without the learner lock, so
+-- ExpireLearnerLabs repeats the test once the lock is held.
+-- name: ListStaleLabs :many
+SELECT learner_id, item_id FROM ticket_progress
+WHERE lab_state IN ('starting', 'running') AND last_seen_at < now() - interval '7 days'
+  AND (learner_id, item_id) > (@after_learner::uuid, @after_item::text)
+ORDER BY learner_id, item_id
+LIMIT 100;
+
+-- lab_state_at is the logical expiry instant, so any event after it wins the ordering rule.
+-- name: ExpireLearnerLabs :many
+UPDATE ticket_progress
+SET updated_at = now(), lab_state = 'expired', lab_state_at = last_seen_at + interval '7 days'
+WHERE learner_id = @learner_id AND item_id = ANY(@item_ids::text[])
+  AND lab_state IN ('starting', 'running') AND last_seen_at < now() - interval '7 days'
+RETURNING *;

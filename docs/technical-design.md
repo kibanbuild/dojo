@@ -1192,11 +1192,14 @@ collide.
   (`now` minus `created_at`), so an offline pass reads as the learner lived it and a wrong clock
   cannot report more time than the server saw. It is a rough figure for L3, not a score.
 - **Expiry:** a sweeper in the API (every 10 minutes, one task at a time through
-  `pg_try_advisory_xact_lock(2, 0)`, taken inside the sweep's own transaction) sets `lab_state`
+  `pg_try_advisory_xact_lock(2, 0)`) sets `lab_state`
   expired on rows in `starting` or `running` whose `last_seen_at` is more than 7 days old, and
-  notifies each learner (stream below). It works through the rows in small batches (100 rows),
-  ordered by `(learner_id, item_id)`, and takes that learner's progress lock (class 1) before it
-  touches the learner's rows, so it cannot deadlock with a projection. Only an event
+  notifies each learner (stream below). `lab_state_at` is set to the expiry instant (`last_seen_at`
+  plus 7 days), so any later event wins the ordering rule. It sweeps once at startup, then every
+  10 minutes. It works through the rows in small batches (100 rows), each batch its own transaction
+  that takes the lock inside itself (the sweep stops when another task holds it), ordered by
+  `(learner_id, item_id)`, and takes that learner's progress lock (class 1) before it touches the
+  learner's rows, so it cannot deadlock with a projection. Only an event
   counts as a sign of life: a CLI command that reports nothing does not. A later `ticket.started`
   leaves `expired`. `failed` and `stopped` do not expire.
 - **Foundations rule:** a role with `has_exam` false (Foundations) is passed when every catalog

@@ -20,6 +20,17 @@ import (
 
 func apiConn(t *testing.T) *pgx.Conn {
 	t.Helper()
+	conn, err := pgx.Connect(context.Background(), apiDBURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
+	return conn
+}
+
+// apiDBURL is the published database address, as dojo_api.
+func apiDBURL(t *testing.T) string {
+	t.Helper()
 	project := os.Getenv("DOJO_COMPOSE_PROJECT")
 	if project == "" {
 		t.Fatal("DOJO_COMPOSE_PROJECT is not set: run `make test-integration`")
@@ -38,13 +49,7 @@ func apiConn(t *testing.T) *pgx.Conn {
 	}
 	hostport := strings.Fields(string(addr))[0]
 	port := hostport[strings.LastIndex(hostport, ":")+1:]
-	url := fmt.Sprintf("postgres://dojo_api:%s@127.0.0.1:%s/dojo?sslmode=disable", envExample(t, "DOJO_API_DB_PASSWORD"), port)
-	conn, err := pgx.Connect(context.Background(), url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = conn.Close(context.Background()) })
-	return conn
+	return fmt.Sprintf("postgres://dojo_api:%s@127.0.0.1:%s/dojo?sslmode=disable", envExample(t, "DOJO_API_DB_PASSWORD"), port)
 }
 
 func asOwner(t *testing.T, sql string) string {

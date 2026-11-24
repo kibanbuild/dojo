@@ -206,7 +206,7 @@ func TestPathWithoutAnAvailablePath(t *testing.T) {
 }
 
 func TestCatalogRoutesRefuse(t *testing.T) {
-	for _, route := range []string{"/v1/catalog", "/v1/path"} {
+	for _, route := range []string{"/v1/catalog", "/v1/path", "/v1/today"} {
 		if rec := getCatalogRoute(t, populatedCatalog(), route, false, true); rec.Code != 401 || rec.Body.String() != "{\"error\":\"unauthenticated\"}\n" {
 			t.Fatalf("%s anonymous: %d %s", route, rec.Code, rec.Body)
 		}
@@ -223,7 +223,7 @@ func TestReadsShareOneBudgetPerLearner(t *testing.T) {
 	s := &fakeSessions{row: activeRow(time.Now(), false)}
 	h := New(fakeReady{}, Auth{Store: s, Catalog: populatedCatalog()}, testLimits(3), nil, nil)
 	var codes []int
-	for _, route := range []string{"/v1/catalog", "/v1/path", "/v1/catalog", "/v1/path"} {
+	for _, route := range []string{"/v1/catalog", "/v1/path", "/v1/today", "/v1/catalog"} {
 		req := httptest.NewRequest(http.MethodGet, route, nil)
 		req.AddCookie(&http.Cookie{Name: SessionCookie, Value: goodToken})
 		rec := httptest.NewRecorder()
@@ -233,7 +233,7 @@ func TestReadsShareOneBudgetPerLearner(t *testing.T) {
 			t.Fatal("429 without Retry-After")
 		}
 	}
-	if codes[0] != 200 || codes[2] != 200 || codes[3] != 429 {
+	if codes[0] != 200 || codes[1] != 200 || codes[2] != 200 || codes[3] != 429 {
 		t.Fatalf("codes %v", codes)
 	}
 }

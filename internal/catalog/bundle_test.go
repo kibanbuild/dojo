@@ -252,6 +252,23 @@ func TestBuildBundleRefusesBackslashNames(t *testing.T) {
 	}
 }
 
+func TestBuildBundleRefusesWindowsUnsafeNames(t *testing.T) {
+	for _, name := range []string{"con", "PRN", "Aux.txt", "nul.tar.gz", "com1", "COM9.x", "lpt5", "a:b", "a.", "dir./x"} {
+		m := fixtureTree()
+		m["support-l1/perms-01/files/"+name] = &fstest.MapFile{Data: []byte("x")}
+		if _, err := catalog.BuildBundle(m, fixtureID); err == nil {
+			t.Errorf("%q was bundled", name)
+		}
+	}
+	for _, name := range []string{"com0", "console", "comma", "lpt10", "a.b"} {
+		m := fixtureTree()
+		m["support-l1/perms-01/files/"+name] = &fstest.MapFile{Data: []byte("x")}
+		if _, err := catalog.BuildBundle(m, fixtureID); err != nil {
+			t.Errorf("%q refused: %v", name, err)
+		}
+	}
+}
+
 func TestBuildBundleRefusals(t *testing.T) {
 	// A real directory is needed for links.
 	copyTicket := func(t *testing.T) (string, string) {
@@ -447,6 +464,12 @@ func TestExtractRefusals(t *testing.T) {
 		"absolute path":                    with(file("/etc/evil")),
 		"backslash":                        with(file(`files\evil`)),
 		"dot segment":                      with(file("files/./a")),
+		"windows device":                   with(file("files/con")),
+		"windows device with extension":    with(file("files/NUL.txt")),
+		"windows device, numbered":         with(file("files/sub/Lpt3.log")),
+		"colon":                            with(file("files/a:b")),
+		"trailing dot":                     with(file("files/a.")),
+		"trailing space":                   with(file("files/a ")),
 		"empty segment":                    with(file("files//a")),
 		"outside the format":               with(file("notes.txt")),
 		"files as a file":                  with(file("files")),

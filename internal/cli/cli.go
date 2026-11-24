@@ -268,14 +268,20 @@ func (a *App) current() (*state.State, *catalog.Ticket, error) {
 	if st.Current == "" {
 		return nil, nil, errors.New("no ticket in progress: run dojo start <role>/<ticket>")
 	}
-	k, err := catalog.LoadTicket(a.Catalog, st.Current)
+	k, err := a.loadTicket(st.Current)
 	return st, k, err
 }
 
 // start creates the lab for a ticket and sets up ssh dojo. key is the --key flag: empty keeps the
 // remembered key, and a key that cannot be used stops the command before the lab is touched.
 func (a *App) start(ctx context.Context, backend lab.Backend, id, key string) error {
-	k, err := catalog.LoadTicket(a.Catalog, id)
+	var k *catalog.Ticket
+	var err error
+	if a.bundleMode() {
+		k, err = a.fetchTicket(ctx, id)
+	} else {
+		k, err = catalog.LoadTicket(a.Catalog, id)
+	}
 	if err != nil {
 		return err
 	}
@@ -299,8 +305,7 @@ func (a *App) start(ctx context.Context, backend lab.Backend, id, key string) er
 	if err := a.save(st); err != nil {
 		return err
 	}
-	// Without a bundle sidecar (dojo start does not fetch bundles yet) the version is unknown and
-	// the server requires it, so ticket.started waits for the bundle work.
+	// The version comes from the bundle sidecar; without one the server would refuse the event.
 	if v := catalogVersion(k.ID); v != "" {
 		a.recordEvent(state.ProgressEvent{Type: "ticket.started", ItemID: k.ID, Lab: "local", CatalogVersion: v})
 	}

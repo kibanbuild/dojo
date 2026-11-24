@@ -32,7 +32,7 @@ Usage:
                           create a fresh lab and break it for the ticket; also lets your
                           SSH key into the lab and sets up "ssh dojo" (--key picks the
                           key, a private or .pub path, from now on)
-  dojo status             show the current ticket and its brief
+  dojo status             show the current ticket, lab, login and waiting events
   dojo ssh                open a terminal inside the lab (or: ssh dojo)
   dojo hint               show the next hint for the current ticket
   dojo check [--quick]    reboot the lab and verify your fix (--quick skips the reboot)
@@ -177,7 +177,7 @@ func (a *App) run(ctx context.Context, args []string) error {
 	case "doctor":
 		return a.doctor(ctx)
 	case "status":
-		return a.status()
+		return a.status(ctx)
 	case "hint":
 		return a.hint()
 	case "mcp":
@@ -346,19 +346,9 @@ func (a *App) start(ctx context.Context, backend lab.Backend, id, key string) er
 	return nil
 }
 
-func (a *App) status() error {
-	st, k, err := a.current()
-	if err != nil {
-		return err
-	}
-	a.printBrief(k)
-	if t, ok := st.Passed[k.ID]; ok {
-		fmt.Fprintf(a.Out, "Passed on %s.\n", t.Format("2006-01-02"))
-	}
-	return nil
-}
-
-func (a *App) hint() error {
+// localHint prints the next written hint from the local catalog: the development path, used
+// when no API address is configured to point the learner at.
+func (a *App) localHint() error {
 	st, k, err := a.current()
 	if err != nil {
 		return err

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -129,6 +130,17 @@ type pathResponse struct {
 // path answers the learner's path with their ticket state. There is no chosen_path_id yet, so it
 // is always the first available path with chosen false (design 2.1, decision h).
 func (a Auth) path(w http.ResponseWriter, r *http.Request) {
+	out, _, err := a.loadPath(r)
+	if err != nil {
+		readFailed(w, r, err)
+		return
+	}
+	writeNoStore(w, out)
+}
+
+// loadPath reads the catalog and the caller's progress and returns the path, plus when each
+// ticket was last seen.
+func (a Auth) loadPath(r *http.Request) (pathResponse, map[string]time.Time, error) {
 	p, _ := principalOf(r.Context())
 	c, s := a.Catalog, r.Context()
 	paths, err1 := c.ListCatalogPaths(s)
@@ -137,9 +149,18 @@ func (a Auth) path(w http.ResponseWriter, r *http.Request) {
 	items, err4 := c.ListCatalogItems(s)
 	prog, err5 := c.ListLearnerTicketStates(s, p.learner)
 	if err := errors.Join(err1, err2, err3, err4, err5); err != nil {
-		readFailed(w, r, err)
-		return
+		return pathResponse{}, nil, err
 	}
+	seen := make(map[string]time.Time, len(prog))
+	for _, x := range prog {
+		seen[x.ItemID] = x.LastSeenAt.Time
+	}
+	return buildPath(paths, roles, prs, items, prog), seen, nil
+}
+
+// buildPath is the learner's path with their ticket state, shared by GET /v1/path and /v1/today.
+func buildPath(paths []repo.ListCatalogPathsRow, roles []repo.ListCatalogRolesRow, prs []repo.ListCatalogPathRolesRow,
+	items []repo.ListCatalogItemsRow, prog []repo.ListLearnerTicketStatesRow) pathResponse {
 	out := pathResponse{Roles: []pathRole{}}
 	var chosen *repo.ListCatalogPathsRow
 	for i := range paths {
@@ -149,8 +170,7 @@ func (a Auth) path(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if chosen == nil {
-		writeNoStore(w, out)
-		return
+		return out
 	}
 	out.Path = &chosen.Slug
 	roleBySlug := make(map[string]repo.ListCatalogRolesRow, len(roles))
@@ -192,7 +212,7 @@ func (a Auth) path(w http.ResponseWriter, r *http.Request) {
 		pr.Passed = !role.HasExam && pr.TicketsTotal > 0 && pr.TicketsPassed == pr.TicketsTotal
 		out.Roles = append(out.Roles, pr)
 	}
-	writeNoStore(w, out)
+	return out
 }
 
 func readFailed(w http.ResponseWriter, r *http.Request, err error) {

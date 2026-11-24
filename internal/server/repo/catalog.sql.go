@@ -177,13 +177,14 @@ func (q *Queries) ListCatalogRoles(ctx context.Context) ([]ListCatalogRolesRow, 
 }
 
 const listLearnerTicketStates = `-- name: ListLearnerTicketStates :many
-SELECT item_id, state, lab_state FROM ticket_progress WHERE learner_id = $1
+SELECT item_id, state, lab_state, last_seen_at FROM ticket_progress WHERE learner_id = $1
 `
 
 type ListLearnerTicketStatesRow struct {
-	ItemID   string
-	State    string
-	LabState pgtype.Text
+	ItemID     string
+	State      string
+	LabState   pgtype.Text
+	LastSeenAt pgtype.Timestamptz
 }
 
 func (q *Queries) ListLearnerTicketStates(ctx context.Context, learnerID pgtype.UUID) ([]ListLearnerTicketStatesRow, error) {
@@ -195,7 +196,12 @@ func (q *Queries) ListLearnerTicketStates(ctx context.Context, learnerID pgtype.
 	var items []ListLearnerTicketStatesRow
 	for rows.Next() {
 		var i ListLearnerTicketStatesRow
-		if err := rows.Scan(&i.ItemID, &i.State, &i.LabState); err != nil {
+		if err := rows.Scan(
+			&i.ItemID,
+			&i.State,
+			&i.LabState,
+			&i.LastSeenAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

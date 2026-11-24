@@ -64,8 +64,8 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	// No endpoint uses the store yet (M2.3b hands out presigned URLs); building it here fails a bad config at boot.
-	if _, err := storage.New(storeCfg); err != nil {
+	objects, err := storage.New(storeCfg)
+	if err != nil {
 		return err
 	}
 	slog.Info("object store configured", "bucket", storeCfg.Bucket, "endpoint", storeCfg.Endpoint, "public_endpoint", storeCfg.PublicEndpoint)
@@ -78,7 +78,8 @@ func run(args []string) error {
 	}
 	defer store.Close()
 
-	auth := server.Auth{Store: store.Queries(), Catalog: store.Queries(), Secure: secure, Events: store}
+	auth := server.Auth{Store: store.Queries(), Catalog: store.Queries(),
+		Bundles: &server.Bundles{Store: store.Queries(), Signer: objects}, Secure: secure, Events: store}
 	gh := github.New(ghCfg)
 	cli := &server.CLILogin{GitHub: gh, Store: store.Queries()}
 	signin := &server.SignIn{GitHub: gh, Store: store.Queries(), Auth: auth,

@@ -31,6 +31,10 @@ const (
 	readBurst = 120
 	readPer   = time.Minute
 
+	// Bundle fetches (GET /v1/tickets/{id}/bundle), their own budget per learner.
+	bundleBurst = 30
+	bundlePer   = time.Minute
+
 	maxKeys    = 50_000
 	sweepEvery = 30 * time.Second
 	// capSweepEvery bounds how often a full table is swept before evicting.
@@ -132,6 +136,8 @@ type RateLimits struct {
 	Write Limiter
 	// Read is keyed by learner id and covers the authenticated read routes.
 	Read Limiter
+	// Bundle is keyed by learner id and covers only the bundle route.
+	Bundle Limiter
 	// Callback is taken inside the sign-in callback, after the state cookie checks out and before any GitHub call.
 	Callback Limiter
 	Hops     int
@@ -146,6 +152,7 @@ func NewRateLimits(hops int) *RateLimits {
 		Events:        newMemLimiter(eventsBurst, telemetryPer, maxKeys, time.Now),
 		Write:         newMemLimiter(writeBurst, writePer, maxKeys, time.Now),
 		Read:          newMemLimiter(readBurst, readPer, maxKeys, time.Now),
+		Bundle:        newMemLimiter(bundleBurst, bundlePer, maxKeys, time.Now),
 		Callback:      newMemLimiter(authBurst, authPer, maxKeys, time.Now),
 		Hops:          hops,
 	}
@@ -166,6 +173,10 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 		var readKey string
 		if p, authed := principalOf(r.Context()); authed && rl.Read != nil && isLearnerRead(pattern) {
 			readKey = "learner:" + p.learner.String()
+		}
+		var bundleKey string
+		if p, authed := principalOf(r.Context()); authed && rl.Bundle != nil && pattern == "GET "+bundleTicketsPrefix && isBundleRequest(r) {
+			bundleKey = "learner:" + p.learner.String()
 		}
 		isStart := pattern == "POST "+startPath && r.URL.Path == startPath
 		switch {
@@ -210,6 +221,12 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 		}
 		if readKey != "" {
 			if ok, retry := rl.Read.Allow(readKey); !ok {
+				refuse(retry)
+				return
+			}
+		}
+		if bundleKey != "" {
+			if ok, retry := rl.Bundle.Allow(bundleKey); !ok {
 				refuse(retry)
 				return
 			}

@@ -122,7 +122,7 @@ describe('/settings route', () => {
     expect(router.state.location.pathname).toBe('/settings');
     const back = [...container.querySelectorAll('a')].find((a) => a.textContent?.includes('Back to Today'))!;
     await click(back);
-    expect(router.state.location.pathname).toBe('/');
+    expect(router.state.location.pathname).toBe('/today');
   });
 });
 

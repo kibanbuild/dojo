@@ -1,5 +1,5 @@
 import { Navigate, type RouteObject } from 'react-router';
-import { App, MachinesRoute, SettingsRoute, SignInRoute } from './App';
+import { App, MachinesRoute, SettingsRoute, SignInRoute, TodayRoute } from './App';
 import { AnalyticsLayout, type PageHandle } from './components/AnalyticsLayout';
 
 const page = (pattern: string): PageHandle => ({ page: pattern });
@@ -9,7 +9,8 @@ export const routes: RouteObject[] = [
   {
     element: <AnalyticsLayout />,
     children: [
-      { path: '/', element: <App />, handle: page('/') },
+      { path: '/', element: <App /> },
+      { path: '/today', element: <TodayRoute />, handle: page('/today') },
       { path: '/settings', element: <SettingsRoute />, handle: page('/settings') },
       { path: '/settings/machines', element: <MachinesRoute />, handle: page('/settings/machines') },
       { path: '/signin', element: <SignInRoute />, handle: page('/signin') },

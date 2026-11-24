@@ -69,7 +69,7 @@ describe('analytics wiring', () => {
     await mount('/foo/someuser', me);
     expect(spies.page.mock.calls.flat().join(' ')).not.toContain('someuser');
     expect(spies.page).not.toHaveBeenCalledWith('/foo/someuser');
-    expect(spies.page).toHaveBeenCalledWith('/');
+    expect(spies.page).toHaveBeenCalledWith('/today');
   });
 
   it('identifies the signed-in learner by id and passes the account consent', async () => {

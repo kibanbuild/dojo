@@ -1,6 +1,6 @@
 import { Navigate } from 'react-router';
 import { useMe } from './lib/me';
-import { Shell } from './pages/Shell';
+import { Today } from './pages/Today';
 import { Settings } from './pages/Settings';
 import { Machines } from './pages/Machines';
 import { SignInPage } from './pages/SignIn';
@@ -24,13 +24,22 @@ function LoadFailed({ retry }: { retry: () => void }) {
   );
 }
 
-// /app: signed out (401) goes to O1 at /app/signin; signed in sees the shell.
+// /app: signed out (401) goes to O1 at /app/signin; signed in goes to Today (L1 is home).
 export function App() {
   const me = useMe();
   if (me.isPending) return <Loading />;
   if (me.isError) return <LoadFailed retry={() => void me.refetch()} />;
   if (me.data === null) return <Navigate to="/signin" replace />;
-  return <Shell me={me.data} />;
+  return <Navigate to="/today" replace />;
+}
+
+// /app/today: same guard as /app.
+export function TodayRoute() {
+  const me = useMe();
+  if (me.isPending) return <Loading />;
+  if (me.isError) return <LoadFailed retry={() => void me.refetch()} />;
+  if (me.data === null) return <Navigate to="/signin" replace />;
+  return <Today me={me.data} />;
 }
 
 // /app/settings: same guard as /app.
@@ -54,6 +63,6 @@ export function MachinesRoute() {
 // /app/signin: a signed-in browser has nothing to do here.
 export function SignInRoute() {
   const me = useMe();
-  if (me.data) return <Navigate to="/" replace />;
+  if (me.data) return <Navigate to="/today" replace />;
   return <SignInPage />;
 }

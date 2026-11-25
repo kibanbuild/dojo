@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ME_KEY } from './lib/me';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from './routes';
@@ -30,11 +31,14 @@ function stubApi(handler: (url: string, method: string, state: { loggedOut: bool
   );
 }
 
+let client: QueryClient;
+
 async function mount(path: string) {
   router = createMemoryRouter(routes, { initialEntries: [path] });
+  client = new QueryClient();
   await act(async () => {
     root.render(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={client}>
         <RouterProvider router={router} />
       </QueryClientProvider>,
     );
@@ -89,6 +93,43 @@ describe('bootstrap routing', () => {
     await act(async () => router.navigate('/signin?error=access_denied'));
     await settle();
     expect(container.querySelector('[role=status]')?.textContent).toContain('cancelled');
+  });
+
+  it.each(['/', '/today', '/path', '/settings', '/settings/machines', '/t/foundations/terminal-01'])('sends a suspended account at %s to O1 with the suspended notice', async (path) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ error: 'account_suspended' }, { status: 403 })),
+    );
+    await mount(path);
+    expect(router.state.location.pathname).toBe('/signin');
+    expect(router.state.location.search).toBe('?error=suspended');
+    expect(container.querySelector('[role=status]')?.textContent).toContain('This account is suspended.');
+    expect(container.textContent).not.toContain('Could not reach Dojo');
+  });
+
+  it('sends a learner suspended mid-session to O1 once, without a redirect loop', async () => {
+    stubApi(() => me);
+    await mount('/settings');
+    expect(router.state.location.pathname).toBe('/settings');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ error: 'account_suspended' }, { status: 403 })),
+    );
+    const navigations: string[] = [];
+    const stop = router.subscribe((state) => navigations.push(state.location.pathname));
+    await act(async () => client.refetchQueries({ queryKey: ME_KEY }));
+    await settle();
+    stop();
+    expect(router.state.location.pathname).toBe('/signin');
+    expect(navigations.filter((p) => p === '/signin').length).toBeLessThanOrEqual(1);
+    expect(navigations).not.toContain('/today');
+    expect(container.querySelector('[role=status]')?.textContent).toContain('This account is suspended.');
+  });
+
+  it('keeps the retry for a 403 that is not a suspension', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: 'forbidden' }, { status: 403 })));
+    await mount('/');
+    expect(container.querySelector('[role=alert]')?.textContent).toContain('Could not reach Dojo');
   });
 
   it('shows a retry, not the sign-in screen, when the API fails', async () => {

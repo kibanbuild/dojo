@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -147,6 +148,10 @@ func catalogVersion(item string) string {
 	return ""
 }
 
+// suspendedNotice is printed when the API refuses progress for a suspended account; the events
+// stay queued and go out once the account is restored.
+const suspendedNotice = "This account is suspended: your progress stays on this computer and is sent once it is restored."
+
 // flushEvents sends the queue in batches within a short deadline and saves what is left. It never
 // fails the command.
 func (a *App) flushEvents(ctx context.Context) {
@@ -197,6 +202,12 @@ func (a *App) flushEvents(ctx context.Context) {
 			pending = pending[n:]
 		case r.status == http.StatusUnauthorized:
 			hold = true
+			return
+		case r.status == http.StatusForbidden && r.code == "account_suspended":
+			retry = now.Add(eventsBackoff)
+			if a.Err != nil {
+				fmt.Fprintln(a.Err, suspendedNotice)
+			}
 			return
 		case r.status == http.StatusTooManyRequests:
 			retry = now.Add(retryDelay(r.retryAfter))

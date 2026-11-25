@@ -112,7 +112,7 @@ type confirmData struct {
 
 var (
 	suspendEffects = []string{
-		"Every API call from their web sessions and CLI tokens gets account_suspended: the web app shows that the account is suspended and the CLI stops working. Nothing is revoked.",
+		"Every API call from their web sessions and CLI tokens gets account_suspended: the web app shows that the account is suspended, and the CLI cannot start tickets or send progress (it keeps it and sends it once the account is restored). Nothing is revoked.",
 		"They can still sign out and delete their own account.",
 		"Their progress and data are kept. No email is sent.",
 	}

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { PATH_KEY, readBlockedUntil, ticketKey, TICKET_KEY_PREFIX, TODAY_KEY, type Ticket, type TicketState } from './read';
+import { ACTIVITY_KEY, PATH_KEY, readBlockedUntil, ticketKey, TICKET_KEY_PREFIX, TODAY_KEY, type Ticket, type TicketState } from './read';
 
 export const STREAM_URL = '/v1/stream';
 export const POLL_MS = 10_000;
@@ -120,7 +120,7 @@ export function patchTicket(ticket: Ticket, e: ProgressEvent): Ticket {
 }
 
 /**
- * Keeps the shown path, today and ticket queries live while mounted. Only active queries refetch,
+ * Keeps the shown path, today, activity and ticket queries live while mounted. Only active queries refetch,
  * so "whichever it shows" is whatever is mounted. A 429 delays the next read until Retry-After.
  */
 export function useLiveData(): void {
@@ -162,14 +162,14 @@ function makeLive(client: QueryClient): Live {
     clearTimeout(live.timer);
     live.timer = setTimeout(fire, Math.max(ms, readBlockedUntil() - Date.now(), 0));
   };
-  const all = [PATH_KEY, TODAY_KEY, TICKET_KEY_PREFIX];
+  const all = [PATH_KEY, TODAY_KEY, ACTIVITY_KEY, TICKET_KEY_PREFIX];
   live.handlers = {
     onSync: () => schedule(all, 0),
     onPoll: () => schedule(all, 0),
     onProgress: (e) => {
       client.setQueriesData<Ticket>({ queryKey: TICKET_KEY_PREFIX }, (t) => (t ? patchTicket(t, e) : t));
       // Always refetch the ticket too: a null progress row and the check output are not in the event.
-      schedule([PATH_KEY, TODAY_KEY, ticketKey(e.item_id)], PROGRESS_DEBOUNCE_MS);
+      schedule([PATH_KEY, TODAY_KEY, ACTIVITY_KEY, ticketKey(e.item_id)], PROGRESS_DEBOUNCE_MS);
     },
   };
   return live;

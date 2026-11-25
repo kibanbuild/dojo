@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchToday, PATH_KEY, resetReadBlock, TODAY_KEY, ticketKey, type Ticket } from './read';
+import { ACTIVITY_KEY, fetchToday, PATH_KEY, resetReadBlock, TODAY_KEY, ticketKey, type Ticket } from './read';
 import { PROGRESS_DEBOUNCE_MS, useLiveData } from './stream';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -62,7 +62,7 @@ afterEach(() => {
 });
 
 describe('useLiveData', () => {
-  it('patches an open ticket at once and refetches path and today once for a burst, 500 ms later', async () => {
+  it('patches an open ticket at once and refetches path, today and activity once for a burst, 500 ms later', async () => {
     const key = ticketKey('a/b');
     client.setQueryData<Ticket>(key, {
       id: 'a/b', title: 't', role: 'a', est_minutes: 1, tags: [], brief: '', hint_count: 0, hints: [],
@@ -79,7 +79,7 @@ describe('useLiveData', () => {
     await act(async () => {
       vi.advanceTimersByTime(PROGRESS_DEBOUNCE_MS);
     });
-    expect(invalidate.mock.calls.map((c) => c[0]?.queryKey)).toEqual([PATH_KEY, TODAY_KEY, key]);
+    expect(invalidate.mock.calls.map((c) => c[0]?.queryKey)).toEqual([PATH_KEY, TODAY_KEY, ACTIVITY_KEY, key]);
   });
 
   it('refetches the ticket of a progress event even when it has no progress row yet', async () => {
@@ -136,6 +136,6 @@ describe('useLiveData', () => {
       sources[0]!.emit('ready');
       vi.advanceTimersByTime(0);
     });
-    expect(invalidate.mock.calls.map((c) => c[0]?.queryKey)).toEqual([PATH_KEY, TODAY_KEY, ['ticket']]);
+    expect(invalidate.mock.calls.map((c) => c[0]?.queryKey)).toEqual([PATH_KEY, TODAY_KEY, ACTIVITY_KEY, ['ticket']]);
   });
 });

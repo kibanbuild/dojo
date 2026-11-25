@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -25,6 +26,7 @@ type eventsAPI struct {
 	auths      []string
 	status     int
 	retryAfter string
+	body       string // answer body for /v1/events; empty means accepted
 	version    string // catalog_version in the bundle answer
 }
 
@@ -53,6 +55,10 @@ func newEventsAPI(t *testing.T) *eventsAPI {
 			w.Header().Set("Retry-After", a.retryAfter)
 		}
 		w.WriteHeader(a.status)
+		if a.body != "" {
+			_, _ = w.Write([]byte(a.body))
+			return
+		}
 		_, _ = w.Write([]byte(`{"accepted":1,"duplicates":0,"ignored":0}`))
 	}))
 	t.Cleanup(a.srv.Close)
@@ -279,6 +285,30 @@ func TestFlushStatusHandling(t *testing.T) {
 				t.Error("held queue was sent again")
 			}
 		})
+	}
+}
+
+func TestFlushSuspendedKeepsEventsAndSaysSo(t *testing.T) {
+	e, api := eventsEnv(t, true)
+	errBuf := &bytes.Buffer{}
+	e.app.Err = errBuf
+	api.status, api.body = 403, `{"error":"account_suspended"}`
+	e.app.recordEvent(state.ProgressEvent{Type: "lab.stopped", ItemID: "white/a"})
+	e.app.flushEvents(context.Background())
+	q, _ := state.LoadEvents()
+	if len(q.Events) != 1 || q.Hold || !q.RetryAfter.Equal(e.app.now().Add(eventsBackoff)) {
+		t.Fatalf("events=%d hold=%v retry=%v", len(q.Events), q.Hold, q.RetryAfter)
+	}
+	if !strings.Contains(errBuf.String(), "This account is suspended") {
+		t.Fatalf("stderr = %q", errBuf.String())
+	}
+
+	// Restored: the kept event goes out on the next flush after the backoff.
+	api.status, api.body = 200, ""
+	e.app.Now = func() time.Time { return q.RetryAfter.Add(time.Second) }
+	e.app.flushEvents(context.Background())
+	if q, _ := state.LoadEvents(); len(q.Events) != 0 {
+		t.Fatalf("events after restore = %d", len(q.Events))
 	}
 }
 

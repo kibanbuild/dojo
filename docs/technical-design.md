@@ -1155,7 +1155,9 @@ learner `403 account_suspended`. Body `Content-Type: application/json`, at most 
   the end of a command. `200` and `400` drop the batch;
   `429` and other failures keep it and hold sending (`Retry-After` or one minute, at most an
   hour). A `401` keeps the queue and holds sending: these events are progress, so they wait for
-  the next `dojo login`, and a login as a different account drops the queue first. `dojo status`
+  the next `dojo login`, and a login as a different account drops the queue first. A `403
+  account_suspended` keeps the queue with the usual backoff and prints "This account is suspended:
+  your progress stays on this computer and is sent once it is restored." on stderr. `dojo status`
   says how many events are waiting.
 
 **`ticket_progress`.** One row per learner and ticket, written by the API in the same transaction

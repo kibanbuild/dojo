@@ -36,6 +36,7 @@ func New(ready Readiness, auth Auth, limits *RateLimits, signin *SignIn, cli *CL
 		mux.HandleFunc("GET /v1/catalog", requireSession(auth.catalog))
 		mux.HandleFunc("GET /v1/path", requireSession(auth.path))
 		mux.HandleFunc("GET /v1/today", requireSession(auth.today))
+		mux.HandleFunc("GET /v1/activity", requireSession(auth.activity))
 	}
 	if auth.Events != nil {
 		mux.HandleFunc("POST "+eventsPath, auth.postEvents)

@@ -11,6 +11,20 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countLearnerPasses = `-- name: CountLearnerPasses :one
+SELECT count(*)::int AS total
+FROM ticket_progress p
+JOIN catalog_items i ON i.id = p.item_id AND i.kind = 'ticket'
+WHERE p.learner_id = $1 AND p.first_passed_at IS NOT NULL
+`
+
+func (q *Queries) CountLearnerPasses(ctx context.Context, learnerID pgtype.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, countLearnerPasses, learnerID)
+	var total int32
+	err := row.Scan(&total)
+	return total, err
+}
+
 const getCatalogVersion = `-- name: GetCatalogVersion :one
 SELECT catalog_version FROM catalog_state WHERE id = 1
 `
@@ -193,6 +207,88 @@ func (q *Queries) ListCatalogRoles(ctx context.Context) ([]ListCatalogRolesRow, 
 			&i.Kind,
 			&i.HasExam,
 			&i.Advanced,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLearnerActivityDays = `-- name: ListLearnerActivityDays :many
+SELECT (p.first_passed_at AT TIME ZONE $1::text)::date AS day, count(*)::int AS passes
+FROM ticket_progress p
+JOIN catalog_items i ON i.id = p.item_id AND i.kind = 'ticket'
+WHERE p.learner_id = $2 AND p.first_passed_at >= $3::timestamptz
+GROUP BY 1
+ORDER BY 1
+`
+
+type ListLearnerActivityDaysParams struct {
+	Tz        string
+	LearnerID pgtype.UUID
+	Since     pgtype.Timestamptz
+}
+
+type ListLearnerActivityDaysRow struct {
+	Day    pgtype.Date
+	Passes int32
+}
+
+// GET /v1/activity (design 3.8): first passes only, bucketed by the day in the learner's zone.
+func (q *Queries) ListLearnerActivityDays(ctx context.Context, arg ListLearnerActivityDaysParams) ([]ListLearnerActivityDaysRow, error) {
+	rows, err := q.db.Query(ctx, listLearnerActivityDays, arg.Tz, arg.LearnerID, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLearnerActivityDaysRow
+	for rows.Next() {
+		var i ListLearnerActivityDaysRow
+		if err := rows.Scan(&i.Day, &i.Passes); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLearnerRecentPasses = `-- name: ListLearnerRecentPasses :many
+SELECT p.item_id, i.title, p.first_passed_at, p.passed_commit
+FROM ticket_progress p
+JOIN catalog_items i ON i.id = p.item_id AND i.kind = 'ticket'
+WHERE p.learner_id = $1 AND p.first_passed_at IS NOT NULL
+ORDER BY p.first_passed_at DESC, p.item_id
+LIMIT 3
+`
+
+type ListLearnerRecentPassesRow struct {
+	ItemID        string
+	Title         string
+	FirstPassedAt pgtype.Timestamptz
+	PassedCommit  pgtype.Text
+}
+
+func (q *Queries) ListLearnerRecentPasses(ctx context.Context, learnerID pgtype.UUID) ([]ListLearnerRecentPassesRow, error) {
+	rows, err := q.db.Query(ctx, listLearnerRecentPasses, learnerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLearnerRecentPassesRow
+	for rows.Next() {
+		var i ListLearnerRecentPassesRow
+		if err := rows.Scan(
+			&i.ItemID,
+			&i.Title,
+			&i.FirstPassedAt,
+			&i.PassedCommit,
 		); err != nil {
 			return nil, err
 		}

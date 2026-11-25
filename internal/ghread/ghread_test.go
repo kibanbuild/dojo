@@ -90,6 +90,11 @@ func TestOutcomes(t *testing.T) {
 			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(now.Add(12*time.Minute+time.Second).Unix(), 10))
 			w.WriteHeader(403)
 		}, ghread.ErrUnknown, "try again in 13 minutes"},
+		{"rate limited in under a minute", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("X-RateLimit-Remaining", "0")
+			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(now.Add(20*time.Second).Unix(), 10))
+			w.WriteHeader(403)
+		}, ghread.ErrUnknown, "try again in 1 minute"},
 		{"rate limited 429", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("X-RateLimit-Remaining", "0")
 			w.WriteHeader(429)
@@ -110,6 +115,9 @@ func TestOutcomes(t *testing.T) {
 			}
 			if tc.contain != "" && !strings.Contains(err.Error(), tc.contain) {
 				t.Errorf("message %q lacks %q", err, tc.contain)
+			}
+			if strings.HasSuffix(tc.contain, "1 minute") && !strings.HasSuffix(err.Error(), "1 minute") {
+				t.Errorf("message %q must end in the singular", err)
 			}
 			var ue *ghread.UnknownError
 			if errors.Is(tc.want, ghread.ErrUnknown) && errors.As(err, &ue) && ue.Reason == "" {

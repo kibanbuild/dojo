@@ -16,6 +16,8 @@ const (
 	OK Status = iota
 	Warn
 	Fail
+	// Unknown is a check that could not be judged: GitHub unreachable or limiting requests.
+	Unknown
 )
 
 // String is the status as the doctor.run event spells it.
@@ -25,6 +27,8 @@ func (s Status) String() string {
 		return "ok"
 	case Warn:
 		return "warn"
+	case Unknown:
+		return "unknown"
 	default:
 		return "fail"
 	}
@@ -83,6 +87,12 @@ type Machine struct {
 	SSHKeyErr error
 	// SigningKeyIsSSHKey is set when git's signing key is the file or literal key at SSHKeyPath.
 	SigningKeyIsSSHKey bool
+	// SigningPub is the public key git signs with (the dojo key when git names none); empty when unknown.
+	SigningPub string
+	// CloneOverSSH is set when the practice clone's origin, or the default clone URL, is SSH.
+	CloneOverSSH bool
+	// SSHOfferedKeys are the public keys ssh offers for github.com; only read when CloneOverSSH.
+	SSHOfferedKeys []string
 }
 
 const gib = 1 << 30

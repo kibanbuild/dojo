@@ -115,14 +115,14 @@ prune:
 # `make admin-bootstrap LOGIN=ada`; the fake GitHub knows ada, bob and cy. Refuses once an operator exists.
 admin-bootstrap:
 	@test -n "$$LOGIN" || { echo "usage: make admin-bootstrap LOGIN=<github-login>"; exit 2; }
-	$(DEV_COMPOSE) --profile jobs run --rm admin-bootstrap bootstrap "$$LOGIN"
+	$(DEV_COMPOSE) --profile jobs run --build --rm admin-bootstrap bootstrap "$$LOGIN"
 
 # Loads a catalog checkout into the dev stack (`dojo-catalog-load`, migration role): uploads new ticket bundles
 # and upserts the catalog tables. VERSION is the catalog repo commit, e.g.
 # `make catalog-load CATALOG=~/catalog VERSION=$(git -C ~/catalog rev-parse HEAD)`.
 catalog-load:
 	@test -n "$(CATALOG)" -a -n "$(VERSION)" || { echo "usage: make catalog-load CATALOG=<dir> VERSION=<commit>"; exit 2; }
-	CATALOG_DIR="$(abspath $(CATALOG))" $(DEV_COMPOSE) --profile jobs run --rm catalog-load -version "$(VERSION)"
+	CATALOG_DIR="$(abspath $(CATALOG))" $(DEV_COMPOSE) --profile jobs run --build --rm catalog-load -version "$(VERSION)"
 
 # Boots a real Lima VM and takes minutes: not part of verify.
 e2e:

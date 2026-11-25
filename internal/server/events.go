@@ -43,19 +43,67 @@ type EventStore interface {
 
 // wireEvent is one event as sent; every field is a pointer so absence is visible.
 type wireEvent struct {
-	ID             *string `json:"id"`
-	Type           *string `json:"type"`
-	At             *string `json:"at"`
-	ItemID         *string `json:"item_id"`
-	Lab            *string `json:"lab"`
-	CatalogVersion *string `json:"catalog_version"`
-	Reason         *string `json:"reason"`
-	Detail         *string `json:"detail"`
-	Result         *string `json:"result"`
-	DurationMS     *int    `json:"duration_ms"`
-	Passed         *int    `json:"passed"`
-	Total          *int    `json:"total"`
-	Output         *string `json:"output"`
+	ID             *string     `json:"id"`
+	Type           *string     `json:"type"`
+	At             *string     `json:"at"`
+	ItemID         *string     `json:"item_id"`
+	Lab            *string     `json:"lab"`
+	CatalogVersion *string     `json:"catalog_version"`
+	Reason         *string     `json:"reason"`
+	Detail         *string     `json:"detail"`
+	Result         *string     `json:"result"`
+	DurationMS     *int        `json:"duration_ms"`
+	Passed         *int        `json:"passed"`
+	Total          *int        `json:"total"`
+	Output         *string     `json:"output"`
+	Checks         []wireCheck `json:"checks"`
+}
+
+// wireCheck is one entry of a doctor.run event.
+type wireCheck struct {
+	ID     *string `json:"id"`
+	Status *string `json:"status"`
+	Text   *string `json:"text"`
+	Fix    *string `json:"fix"`
+}
+
+const (
+	maxDoctorChecks = 20
+	maxDoctorText   = 200
+	maxDoctorFix    = 600
+)
+
+var doctorStatuses = map[string]bool{"ok": true, "warn": true, "fail": true, "unknown": true}
+
+// parseDoctorChecks validates the checks of a doctor.run event (design 3.9) and returns them with
+// the events payload, which keeps ids and statuses only.
+func parseDoctorChecks(in []wireCheck) ([]repo.DoctorCheckIn, []byte, bool) {
+	if len(in) < 1 || len(in) > maxDoctorChecks {
+		return nil, nil, false
+	}
+	seen := map[string]bool{}
+	out := make([]repo.DoctorCheckIn, 0, len(in))
+	slim := make([]map[string]string, 0, len(in))
+	for _, c := range in {
+		if c.ID == nil || c.Status == nil || c.Text == nil || !repo.ValidDoctorCheckID(*c.ID) || seen[*c.ID] || !doctorStatuses[*c.Status] {
+			return nil, nil, false
+		}
+		seen[*c.ID] = true
+		text, fix := noNUL(*c.Text), ""
+		if c.Fix != nil {
+			fix = noNUL(*c.Fix)
+		}
+		if n := utf8.RuneCountInString(text); n < 1 || n > maxDoctorText || utf8.RuneCountInString(fix) > maxDoctorFix {
+			return nil, nil, false
+		}
+		out = append(out, repo.DoctorCheckIn{ID: *c.ID, Status: *c.Status, Text: text, Fix: fix})
+		slim = append(slim, map[string]string{"id": *c.ID, "status": *c.Status})
+	}
+	b, err := json.Marshal(map[string]any{"checks": slim})
+	if err != nil {
+		return nil, nil, false
+	}
+	return out, b, true
 }
 
 // parseEvent decodes and validates one raw event; ok is false for any rule it breaks.
@@ -70,9 +118,12 @@ func parseEvent(raw json.RawMessage) (repo.EventIn, bool) {
 	if err := dec.Decode(&w); err != nil || dec.Decode(&struct{}{}) != io.EOF {
 		return out, false
 	}
-	if w.ID == nil || w.Type == nil || w.At == nil || w.ItemID == nil ||
-		!eventIDRE.MatchString(*w.ID) || len(*w.ItemID) < 3 || len(*w.ItemID) > 64 || !ticketIDRE.MatchString(*w.ItemID) ||
-		!strings.HasSuffix(*w.At, "Z") {
+	if w.ID == nil || w.Type == nil || w.At == nil || !eventIDRE.MatchString(*w.ID) || !strings.HasSuffix(*w.At, "Z") {
+		return out, false
+	}
+	// doctor.run is the one type with no item_id; every other type needs a ticket id.
+	if doctor := *w.Type == "doctor.run"; doctor != (w.ItemID == nil) ||
+		(!doctor && (len(*w.ItemID) < 3 || len(*w.ItemID) > 64 || !ticketIDRE.MatchString(*w.ItemID))) {
 		return out, false
 	}
 	at, err := time.Parse(time.RFC3339Nano, *w.At)
@@ -88,7 +139,7 @@ func parseEvent(raw json.RawMessage) (repo.EventIn, bool) {
 	present := map[string]bool{
 		"lab": w.Lab != nil, "catalog_version": w.CatalogVersion != nil, "reason": w.Reason != nil,
 		"detail": w.Detail != nil, "result": w.Result != nil, "duration_ms": w.DurationMS != nil,
-		"passed": w.Passed != nil, "total": w.Total != nil, "output": w.Output != nil,
+		"passed": w.Passed != nil, "total": w.Total != nil, "output": w.Output != nil, "checks": w.Checks != nil,
 	}
 	allowed := map[string][]string{
 		"ticket.started": {"lab", "catalog_version"},
@@ -96,6 +147,7 @@ func parseEvent(raw json.RawMessage) (repo.EventIn, bool) {
 		"lab.stopped":    {},
 		"lab.failed":     {"reason", "detail"},
 		"check.run":      {"result", "duration_ms", "passed", "total", "output"},
+		"doctor.run":     {"checks"},
 	}[*w.Type]
 	if allowed == nil { // unknown type, and hint.opened (server side only)
 		return out, false
@@ -106,7 +158,16 @@ func parseEvent(raw json.RawMessage) (repo.EventIn, bool) {
 		}
 	}
 
-	e := repo.EventIn{ClientID: id, Type: *w.Type, ItemID: *w.ItemID, ClientAt: at.UTC()}
+	e := repo.EventIn{ClientID: id, Type: *w.Type, ClientAt: at.UTC()}
+	if *w.Type == "doctor.run" {
+		checks, payload, ok := parseDoctorChecks(w.Checks)
+		if !ok {
+			return out, false
+		}
+		e.Checks, e.Payload = checks, payload
+		return e, true
+	}
+	e.ItemID = *w.ItemID
 	payload := map[string]any{"item_id": *w.ItemID}
 	switch *w.Type {
 	case "ticket.started":

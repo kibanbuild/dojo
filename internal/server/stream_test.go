@@ -163,3 +163,22 @@ func TestRunGivesUpOnAConnectThatNeverAnswers(t *testing.T) {
 		}
 	}
 }
+
+func TestStreamFrame(t *testing.T) {
+	tests := []struct {
+		name, msg, wantName, wantData string
+	}{
+		{"progress has no event key", `{"item_id":"a/b","state":"started"}`, "progress", `{"item_id":"a/b","state":"started"}`},
+		{"doctor", `{"event":"doctor","checks":[{"id":"git","status":"ok"}]}`, "doctor", `{"checks":[{"id":"git","status":"ok"}]}`},
+		{"not json is progress", `nope`, "progress", `nope`},
+		{"event of another type is progress", `{"event":3}`, "progress", `{"event":3}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			name, data := streamFrame([]byte(tt.msg))
+			if name != tt.wantName || string(data) != tt.wantData {
+				t.Fatalf("got %q %s", name, data)
+			}
+		})
+	}
+}

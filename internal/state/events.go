@@ -16,7 +16,7 @@ type ProgressEvent struct {
 	ID             string `json:"id"`
 	Type           string `json:"type"`
 	At             string `json:"at"`
-	ItemID         string `json:"item_id"`
+	ItemID         string `json:"item_id,omitempty"` // empty only for doctor.run
 	Lab            string `json:"lab,omitempty"`
 	CatalogVersion string `json:"catalog_version,omitempty"`
 	Reason         string `json:"reason,omitempty"`
@@ -26,6 +26,16 @@ type ProgressEvent struct {
 	Passed         *int   `json:"passed,omitempty"`
 	Total          *int   `json:"total,omitempty"`
 	Output         string `json:"output,omitempty"`
+	// Checks is the report of a doctor.run event.
+	Checks []DoctorCheck `json:"checks,omitempty"`
+}
+
+// DoctorCheck is one check of a queued doctor.run event.
+type DoctorCheck struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Text   string `json:"text"`
+	Fix    string `json:"fix"`
 }
 
 // EventQueue is the progress events waiting to be sent. Account is the learner they belong to, when

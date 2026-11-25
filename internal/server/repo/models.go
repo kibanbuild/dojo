@@ -72,6 +72,19 @@ type CliToken struct {
 	CliVersion string
 }
 
+type DoctorResult struct {
+	OrgID     pgtype.UUID
+	LearnerID pgtype.UUID
+	CheckID   string
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+	Status    string
+	Text      string
+	Fix       string
+	Source    string
+	CheckedAt pgtype.Timestamptz
+}
+
 type EmailLog struct {
 	ID        pgtype.UUID
 	OrgID     pgtype.UUID

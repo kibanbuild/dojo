@@ -208,3 +208,82 @@ func TestEventsNULBecomesReplacementCharacter(t *testing.T) {
 		t.Fatalf("%d %q %+v", rec.Code, rec.Body.String(), f.got)
 	}
 }
+
+func doctorRun(id, checks string) string {
+	return `{"id":"` + id + `","type":"doctor.run","at":"2026-11-26T09:00:00Z","checks":` + checks + `}`
+}
+
+func TestDoctorRunValidation(t *testing.T) {
+	ok := `[{"id":"memory","status":"ok","text":"16 GB RAM","fix":""},{"id":"ruleset","status":"fail","text":"main has no ruleset","fix":"line 1\nline 2"}]`
+	many := func(n int) string {
+		ids := []string{"memory", "disk", "cpu", "virtualization", "vm_manager", "git", "git_identity", "git_email_github", "editor", "ssh_key",
+			"ssh_keygen", "git_signing", "key_signing", "key_auth", "repo", "ruleset", "agents_md"}
+		var parts []string
+		for i := range n {
+			id := "memory"
+			if i < len(ids) {
+				id = ids[i]
+			}
+			parts = append(parts, `{"id":"`+id+`","status":"ok","text":"t","fix":""}`)
+		}
+		return "[" + strings.Join(parts, ",") + "]"
+	}
+	tests := []struct {
+		name, event string
+		bad         bool
+	}{
+		{"ok", doctorRun(evID1, ok), false},
+		{"unknown status is allowed", doctorRun(evID1, `[{"id":"repo","status":"unknown","text":"GitHub unreachable","fix":""}]`), false},
+		{"fix may be omitted", doctorRun(evID1, `[{"id":"git","status":"ok","text":"git is installed"}]`), false},
+		{"no checks", doctorRun(evID1, `[]`), true},
+		{"checks missing", `{"id":"` + evID1 + `","type":"doctor.run","at":"2026-11-26T09:00:00Z"}`, true},
+		{"null checks", doctorRun(evID1, `null`), true},
+		{"21 checks", doctorRun(evID1, many(21)), true},
+		{"17 distinct checks", doctorRun(evID1, many(17)), false},
+		{"duplicate id", doctorRun(evID1, `[{"id":"git","status":"ok","text":"a","fix":""},{"id":"git","status":"ok","text":"b","fix":""}]`), true},
+		{"unknown id", doctorRun(evID1, `[{"id":"nope","status":"ok","text":"a","fix":""}]`), true},
+		{"two_factor is learner only", doctorRun(evID1, `[{"id":"two_factor","status":"ok","text":"a","fix":""}]`), true},
+		{"secret_scanning is learner only", doctorRun(evID1, `[{"id":"secret_scanning","status":"ok","text":"a","fix":""}]`), true},
+		{"bad status", doctorRun(evID1, `[{"id":"git","status":"great","text":"a","fix":""}]`), true},
+		{"empty text", doctorRun(evID1, `[{"id":"git","status":"ok","text":"","fix":""}]`), true},
+		{"text of 200 characters", doctorRun(evID1, `[{"id":"git","status":"ok","text":"`+strings.Repeat("é", 200)+`","fix":""}]`), false},
+		{"text of 201 characters", doctorRun(evID1, `[{"id":"git","status":"ok","text":"`+strings.Repeat("é", 201)+`","fix":""}]`), true},
+		{"fix of 600 characters", doctorRun(evID1, `[{"id":"git","status":"ok","text":"a","fix":"`+strings.Repeat("x", 600)+`"}]`), false},
+		{"fix of 601 characters", doctorRun(evID1, `[{"id":"git","status":"ok","text":"a","fix":"`+strings.Repeat("x", 601)+`"}]`), true},
+		{"unknown check field", doctorRun(evID1, `[{"id":"git","status":"ok","text":"a","fix":"","extra":1}]`), true},
+		{"item_id refused", strings.Replace(doctorRun(evID1, ok), `"checks"`, `"item_id":"a/b","checks"`, 1), true},
+		{"checks on another type", strings.Replace(started(evID1), `"lab"`, `"checks":[],"lab"`, 1), true},
+		{"other types still need item_id", strings.Replace(started(evID1), `"item_id":"support-l1/perms-03",`, "", 1), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &fakeEvents{res: repo.EventsResult{Accepted: 1}}
+			rec := postEvents(f, &fakeSessions{cli: activeCLI(time.Now(), false)}, "Bearer "+goodCLIToken, "application/json", `{"events":[`+tt.event+`]}`)
+			if tt.bad {
+				if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"index":0`) || f.got != nil {
+					t.Fatalf("got %d %q", rec.Code, rec.Body.String())
+				}
+				return
+			}
+			if rec.Code != http.StatusOK || len(f.got) != 1 {
+				t.Fatalf("got %d %q", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestDoctorRunPayloadHasNoTextOrFix(t *testing.T) {
+	f := &fakeEvents{res: repo.EventsResult{Accepted: 1}}
+	body := doctorRun(evID1, `[{"id":"ruleset","status":"fail","text":"SECRETTEXT\u0000x","fix":"SECRETFIX"}]`)
+	rec := postEvents(f, &fakeSessions{cli: activeCLI(time.Now(), false)}, "Bearer "+goodCLIToken, "application/json", `{"events":[`+body+`]}`)
+	if rec.Code != 200 || len(f.got) != 1 {
+		t.Fatalf("got %d %q", rec.Code, rec.Body.String())
+	}
+	e := f.got[0]
+	if string(e.Payload) != `{"checks":[{"id":"ruleset","status":"fail"}]}` {
+		t.Fatalf("payload %s", e.Payload)
+	}
+	if e.ItemID != "" || len(e.Checks) != 1 || e.Checks[0].Text != "SECRETTEXT�x" || e.Checks[0].Fix != "SECRETFIX" {
+		t.Fatalf("event %+v", e)
+	}
+}

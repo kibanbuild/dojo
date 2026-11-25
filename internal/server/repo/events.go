@@ -27,6 +27,8 @@ type EventIn struct {
 	Passed *int32
 	Total  *int32
 	Output *string
+
+	Checks []DoctorCheckIn // doctor.run: no ItemID
 }
 
 // EventsResult counts one batch; Accepted includes the ignored events.
@@ -61,7 +63,9 @@ func (s *Store) RecordEvents(ctx context.Context, learnerID pgtype.UUID, evs []E
 
 	ids := make([]string, 0, len(evs))
 	for _, e := range evs {
-		ids = append(ids, e.ItemID)
+		if e.ItemID != "" {
+			ids = append(ids, e.ItemID)
+		}
 	}
 	found, err := q.ListTicketIDs(ctx, ListTicketIDsParams{OrgID: l.OrgID, Ids: ids})
 	if err != nil {
@@ -73,6 +77,7 @@ func (s *Store) RecordEvents(ctx context.Context, learnerID pgtype.UUID, evs []E
 	}
 
 	rows := map[string]*TicketProgress{}
+	doctorChanged := map[string]string{}
 	for _, e := range evs {
 		_, err := q.InsertEvent(ctx, InsertEventParams{
 			OrgID: l.OrgID, LearnerID: l.ID, ClientEventID: e.ClientID, Type: e.Type,
@@ -86,6 +91,12 @@ func (s *Store) RecordEvents(ctx context.Context, learnerID pgtype.UUID, evs []E
 			return res, fmt.Errorf("insert event: %w", err)
 		}
 		res.Accepted++
+		if e.Type == "doctor.run" {
+			if err := projectDoctorRun(ctx, q, l.OrgID, l.ID, e, now, doctorChanged); err != nil {
+				return res, err
+			}
+			continue
+		}
 		if !known[e.ItemID] {
 			res.Ignored++
 			continue
@@ -128,6 +139,9 @@ func (s *Store) RecordEvents(ctx context.Context, learnerID pgtype.UUID, evs []E
 		rows[e.ItemID] = &next
 	}
 	if err := notifyProgress(ctx, tx, l.ID, rows); err != nil {
+		return res, err
+	}
+	if err := notifyDoctor(ctx, tx, l.ID, doctorChanged); err != nil {
 		return res, err
 	}
 	if err := tx.Commit(ctx); err != nil {

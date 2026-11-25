@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -264,5 +265,12 @@ func TestPatchMeOtherDatabaseErrorIs500(t *testing.T) {
 	rec := doPatch(t, f, patchCall{cookie: true, csrf: true, body: `{"username":"abc"}`})
 	if rec.Code != http.StatusInternalServerError || rec.Body.String() != "{\"error\":\"server_error\"}\n" {
 		t.Fatalf("got %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMeResponseCarriesGithubID(t *testing.T) {
+	b, err := json.Marshal(newMeResponse(repo.Learner{GithubID: 4242, GithubLogin: "ada"}))
+	if err != nil || !strings.Contains(string(b), `"github_id":4242`) {
+		t.Fatalf("%s %v", b, err)
 	}
 }

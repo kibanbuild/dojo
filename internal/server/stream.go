@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,6 +16,25 @@ const (
 	streamPath             = "/v1/stream"
 	defaultStreamHeartbeat = 25 * time.Second
 )
+
+// streamFrame names a NOTIFY message for the stream: a message with a string `event` key is that
+// event, sent without the key; one without it is a progress message as before (design 3.9).
+func streamFrame(msg []byte) (name string, data []byte) {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(msg, &m) != nil {
+		return "progress", msg
+	}
+	var ev string
+	if json.Unmarshal(m["event"], &ev) != nil || ev == "" {
+		return "progress", msg
+	}
+	delete(m, "event")
+	b, err := json.Marshal(m)
+	if err != nil {
+		return "progress", msg
+	}
+	return ev, b
+}
 
 // ParseStreamHeartbeat reads STREAM_HEARTBEAT_SECONDS: empty is 25 s, shorter values are for tests.
 func ParseStreamHeartbeat(s string) (time.Duration, error) {
@@ -87,7 +107,8 @@ func (a Auth) stream(w http.ResponseWriter, r *http.Request) {
 		case <-a.Stream.Done():
 			return
 		case msg := <-sub.C:
-			ok = send("event: progress\ndata: %s\n\n", msg)
+			name, data := streamFrame(msg)
+			ok = send("event: %s\ndata: %s\n\n", name, data)
 		case <-sub.Wake:
 			ok = !sub.TakeResync() || send("event: resync\ndata: {}\n\n")
 		case <-tick.C:

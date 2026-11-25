@@ -26,6 +26,7 @@ type fakeCatalog struct {
 	total    int32
 	recent   []repo.ListLearnerRecentPassesRow
 	gotTZ    string
+	chosen   string // the learner's chosen path slug
 	err      error
 }
 
@@ -37,6 +38,10 @@ func (f *fakeCatalog) GetCatalogVersion(context.Context) (string, error) {
 		return "", pgx.ErrNoRows
 	}
 	return f.version, nil
+}
+
+func (f *fakeCatalog) GetLearnerChosenPathSlug(context.Context, pgtype.UUID) (string, error) {
+	return f.chosen, f.err
 }
 
 func (f *fakeCatalog) ListCatalogPaths(context.Context) ([]repo.ListCatalogPathsRow, error) {
@@ -209,6 +214,22 @@ func TestPathWithoutAnAvailablePath(t *testing.T) {
 	path, chosen, roles := getPath(t, &fakeCatalog{})
 	if path != nil || chosen || roles == nil || len(roles) != 0 {
 		t.Fatalf("%v %v %v", path, chosen, roles)
+	}
+}
+
+func TestPathReportsTheChosenPath(t *testing.T) {
+	f := populatedCatalog()
+	if _, chosen, _ := getPath(t, f); chosen {
+		t.Fatal("chosen without a choice")
+	}
+	f.chosen = "systems-devops"
+	if path, chosen, _ := getPath(t, f); !chosen || path == nil || *path != "systems-devops" {
+		t.Fatalf("%v %v", path, chosen)
+	}
+	// A choice that is not an available path in the catalog falls back to the default, unchosen.
+	f.chosen = "security"
+	if path, chosen, _ := getPath(t, f); chosen || path == nil || *path != "systems-devops" {
+		t.Fatalf("%v %v", path, chosen)
 	}
 }
 

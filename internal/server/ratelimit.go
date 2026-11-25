@@ -187,6 +187,11 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 		switch {
 		// The callback has its own limiter inside the handler, taken once the state cookie checks out.
 		case pattern == "GET "+callbackPath && r.URL.Path == callbackPath:
+		case isOnboardingWrite(pattern):
+			// Signed in, the shared learner write budget above applies; signed out, the per-IP auth limit.
+			if _, authed := principalOf(r.Context()); !authed {
+				lim = rl.Auth
+			}
 		case matches(pattern, r, isAuthPath), pattern == "DELETE /v1/me" && path.Clean("/"+r.URL.Path) == "/v1/me":
 			lim = rl.Auth
 		case matches(pattern, r, isTelemetryPath):
@@ -261,7 +266,7 @@ func isLearnerWrite(pattern string) bool {
 	case "PATCH /v1/me", "DELETE /v1/me", "DELETE /v1/me/devices/{id}":
 		return true
 	}
-	return false
+	return isOnboardingWrite(pattern)
 }
 
 func matches(pattern string, r *http.Request, is func(string) bool) bool {

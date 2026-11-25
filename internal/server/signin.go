@@ -61,6 +61,12 @@ type SignInStore interface {
 	SetLearnerAnalyticsConsentIfUnset(ctx context.Context, arg repo.SetLearnerAnalyticsConsentIfUnsetParams) (int64, error)
 	InsertSession(ctx context.Context, arg repo.InsertSessionParams) (repo.InsertSessionRow, error)
 	RevokeSession(ctx context.Context, id pgtype.UUID) error
+	// The path choice (design 3.9).
+	GetPathBySlug(ctx context.Context, slug string) (repo.GetPathBySlugRow, error)
+	SetLearnerChosenPath(ctx context.Context, arg repo.SetLearnerChosenPathParams) error
+	InsertPathWaitlist(ctx context.Context, arg repo.InsertPathWaitlistParams) error
+	DeletePathWaitlist(ctx context.Context, arg repo.DeletePathWaitlistParams) error
+	ApplyLearnerChoice(ctx context.Context, arg repo.ApplyLearnerChoiceParams) error
 }
 
 // SignIn runs the web OAuth flow (design 3.1).
@@ -192,6 +198,9 @@ type oauthState struct {
 	Age      bool   `json:"a"`
 	Terms    bool   `json:"t"`
 	Issued   int64  `json:"i"`
+	// Path and Waitlist are the verified dojo_path choice (design 3.9); the callback trusts only these.
+	Path     string   `json:"p,omitempty"`
+	Waitlist []string `json:"w,omitempty"`
 }
 
 func (s *SignIn) now() time.Time {
@@ -272,6 +281,8 @@ func (s *SignIn) start(w http.ResponseWriter, r *http.Request) {
 	}
 	st := oauthState{V: stateVersion, State: state, Verifier: verifier, Issued: s.now().Unix(),
 		Age: ticked(r.PostForm.Get("age")), Terms: ticked(r.PostForm.Get("terms"))}
+	choice, _ := s.readPathCookie(r)
+	st.Path, st.Waitlist = choice.Path, choice.Waitlist
 	http.SetCookie(w, s.stateCookie(s.seal(st), int(stateTTL.Seconds())))
 	http.Redirect(w, r, s.GitHub.AuthorizeURL(state, challenge, s.redirectURI()), http.StatusSeeOther)
 }
@@ -338,6 +349,12 @@ func (s *SignIn) callback(w http.ResponseWriter, r *http.Request) {
 		redirectSignin(w, r, "error=suspended")
 		return
 	}
+	// A failure here ends the sign-in before any session exists; the dojo_path cookie stays, so the retry applies it.
+	if err := s.applyChoice(ctx, l, st); err != nil {
+		slog.Error("sign-in: applying the path choice failed", "error", err)
+		redirectSignin(w, r, "error=server_error")
+		return
+	}
 	s.copyAnalyticsConsent(ctx, r, l)
 	token, err := randToken()
 	if err == nil {
@@ -355,6 +372,7 @@ func (s *SignIn) callback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.SetCookie(w, s.Auth.SetCookie(token))
+	http.SetCookie(w, s.pathCookie("", -1))
 	http.Redirect(w, r, "/app", http.StatusSeeOther)
 }
 

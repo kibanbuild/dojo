@@ -16,6 +16,7 @@ import (
 // CatalogStore is what GET /v1/catalog, /v1/path, /v1/today and /v1/activity read (design 3.8).
 type CatalogStore interface {
 	GetCatalogVersion(ctx context.Context) (string, error)
+	GetLearnerChosenPathSlug(ctx context.Context, id pgtype.UUID) (string, error)
 	ListCatalogPaths(ctx context.Context) ([]repo.ListCatalogPathsRow, error)
 	ListCatalogRoles(ctx context.Context) ([]repo.ListCatalogRolesRow, error)
 	ListCatalogPathRoles(ctx context.Context) ([]repo.ListCatalogPathRolesRow, error)
@@ -132,8 +133,8 @@ type pathResponse struct {
 	Roles  []pathRole `json:"roles"`
 }
 
-// path answers the learner's path with their ticket state. There is no chosen_path_id yet, so it
-// is always the first available path with chosen false (design 2.1, decision h).
+// path answers the learner's path with their ticket state: the chosen path with chosen true, else
+// the first available path with chosen false (design 2.1, decision h).
 func (a Auth) path(w http.ResponseWriter, r *http.Request) {
 	out, _, err := a.loadPath(r)
 	if err != nil {
@@ -153,25 +154,36 @@ func (a Auth) loadPath(r *http.Request) (pathResponse, map[string]time.Time, err
 	prs, err3 := c.ListCatalogPathRoles(s)
 	items, err4 := c.ListCatalogItems(s)
 	prog, err5 := c.ListLearnerTicketStates(s, p.learner)
-	if err := errors.Join(err1, err2, err3, err4, err5); err != nil {
+	chosen, err6 := c.GetLearnerChosenPathSlug(s, p.learner)
+	if errors.Is(err6, pgx.ErrNoRows) {
+		chosen, err6 = "", nil
+	}
+	if err := errors.Join(err1, err2, err3, err4, err5, err6); err != nil {
 		return pathResponse{}, nil, err
 	}
 	seen := make(map[string]time.Time, len(prog))
 	for _, x := range prog {
 		seen[x.ItemID] = x.LastSeenAt.Time
 	}
-	return buildPath(paths, roles, prs, items, prog), seen, nil
+	return buildPath(paths, roles, prs, items, prog, chosen), seen, nil
 }
 
 // buildPath is the learner's path with their ticket state, shared by GET /v1/path and /v1/today.
+// chosenSlug is the learner's available chosen path, empty when there is none.
 func buildPath(paths []repo.ListCatalogPathsRow, roles []repo.ListCatalogRolesRow, prs []repo.ListCatalogPathRolesRow,
-	items []repo.ListCatalogItemsRow, prog []repo.ListLearnerTicketStatesRow) pathResponse {
+	items []repo.ListCatalogItemsRow, prog []repo.ListLearnerTicketStatesRow, chosenSlug string) pathResponse {
 	out := pathResponse{Roles: []pathRole{}}
 	var chosen *repo.ListCatalogPathsRow
 	for i := range paths {
-		if paths[i].Status == "available" {
-			chosen = &paths[i]
+		if paths[i].Status != "available" {
+			continue
+		}
+		if chosenSlug != "" && paths[i].Slug == chosenSlug {
+			chosen, out.Chosen = &paths[i], true
 			break
+		}
+		if chosen == nil {
+			chosen = &paths[i]
 		}
 	}
 	if chosen == nil {

@@ -118,6 +118,8 @@ func newEnv(t *testing.T) *env {
 	t.Helper()
 	t.Setenv("DOJO_HOME", filepath.Join(t.TempDir(), "home"))
 	t.Setenv("DOJO_SSH_DIR", filepath.Join(t.TempDir(), "ssh"))
+	t.Setenv("HOME", t.TempDir()) // the practice clone lives at $HOME/dojo
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	f := &fakeLab{}
 	out := &bytes.Buffer{}
 	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)

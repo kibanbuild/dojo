@@ -54,13 +54,18 @@ type CLIGitHub interface {
 type CLIStore interface {
 	GetLearnerByGithubID(ctx context.Context, githubID int64) (repo.Learner, error)
 	UpsertLearner(ctx context.Context, arg repo.UpsertLearnerParams) (repo.Learner, error)
-	InsertCLIToken(ctx context.Context, arg repo.InsertCLITokenParams) (repo.InsertCLITokenRow, error)
+}
+
+// CLITokens writes a new CLI token and announces the login on the learner's stream in one transaction.
+type CLITokens interface {
+	InsertCLITokenAndNotify(ctx context.Context, arg repo.InsertCLITokenParams) (repo.InsertCLITokenRow, error)
 }
 
 // CLILogin turns a GitHub device-flow token into a CLI token (design 3.1).
 type CLILogin struct {
 	GitHub CLIGitHub
 	Store  CLIStore
+	Tokens CLITokens
 	// Backoff is the wait before each GitHub revoke retry; nil means the default.
 	Backoff []time.Duration
 }
@@ -135,7 +140,7 @@ func (c *CLILogin) login(w http.ResponseWriter, r *http.Request) {
 	}
 	token, err := newCLIToken()
 	if err == nil {
-		_, err = c.Store.InsertCLIToken(ctx, repo.InsertCLITokenParams{OrgID: l.OrgID, LearnerID: l.ID, TokenHash: HashToken(token),
+		_, err = c.Tokens.InsertCLITokenAndNotify(ctx, repo.InsertCLITokenParams{OrgID: l.OrgID, LearnerID: l.ID, TokenHash: HashToken(token),
 			DeviceName: req.DeviceName, Os: req.OS, CliVersion: req.CLIVersion})
 	}
 	if err != nil {

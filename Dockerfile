@@ -14,6 +14,7 @@ COPY internal/github ./internal/github
 COPY internal/mail ./internal/mail
 COPY internal/storage ./internal/storage
 COPY internal/catalog ./internal/catalog
+COPY internal/mentor ./internal/mentor
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/dojo-api ./cmd/dojo-api
 
 FROM ${GO_IMAGE} AS build-admin

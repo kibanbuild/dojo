@@ -60,6 +60,8 @@ type Auth struct {
 	StreamHeartbeat time.Duration
 	// Tickets backs GET /v1/tickets/{id} and POST /v1/tickets/{id}/hints/{n}; nil leaves them out.
 	Tickets *Tickets
+	// Onboarding backs GET /v1/onboarding (it also needs Catalog); nil leaves the route out.
+	Onboarding *Onboarding
 }
 
 // ParseOrigin validates PUBLIC_ORIGIN for the environment (local, pre or pro) and reports

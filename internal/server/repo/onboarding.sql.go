@@ -74,6 +74,25 @@ func (q *Queries) GetLearnerChosenPathSlug(ctx context.Context, id pgtype.UUID) 
 	return slug, err
 }
 
+const getOnboardingFacts = `-- name: GetOnboardingFacts :one
+SELECT
+    EXISTS (SELECT 1 FROM cli_tokens t WHERE t.learner_id = $1 AND revoked_at IS NULL) AS cli_connected,
+    EXISTS (SELECT 1 FROM ticket_progress p WHERE p.learner_id = $1 AND p.state IN ('passed', 'revisit')) AS finished
+`
+
+type GetOnboardingFactsRow struct {
+	CliConnected bool
+	Finished     bool
+}
+
+// What GET /v1/onboarding needs beyond the catalog and doctor rows (design 3.9).
+func (q *Queries) GetOnboardingFacts(ctx context.Context, id pgtype.UUID) (GetOnboardingFactsRow, error) {
+	row := q.db.QueryRow(ctx, getOnboardingFacts, id)
+	var i GetOnboardingFactsRow
+	err := row.Scan(&i.CliConnected, &i.Finished)
+	return i, err
+}
+
 const getPathBySlug = `-- name: GetPathBySlug :one
 SELECT id, slug, status FROM paths WHERE slug = $1
 `

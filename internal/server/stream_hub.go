@@ -20,6 +20,7 @@ const (
 	subBuffer            = 32
 	hubReconnectDelay    = time.Second
 	hubCommandTimeout    = 5 * time.Second
+	hubConnectTimeout    = 5 * time.Second
 )
 
 // ErrTooManyStreams means the learner already has the maximum of open streams on this task.
@@ -53,7 +54,9 @@ type hubCmd struct {
 // Hub is one API task's fan-out: a dedicated listener connection that LISTENs to a learner's
 // channel while that learner has an open stream (design 3.8).
 type Hub struct {
-	connect func(context.Context) (*pgx.Conn, error)
+	connect        func(context.Context) (*pgx.Conn, error)
+	connectTimeout time.Duration
+	reconnectDelay time.Duration
 
 	mu   sync.Mutex
 	subs map[string]map[*Sub]struct{}
@@ -65,7 +68,7 @@ type Hub struct {
 
 // NewHub returns a hub; connect opens the listener connection (outside the pool). Run must be started.
 func NewHub(connect func(context.Context) (*pgx.Conn, error)) *Hub {
-	return &Hub{connect: connect, subs: map[string]map[*Sub]struct{}{}, cmds: make(chan hubCmd), done: make(chan struct{})}
+	return &Hub{connect: connect, connectTimeout: hubConnectTimeout, reconnectDelay: hubReconnectDelay, subs: map[string]map[*Sub]struct{}{}, cmds: make(chan hubCmd), done: make(chan struct{})}
 }
 
 // Subscribe registers a stream and returns once its LISTEN is in place.
@@ -168,7 +171,9 @@ func (h *Hub) dispatch(n *pgconn.Notification) {
 func (h *Hub) Run(ctx context.Context) {
 	first := true
 	for ctx.Err() == nil {
-		conn, err := h.connect(ctx)
+		cctx, cancel := context.WithTimeout(ctx, h.connectTimeout)
+		conn, err := h.connect(cctx) // bounded: Subscribe waits behind this loop, and a blackholed dial lasts minutes
+		cancel()
 		if err == nil {
 			listening := map[string]bool{}
 			for _, ch := range h.channels() {
@@ -193,7 +198,7 @@ func (h *Hub) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(hubReconnectDelay):
+		case <-time.After(h.reconnectDelay):
 		}
 	}
 }

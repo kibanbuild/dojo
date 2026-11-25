@@ -86,6 +86,7 @@ func restartDB(t *testing.T, id string) {
 	for time.Now().Before(deadline) {
 		out, _ := exec.Command("docker", "inspect", "-f", "{{.State.Health.Status}}", id).Output()
 		if strings.TrimSpace(string(out)) == "healthy" {
+			waitStreamsServe(t)
 			return
 		}
 		time.Sleep(time.Second)

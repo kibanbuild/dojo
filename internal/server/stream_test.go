@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func TestParseStreamHeartbeat(t *testing.T) {
@@ -132,4 +134,32 @@ func streamChain2(f *fakeSessions, hub *Hub) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+streamPath, a.stream)
 	return a.Session(mux)
+}
+
+// A connect that never answers (a blackholed address) must not hold the listener loop for the
+// OS dial timeout: every Subscribe waits behind that loop.
+func TestRunGivesUpOnAConnectThatNeverAnswers(t *testing.T) {
+	calls := make(chan time.Duration, 8)
+	h := NewHub(func(ctx context.Context) (*pgx.Conn, error) {
+		start := time.Now()
+		<-ctx.Done()
+		calls <- time.Since(start)
+		return nil, ctx.Err()
+	})
+	h.connectTimeout = 50 * time.Millisecond
+	h.reconnectDelay = 10 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { h.Run(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+	for i := 0; i < 2; i++ {
+		select {
+		case d := <-calls:
+			if d > time.Second {
+				t.Fatalf("connect held for %v", d)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("attempt %d never ended: the listener loop is stuck in connect", i+1)
+		}
+	}
 }

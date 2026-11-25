@@ -1,5 +1,5 @@
 import { Navigate } from 'react-router';
-import { useMe } from './lib/me';
+import { SuspendedError, useMe } from './lib/me';
 import { Today } from './pages/Today';
 import { Settings } from './pages/Settings';
 import { Machines } from './pages/Machines';
@@ -26,11 +26,17 @@ function LoadFailed({ retry }: { retry: () => void }) {
   );
 }
 
+// A suspended account goes to O1 with the suspended notice instead of a retry that cannot help.
+function MeFailed({ error, retry }: { error: Error; retry: () => void }) {
+  if (error instanceof SuspendedError) return <Navigate to="/signin?error=suspended" replace />;
+  return <LoadFailed retry={retry} />;
+}
+
 // /app: signed out (401) goes to O1 at /app/signin; signed in goes to Today (L1 is home).
 export function App() {
   const me = useMe();
   if (me.isPending) return <Loading />;
-  if (me.isError) return <LoadFailed retry={() => void me.refetch()} />;
+  if (me.isError) return <MeFailed error={me.error} retry={() => void me.refetch()} />;
   if (me.data === null) return <Navigate to="/signin" replace />;
   return <Navigate to="/today" replace />;
 }
@@ -39,7 +45,7 @@ export function App() {
 export function TodayRoute() {
   const me = useMe();
   if (me.isPending) return <Loading />;
-  if (me.isError) return <LoadFailed retry={() => void me.refetch()} />;
+  if (me.isError) return <MeFailed error={me.error} retry={() => void me.refetch()} />;
   if (me.data === null) return <Navigate to="/signin" replace />;
   return <Today me={me.data} />;
 }
@@ -48,7 +54,7 @@ export function TodayRoute() {
 export function SettingsRoute() {
   const me = useMe();
   if (me.isPending) return <Loading />;
-  if (me.isError) return <LoadFailed retry={() => void me.refetch()} />;
+  if (me.isError) return <MeFailed error={me.error} retry={() => void me.refetch()} />;
   if (me.data === null) return <Navigate to="/signin" replace />;
   return <Settings me={me.data} />;
 }
@@ -57,7 +63,7 @@ export function SettingsRoute() {
 export function MachinesRoute() {
   const me = useMe();
   if (me.isPending) return <Loading />;
-  if (me.isError) return <LoadFailed retry={() => void me.refetch()} />;
+  if (me.isError) return <MeFailed error={me.error} retry={() => void me.refetch()} />;
   if (me.data === null) return <Navigate to="/signin" replace />;
   return <Machines me={me.data} />;
 }
@@ -66,7 +72,7 @@ export function MachinesRoute() {
 export function PathRoute() {
   const me = useMe();
   if (me.isPending) return <Loading />;
-  if (me.isError) return <LoadFailed retry={() => void me.refetch()} />;
+  if (me.isError) return <MeFailed error={me.error} retry={() => void me.refetch()} />;
   if (me.data === null) return <Navigate to="/signin" replace />;
   return <PathPage me={me.data} />;
 }
@@ -75,7 +81,7 @@ export function PathRoute() {
 export function TicketRoute() {
   const me = useMe();
   if (me.isPending) return <Loading />;
-  if (me.isError) return <LoadFailed retry={() => void me.refetch()} />;
+  if (me.isError) return <MeFailed error={me.error} retry={() => void me.refetch()} />;
   if (me.data === null) return <Navigate to="/signin" replace />;
   return <TicketPage me={me.data} />;
 }
@@ -83,6 +89,7 @@ export function TicketRoute() {
 // /app/signin: a signed-in browser has nothing to do here.
 export function SignInRoute() {
   const me = useMe();
-  if (me.data) return <Navigate to="/today" replace />;
+  // A refetch that fails keeps the old data, so a learner suspended mid-session still has me.data.
+  if (me.data && !me.isError) return <Navigate to="/today" replace />;
   return <SignInPage />;
 }

@@ -77,6 +77,88 @@ func (q *Queries) GetLearnerByID(ctx context.Context, id pgtype.UUID) (Learner, 
 	return i, err
 }
 
+const insertLearnerWithWelcome = `-- name: InsertLearnerWithWelcome :one
+WITH ins AS (
+    INSERT INTO learners (org_id, github_id, github_login, username, email, language,
+                          age_confirmed_at, terms_accepted_at, terms_version, usage_stats)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    ON CONFLICT (github_id) DO NOTHING
+    RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version
+), queued AS (
+    INSERT INTO email_outbox (learner_id, to_address, kind, ref)
+    SELECT id, email, 'E1', id::text FROM ins WHERE email IS NOT NULL
+    ON CONFLICT (kind, ref) DO NOTHING
+)
+SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version FROM ins
+`
+
+type InsertLearnerWithWelcomeParams struct {
+	OrgID           pgtype.UUID
+	GithubID        int64
+	GithubLogin     string
+	Username        string
+	Email           pgtype.Text
+	Language        string
+	AgeConfirmedAt  pgtype.Timestamptz
+	TermsAcceptedAt pgtype.Timestamptz
+	TermsVersion    string
+	UsageStats      bool
+}
+
+type InsertLearnerWithWelcomeRow struct {
+	ID               pgtype.UUID
+	OrgID            pgtype.UUID
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	GithubID         int64
+	GithubLogin      string
+	Username         string
+	Email            pgtype.Text
+	Language         string
+	AgeConfirmedAt   pgtype.Timestamptz
+	TermsAcceptedAt  pgtype.Timestamptz
+	UsageStats       bool
+	AnalyticsConsent pgtype.Bool
+	SuspendedAt      pgtype.Timestamptz
+	TermsVersion     string
+}
+
+// A new learner and their welcome mail (E1, ref = the learner id) in one statement, so both exist or
+// neither does. No row back means the GitHub account already had a learner (a concurrent first sign-in).
+func (q *Queries) InsertLearnerWithWelcome(ctx context.Context, arg InsertLearnerWithWelcomeParams) (InsertLearnerWithWelcomeRow, error) {
+	row := q.db.QueryRow(ctx, insertLearnerWithWelcome,
+		arg.OrgID,
+		arg.GithubID,
+		arg.GithubLogin,
+		arg.Username,
+		arg.Email,
+		arg.Language,
+		arg.AgeConfirmedAt,
+		arg.TermsAcceptedAt,
+		arg.TermsVersion,
+		arg.UsageStats,
+	)
+	var i InsertLearnerWithWelcomeRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GithubID,
+		&i.GithubLogin,
+		&i.Username,
+		&i.Email,
+		&i.Language,
+		&i.AgeConfirmedAt,
+		&i.TermsAcceptedAt,
+		&i.UsageStats,
+		&i.AnalyticsConsent,
+		&i.SuspendedAt,
+		&i.TermsVersion,
+	)
+	return i, err
+}
+
 const setLearnerAnalyticsConsentIfUnset = `-- name: SetLearnerAnalyticsConsentIfUnset :execrows
 UPDATE learners
 SET analytics_consent = $2, updated_at = now()

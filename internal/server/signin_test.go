@@ -61,6 +61,7 @@ func (f *fakeOAuth) Revoke(_ context.Context, tok string) error {
 type fakeStore struct {
 	known      *repo.Learner
 	upserts    []repo.UpsertLearnerParams
+	created    int // CreateLearner calls: each queues the welcome mail
 	conflicts  int // unique violations before the insert works
 	sessions   int
 	sessionErr error
@@ -94,6 +95,12 @@ func (f *fakeStore) UpsertLearner(_ context.Context, a repo.UpsertLearnerParams)
 		return repo.Learner{}, &pgconn.PgError{Code: "23505"}
 	}
 	return repo.Learner{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, OrgID: a.OrgID, Username: a.Username}, nil
+}
+
+// CreateLearner is the new-learner path: it records the same insert and counts the welcome-mail creations.
+func (f *fakeStore) CreateLearner(ctx context.Context, a repo.UpsertLearnerParams) (repo.Learner, error) {
+	f.created++
+	return f.UpsertLearner(ctx, a)
 }
 
 func (f *fakeStore) InsertSession(context.Context, repo.InsertSessionParams) (repo.InsertSessionRow, error) {
@@ -804,5 +811,23 @@ func TestCallbackCopiesTheConsentCookie(t *testing.T) {
 				t.Fatalf("consent writes %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// The welcome mail is queued by CreateLearner only, so a returning learner never gets a second one.
+func TestWelcomeIsQueuedOnlyForNewLearners(t *testing.T) {
+	r := newRig(t)
+	c, state := r.begin(t, startPath, bothTicks)
+	r.callback(c, "code=c&state="+state)
+	if r.st.created != 1 {
+		t.Fatalf("new learner: created=%d, want 1", r.st.created)
+	}
+
+	r = newRig(t)
+	r.st.known = &repo.Learner{Username: "ada"}
+	c, state = r.begin(t, startPath, "")
+	r.callback(c, "code=c&state="+state)
+	if r.st.created != 0 || len(r.st.upserts) != 1 {
+		t.Fatalf("returning learner: created=%d upserts=%d", r.st.created, len(r.st.upserts))
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kibanbuild/dojo/internal/github"
+	"github.com/kibanbuild/dojo/internal/mail"
 	"github.com/kibanbuild/dojo/internal/server"
 	"github.com/kibanbuild/dojo/internal/server/repo"
 	"github.com/kibanbuild/dojo/internal/storage"
@@ -85,6 +86,9 @@ func run(args []string) error {
 	hub := server.NewHub(store.ListenConn)
 	go hub.Run(ctx)
 	go server.RunExpiry(ctx, store, server.ExpiryInterval)
+	if err := startOutbox(ctx, store); err != nil {
+		return err
+	}
 
 	auth := server.Auth{Store: store.Queries(), Catalog: store.Queries(),
 		Bundles: &server.Bundles{Store: store.Queries(), Signer: objects}, Secure: secure, Events: store,
@@ -142,4 +146,24 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// startOutbox runs the email sender (design 3.3). With no DOJO_SMTP_HOST it logs that mail is off and
+// returns: queued mail then waits in email_outbox.
+func startOutbox(ctx context.Context, store *repo.Store) error {
+	host := os.Getenv("DOJO_SMTP_HOST")
+	if host == "" {
+		slog.Warn("DOJO_SMTP_HOST is not set: queued email will not be sent")
+		return nil
+	}
+	domain := os.Getenv("DOJO_EMAIL_DOMAIN")
+	if domain == "" {
+		return errors.New("DOJO_EMAIL_DOMAIN is required with DOJO_SMTP_HOST")
+	}
+	smtp := &mail.SMTP{Host: host, Port: envOr("DOJO_SMTP_PORT", "587"),
+		Username: os.Getenv("DOJO_SMTP_USERNAME"), Password: os.Getenv("DOJO_SMTP_PASSWORD")}
+	o := &server.Outbox{Queue: store, Reader: store.Queries(), Mail: smtp, Domain: domain, Origin: os.Getenv("PUBLIC_ORIGIN")}
+	slog.Info("email sender configured", "host", host, "port", smtp.Port, "domain", domain)
+	go server.RunOutbox(ctx, o, server.OutboxInterval)
+	return nil
 }

@@ -72,6 +72,16 @@ type CliToken struct {
 	CliVersion string
 }
 
+type EmailLog struct {
+	ID        pgtype.UUID
+	OrgID     pgtype.UUID
+	LearnerID pgtype.UUID
+	Kind      string
+	SentAt    pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
 type EmailOutbox struct {
 	ID        pgtype.UUID
 	LearnerID pgtype.UUID

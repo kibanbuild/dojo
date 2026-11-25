@@ -47,8 +47,9 @@ func TestMeThroughTheEdge(t *testing.T) {
 	if code != http.StatusOK || json.Unmarshal([]byte(body), &me) != nil || me["username"] != "grace" || me["github_login"] != "Grace" {
 		t.Fatalf("active: got %d %q", code, body)
 	}
-	if _, leaked := me["github_id"]; leaked {
-		t.Fatalf("github_id leaked: %q", body)
+	// github_id is the learner's own, for the git_identity fix text (design 3.9).
+	if id, ok := me["github_id"].(float64); !ok || id != 777001 {
+		t.Fatalf("github_id: %q", body)
 	}
 
 	asOwner(t, `UPDATE learners SET suspended_at = now() WHERE github_id = 777001`)

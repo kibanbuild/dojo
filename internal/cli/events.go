@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/kibanbuild/dojo/internal/doctor"
 	"github.com/kibanbuild/dojo/internal/lab"
 	"github.com/kibanbuild/dojo/internal/state"
 )
@@ -69,8 +70,32 @@ func (a *App) recordEvent(ev state.ProgressEvent) {
 		}
 		q.Account = acct
 	}
+	if ev.Type == "doctor.run" {
+		q.Events = dropDoctorRuns(q.Events) // an older result is stale
+	}
 	q.Events = append(q.Events, ev)
 	_ = state.SaveEvents(q)
+}
+
+// dropDoctorRuns removes every unsent doctor.run, so the queue keeps only the latest one.
+func dropDoctorRuns(evs []state.ProgressEvent) []state.ProgressEvent {
+	kept := make([]state.ProgressEvent, 0, len(evs))
+	for _, e := range evs {
+		if e.Type != "doctor.run" {
+			kept = append(kept, e)
+		}
+	}
+	return kept
+}
+
+// recordDoctor queues the report of dojo doctor as one doctor.run event.
+func (a *App) recordDoctor(results []doctor.Result) {
+	home, _ := os.UserHomeDir()
+	var checks []state.DoctorCheck
+	for _, c := range doctor.WireChecks(results, home) {
+		checks = append(checks, state.DoctorCheck(c))
+	}
+	a.recordEvent(state.ProgressEvent{Type: "doctor.run", Checks: checks})
 }
 
 // cutChars keeps at most n characters, cut on a character boundary.

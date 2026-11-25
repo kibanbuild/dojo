@@ -240,6 +240,7 @@ type meResponse struct {
 	ID               string  `json:"id"`
 	Username         string  `json:"username"`
 	GithubLogin      string  `json:"github_login"`
+	GithubID         int64   `json:"github_id"`
 	Email            *string `json:"email"`
 	Language         string  `json:"language"`
 	UsageStats       bool    `json:"usage_stats"`
@@ -263,7 +264,7 @@ func (a Auth) me(w http.ResponseWriter, r *http.Request) {
 
 func newMeResponse(l repo.Learner) meResponse {
 	out := meResponse{
-		ID: l.ID.String(), Username: l.Username, GithubLogin: l.GithubLogin,
+		ID: l.ID.String(), Username: l.Username, GithubLogin: l.GithubLogin, GithubID: l.GithubID,
 		Language: l.Language, UsageStats: l.UsageStats,
 	}
 	if l.Email.Valid {

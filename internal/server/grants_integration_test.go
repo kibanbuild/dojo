@@ -234,6 +234,23 @@ var grantCases = []struct {
 	{"dojo_api", "SELECT prune_events()", false},
 	{"dojo_admin", "SELECT prune_events()", false},
 
+	// doctor_results: the API reads, inserts and updates the projected columns, and deletes (the
+	// unconfirm route); identity columns and created_at never change from it. dojo_admin only reads.
+	{"dojo_api", "SELECT learner_id, check_id, created_at, updated_at, status, text, fix, source, checked_at FROM doctor_results", true},
+	{"dojo_api", "INSERT INTO doctor_results (org_id, learner_id, check_id, status, text, fix, source, checked_at) SELECT org_id, id, 'memory', 'ok', 't', '', 'cli', now() FROM learners WHERE false", true},
+	{"dojo_api", "INSERT INTO doctor_results (org_id, learner_id, check_id, status, text, fix, source, checked_at) SELECT org_id, id, 'memory', 'ok', 't', '', 'cli', now() FROM learners WHERE false ON CONFLICT (learner_id, check_id) DO UPDATE SET updated_at = now(), status = excluded.status, text = excluded.text, fix = excluded.fix, source = excluded.source, checked_at = excluded.checked_at WHERE doctor_results.checked_at <= excluded.checked_at", true},
+	{"dojo_api", "UPDATE doctor_results SET updated_at = now(), status = 'ok', text = 't', fix = '', source = 'cli', checked_at = now() WHERE false", true},
+	{"dojo_api", "DELETE FROM doctor_results WHERE false", true},
+	{"dojo_api", "INSERT INTO doctor_results (org_id, learner_id, check_id, status, text, source, checked_at, created_at) SELECT org_id, id, 'memory', 'ok', 't', 'cli', now(), now() FROM learners WHERE false", false},
+	{"dojo_api", "UPDATE doctor_results SET check_id = 'disk' WHERE false", false},
+	{"dojo_api", "UPDATE doctor_results SET learner_id = learner_id WHERE false", false},
+	{"dojo_api", "UPDATE doctor_results SET created_at = now() WHERE false", false},
+	{"dojo_api", "TRUNCATE doctor_results", false},
+	{"dojo_admin", "SELECT learner_id, check_id, status, text, fix, source, checked_at FROM doctor_results", true},
+	{"dojo_admin", "INSERT INTO doctor_results (org_id, learner_id, check_id, status, text, source, checked_at) SELECT org_id, id, 'memory', 'ok', 't', 'cli', now() FROM learners WHERE false", false},
+	{"dojo_admin", "UPDATE doctor_results SET status = 'ok' WHERE false", false},
+	{"dojo_admin", "DELETE FROM doctor_results WHERE false", false},
+
 	// ticket_progress: the API reads, inserts and updates the projected columns; identity columns,
 	// created_at and passed_commit (M3) never change from it; no DELETE. dojo_admin only reads (A2).
 	{"dojo_api", "SELECT learner_id, item_id, state, lab, lab_state, lab_state_at, first_started_at, last_seen_at, check_count, last_check_at, last_check_ok, last_check_passed, last_check_total, last_check_output, first_passed_at, passed_seconds, passed_commit FROM ticket_progress", true},

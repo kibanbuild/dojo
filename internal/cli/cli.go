@@ -550,6 +550,7 @@ func (a *App) doctor(ctx context.Context) error {
 			fmt.Fprintf(a.Out, "      -> %s\n", strings.ReplaceAll(r.Fix, "\n", "\n         "))
 		}
 	}
+	a.recordDoctor(results)
 	if !doctor.Ready(results) {
 		fmt.Fprintln(a.Out, "\nNot ready yet. Fix the ✗ items and run dojo doctor again.")
 		return ErrNotReady

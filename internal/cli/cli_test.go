@@ -460,6 +460,18 @@ func TestDoctorReady(t *testing.T) {
 	}
 }
 
+func TestDoctorKeyGroupFailureDoesNotBlock(t *testing.T) {
+	e := newEnv(t) // goodMachine, and the empty SSH dir: ssh_key and git_signing fail
+	if err := e.run(t, "doctor"); err != nil {
+		t.Fatalf("a failing key group on a good machine must exit 0: %v\n%s", err, e.out)
+	}
+	for _, want := range []string{"✗ no SSH key found", "✗ git is not set up to sign commits", "Ready. Next: dojo start"} {
+		if !strings.Contains(e.out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, e.out)
+		}
+	}
+}
+
 func TestDoctorNotReady(t *testing.T) {
 	e := newEnv(t)
 	e.lab.notReady = errors.New("limactl not found")

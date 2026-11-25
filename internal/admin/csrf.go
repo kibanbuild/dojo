@@ -71,15 +71,21 @@ func csrfProtect(want string, next http.HandlerFunc) http.HandlerFunc {
 }
 
 // sameOrigin is the cheap provenance layer. A header the browser did not send passes (the token
-// still decides); one it sent must say same origin.
+// still decides); one it sent must say same origin. Under Referrer-Policy: no-referrer, Chrome sends
+// Origin: null on a same-origin form post, so null passes only when Sec-Fetch-Site vouches for it.
 func sameOrigin(r *http.Request) bool {
-	switch r.Header.Get("Sec-Fetch-Site") {
+	site := r.Header.Get("Sec-Fetch-Site")
+	switch site {
 	case "", "same-origin", "none":
 	default:
 		return false
 	}
-	if o := r.Header.Get("Origin"); o != "" && o != "http://"+Host && o != "https://"+Host {
+	switch o := r.Header.Get("Origin"); o {
+	case "", "http://" + Host, "https://" + Host:
+		return true
+	case "null":
+		return site == "same-origin"
+	default:
 		return false
 	}
-	return true
 }

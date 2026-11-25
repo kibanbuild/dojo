@@ -66,6 +66,7 @@ func TestSignoutNeedsTheCSRFToken(t *testing.T) {
 		"wrong token":  {url.Values{"csrf_token": {"nope"}}, nil},
 		"other origin": {url.Values{"csrf_token": {tok}}, map[string]string{"Origin": "http://127.0.0.1:9999"}},
 		"cross-site":   {url.Values{"csrf_token": {tok}}, map[string]string{"Sec-Fetch-Site": "cross-site"}},
+		"null origin":  {url.Values{"csrf_token": {tok}}, map[string]string{"Origin": "null"}},
 	} {
 		if resp := b.postForm("/signout", c.form, c.hdr); resp.StatusCode != http.StatusForbidden {
 			t.Fatalf("%s: %d", name, resp.StatusCode)
@@ -76,7 +77,8 @@ func TestSignoutNeedsTheCSRFToken(t *testing.T) {
 		t.Fatalf("revoked sessions after refused posts: %s", got)
 	}
 
-	resp := b.postForm("/signout", url.Values{"csrf_token": {tok}}, map[string]string{"Origin": "http://" + admin.Host})
+	// What Chrome sends for a same-origin form post under Referrer-Policy: no-referrer.
+	resp := b.postForm("/signout", url.Values{"csrf_token": {tok}}, map[string]string{"Origin": "null", "Sec-Fetch-Site": "same-origin"})
 	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/signin" {
 		t.Fatalf("signout with token: %d %q", resp.StatusCode, resp.Header.Get("Location"))
 	}

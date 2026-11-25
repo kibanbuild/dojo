@@ -236,6 +236,8 @@ services:
       FAKE_GITHUB_PUBLIC_URL: ${FAKE_GITHUB_PUBLIC_URL:-http://localhost:8081}
       # Seconds between polls; tests and the dojo login e2e can lower it.
       FAKE_GITHUB_DEVICE_INTERVAL: ${FAKE_GITHUB_DEVICE_INTERVAL:-5}
+      # Unauthenticated reads allowed per remote address per hour; 0 is no limit (the rate-limit test sets it).
+      FAKE_GITHUB_RATE_LIMIT: ${FAKE_GITHUB_RATE_LIMIT:-0}
     ports:
       # The browser is redirected to the authorize page. Unset = 8081; set but empty = a random free port.
       - "127.0.0.1:${FAKE_GITHUB_PORT-8081}:8081"

@@ -38,6 +38,14 @@ func run() error {
 		}
 		interval = time.Duration(n) * time.Second
 	}
+	rateLimit := 0
+	if v := os.Getenv("FAKE_GITHUB_RATE_LIMIT"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return fmt.Errorf("FAKE_GITHUB_RATE_LIMIT must be a whole number >= 0, got %q", v)
+		}
+		rateLimit = n
+	}
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {
 		addr = ":8081"
@@ -48,7 +56,7 @@ func run() error {
 	srv := &http.Server{
 		Addr: addr,
 		Handler: fakegithub.New(fakegithub.Config{Clients: clients, Users: fakegithub.DefaultUsers(),
-			PublicURL: os.Getenv("FAKE_GITHUB_PUBLIC_URL"), DeviceInterval: interval}),
+			PublicURL: os.Getenv("FAKE_GITHUB_PUBLIC_URL"), DeviceInterval: interval, RateLimit: rateLimit}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

@@ -27,3 +27,26 @@ FROM catalog_items WHERE id = $1 AND bundle_key IS NOT NULL;
 
 -- name: ListLearnerTicketStates :many
 SELECT item_id, state, lab_state, last_seen_at FROM ticket_progress WHERE learner_id = $1;
+
+-- GET /v1/activity (design 3.8): first passes only, bucketed by the day in the learner's zone.
+-- name: ListLearnerActivityDays :many
+SELECT (p.first_passed_at AT TIME ZONE @tz::text)::date AS day, count(*)::int AS passes
+FROM ticket_progress p
+JOIN catalog_items i ON i.id = p.item_id AND i.kind = 'ticket'
+WHERE p.learner_id = @learner_id AND p.first_passed_at >= @since::timestamptz
+GROUP BY 1
+ORDER BY 1;
+
+-- name: CountLearnerPasses :one
+SELECT count(*)::int AS total
+FROM ticket_progress p
+JOIN catalog_items i ON i.id = p.item_id AND i.kind = 'ticket'
+WHERE p.learner_id = $1 AND p.first_passed_at IS NOT NULL;
+
+-- name: ListLearnerRecentPasses :many
+SELECT p.item_id, i.title, p.first_passed_at, p.passed_commit
+FROM ticket_progress p
+JOIN catalog_items i ON i.id = p.item_id AND i.kind = 'ticket'
+WHERE p.learner_id = $1 AND p.first_passed_at IS NOT NULL
+ORDER BY p.first_passed_at DESC, p.item_id
+LIMIT 3;

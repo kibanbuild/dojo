@@ -822,7 +822,7 @@ request within 30 days is a manual backup restore, not a soft delete.
 
 ### 3.6 API groups
 
-`/v1/auth/*`, `/v1/me` and prefs, `/v1/path`, `/v1/today` and `/v1/catalog`, `/v1/events`, `/v1/stream` (SSE),
+`/v1/auth/*`, `/v1/me` and prefs, `/v1/path`, `/v1/today`, `/v1/activity` and `/v1/catalog`, `/v1/events`, `/v1/stream` (SSE),
 `/v1/tickets/:id/*` (bundle, progress, written hints; M2 routes in section 3.8), `/v1/hints/ai`, `/v1/quiz`, `/v1/writing`,
 `/v1/labs` (hosted start, stop, terminal ticket), `/v1/exams/*`, `/v1/billing/*`, `/v1/inbox`,
 `/v1/push`, `/v1/reports`, `/v1/telemetry`, `/v1/webhooks/{stripe,ses}`, `/v1/health`.
@@ -1220,10 +1220,10 @@ collide.
   `409 hint_locked` (`n` above 1 and hint `n - 1` not open; the order check is skipped when the ticket's `state` is passed or revisit), plus the
   usual `401`, `403`, `429` (it shares the events budget) and `500`.
 
-**Read routes.** `GET /v1/catalog`, `/v1/path`, `/v1/today` and `/v1/tickets/{id}` take the cookie
+**Read routes.** `GET /v1/catalog`, `/v1/path`, `/v1/today`, `/v1/activity` and `/v1/tickets/{id}` take the cookie
 or the bearer of an active learner and share a budget of 120 reads a minute per learner. Errors,
 all `{"error": "<code>"}`: `401 unauthenticated`, `403 account_suspended`, `404 not_found` (only
-the ticket route), `429 rate_limited` with `Retry-After`, `500 server_error`. Answers are
+the ticket route), `400 bad_request` (only the activity route, an invalid `tz`), `429 rate_limited` with `Retry-After`, `500 server_error`. Answers are
 `Cache-Control: no-store`. Examples, trimmed to one item:
 
 `GET /v1/catalog` is the public catalog (no brief, no hints, no learner data):
@@ -1277,6 +1277,25 @@ the role that holds `current`, or else `next`. When every ticket of every open r
           "lab_state": null},
  "role": {"slug": "foundations", "title": "Foundations", "tickets_passed": 3, "tickets_total": 6},
  "all_passed": false}
+```
+
+`GET /v1/activity` backs the activity panel of L1 Today: a 20-week by 7-day graph of passes and the
+latest three pass lines, without one ticket read per pass. It counts first passes (`first_passed_at`,
+which a revisit never changes) of tickets, never quizzes, for the calling learner only. `from` and `to`
+are the 140 days ending today, inclusive. A day is a calendar day in the zone given by the optional
+`tz` query parameter, an IANA name such as `Europe/Madrid` (at most 64 characters, `UTC` when absent;
+an unknown name or `Local` answers `400 bad_request`); the app sends the browser's zone. The api binary embeds Go's tz database (`time/tzdata`, about 450 KB) because the image is `FROM scratch`; a name Go accepts but Postgres rejects also answers `400 bad_request`. `days` lists
+only the days with `count` above 0, ascending. `total` counts every first pass ever, not only the
+window. `recent` is the last three by `first_passed_at`, newest first, with the ticket's catalog title;
+`commit` is `passed_commit`, `null` until M3. The three reads use the `ticket_progress` primary key
+(`learner_id, item_id`); no extra index is needed at a catalog of hundreds of tickets per learner.
+
+```json
+{"from": "2026-07-09", "to": "2026-11-25",
+ "days": [{"day": "2026-11-23", "count": 1}, {"day": "2026-11-24", "count": 2}],
+ "total": 9,
+ "recent": [{"ticket_id": "foundations/terminal-04", "title": "Count the lines",
+             "at": "2026-11-24T21:30:00Z", "commit": null}]}
 ```
 
 `GET /v1/tickets/{id}` is L3. `hints` holds only the opened ones, as `{n, text}`; a locked hint is

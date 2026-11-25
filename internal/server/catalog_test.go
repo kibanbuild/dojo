@@ -22,6 +22,10 @@ type fakeCatalog struct {
 	pathRole []repo.ListCatalogPathRolesRow
 	items    []repo.ListCatalogItemsRow
 	progress []repo.ListLearnerTicketStatesRow
+	days     []repo.ListLearnerActivityDaysRow
+	total    int32
+	recent   []repo.ListLearnerRecentPassesRow
+	gotTZ    string
 	err      error
 }
 
@@ -209,7 +213,7 @@ func TestPathWithoutAnAvailablePath(t *testing.T) {
 }
 
 func TestCatalogRoutesRefuse(t *testing.T) {
-	for _, route := range []string{"/v1/catalog", "/v1/path", "/v1/today"} {
+	for _, route := range []string{"/v1/catalog", "/v1/path", "/v1/today", "/v1/activity"} {
 		if rec := getCatalogRoute(t, populatedCatalog(), route, false, true); rec.Code != 401 || rec.Body.String() != "{\"error\":\"unauthenticated\"}\n" {
 			t.Fatalf("%s anonymous: %d %s", route, rec.Code, rec.Body)
 		}
@@ -226,7 +230,7 @@ func TestReadsShareOneBudgetPerLearner(t *testing.T) {
 	s := &fakeSessions{row: activeRow(time.Now(), false)}
 	h := New(fakeReady{}, Auth{Store: s, Catalog: populatedCatalog()}, testLimits(3), nil, nil)
 	var codes []int
-	for _, route := range []string{"/v1/catalog", "/v1/path", "/v1/today", "/v1/catalog"} {
+	for _, route := range []string{"/v1/catalog", "/v1/path", "/v1/today", "/v1/activity", "/v1/catalog"} {
 		req := httptest.NewRequest(http.MethodGet, route, nil)
 		req.AddCookie(&http.Cookie{Name: SessionCookie, Value: goodToken})
 		rec := httptest.NewRecorder()

@@ -13,7 +13,7 @@ import (
 	"github.com/kibanbuild/dojo/internal/server/repo"
 )
 
-// CatalogStore is what GET /v1/catalog and GET /v1/path read (design 3.8).
+// CatalogStore is what GET /v1/catalog, /v1/path, /v1/today and /v1/activity read (design 3.8).
 type CatalogStore interface {
 	GetCatalogVersion(ctx context.Context) (string, error)
 	ListCatalogPaths(ctx context.Context) ([]repo.ListCatalogPathsRow, error)
@@ -21,6 +21,9 @@ type CatalogStore interface {
 	ListCatalogPathRoles(ctx context.Context) ([]repo.ListCatalogPathRolesRow, error)
 	ListCatalogItems(ctx context.Context) ([]repo.ListCatalogItemsRow, error)
 	ListLearnerTicketStates(ctx context.Context, learnerID pgtype.UUID) ([]repo.ListLearnerTicketStatesRow, error)
+	ListLearnerActivityDays(ctx context.Context, arg repo.ListLearnerActivityDaysParams) ([]repo.ListLearnerActivityDaysRow, error)
+	CountLearnerPasses(ctx context.Context, learnerID pgtype.UUID) (int32, error)
+	ListLearnerRecentPasses(ctx context.Context, learnerID pgtype.UUID) ([]repo.ListLearnerRecentPassesRow, error)
 }
 
 type catalogPath struct {

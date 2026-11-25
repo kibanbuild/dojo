@@ -50,7 +50,7 @@ type SessionStore interface {
 // Auth authenticates requests by session cookie or CLI bearer token.
 type Auth struct {
 	Store   SessionStore
-	Catalog CatalogStore // nil leaves GET /v1/catalog, /v1/path and /v1/today out
+	Catalog CatalogStore // nil leaves GET /v1/catalog, /v1/path, /v1/today and /v1/activity out
 	Bundles *Bundles     // nil leaves GET /v1/tickets/{id}/bundle out
 	Secure  bool         // cookie Secure flag, from PUBLIC_ORIGIN
 	// Events backs POST /v1/events; nil leaves the route out.

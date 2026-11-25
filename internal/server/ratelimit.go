@@ -27,7 +27,7 @@ const (
 	writeBurst = 10
 	writePer   = time.Minute
 
-	// Read routes (catalog, path, today, ticket), one budget per learner across routes and devices.
+	// Read routes (catalog, path, today, activity, ticket), one budget per learner across routes and devices.
 	readBurst = 120
 	readPer   = time.Minute
 	// Stream connections per learner (design 3.8).
@@ -251,7 +251,8 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 
 // isLearnerRead reports the routed patterns that take the per-learner read budget.
 func isLearnerRead(pattern string) bool {
-	return pattern == "GET /v1/catalog" || pattern == "GET /v1/path" || pattern == "GET /v1/today"
+	return pattern == "GET /v1/catalog" || pattern == "GET /v1/path" || pattern == "GET /v1/today" ||
+		pattern == "GET /v1/activity"
 }
 
 // isLearnerWrite reports the routed patterns that take the per-learner write budget.

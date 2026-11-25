@@ -175,7 +175,8 @@ var grantCases = []struct {
 	{"dojo_admin", "SELECT prune_admin_audit()", false},
 
 	// email_outbox: both service roles select and insert the queueing columns; id, sent_at and
-	// created_at keep defaults; no UPDATE (mark_email_sent() lands in M3) and no DELETE.
+	// created_at keep defaults; no UPDATE and no DELETE: the sender changes a row only through
+	// mark_email_sent(), which dojo_api alone may execute. email_log has no service grant at all.
 	{"dojo_api", "SELECT id, learner_id, to_address, kind, ref, sent_at, created_at FROM email_outbox", true},
 	{"dojo_api", "INSERT INTO email_outbox (learner_id, to_address, kind, ref) SELECT NULL, 'a@b.c', 'E1', 'x' WHERE false", true},
 	{"dojo_api", "INSERT INTO email_outbox (learner_id, to_address, kind, ref, sent_at) SELECT NULL, 'a@b.c', 'E1', 'x', now() WHERE false", false},
@@ -190,6 +191,15 @@ var grantCases = []struct {
 	{"dojo_admin", "UPDATE email_outbox SET sent_at = now() WHERE false", false},
 	{"dojo_admin", "DELETE FROM email_outbox WHERE false", false},
 	{"dojo_admin", "TRUNCATE email_outbox", false},
+	{"dojo_api", "SELECT mark_email_sent('0b0b0b0b-0000-4000-8000-000000000000')", true},
+	{"dojo_admin", "SELECT mark_email_sent('0b0b0b0b-0000-4000-8000-000000000000')", false},
+	{"dojo_api", "SELECT count(*) FROM email_log", false},
+	{"dojo_api", "INSERT INTO email_log (org_id, learner_id, kind) SELECT id, gen_random_uuid(), 'E1' FROM orgs WHERE false", false},
+	{"dojo_api", "UPDATE email_log SET kind = 'E2' WHERE false", false},
+	{"dojo_api", "DELETE FROM email_log WHERE false", false},
+	{"dojo_admin", "SELECT count(*) FROM email_log", false},
+	{"dojo_admin", "INSERT INTO email_log (org_id, learner_id, kind) SELECT id, gen_random_uuid(), 'E1' FROM orgs WHERE false", false},
+	{"dojo_admin", "DELETE FROM email_log WHERE false", false},
 	// events: the API inserts and reads (ON CONFLICT DO NOTHING RETURNING); append-only, no UPDATE or
 	// DELETE; id and at keep defaults; no operator access. prune_events() is owner-only.
 	{"dojo_api", "SELECT id, learner_id, client_event_id, type, payload, at, client_at FROM events", true},

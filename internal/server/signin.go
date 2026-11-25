@@ -56,6 +56,8 @@ type SignInStore interface {
 	GetOrgBySlug(ctx context.Context, slug string) (repo.Org, error)
 	GetLearnerByGithubID(ctx context.Context, githubID int64) (repo.Learner, error)
 	UpsertLearner(ctx context.Context, arg repo.UpsertLearnerParams) (repo.Learner, error)
+	// CreateLearner inserts a new learner and queues their welcome mail (E1) in the same statement.
+	CreateLearner(ctx context.Context, arg repo.UpsertLearnerParams) (repo.Learner, error)
 	SetLearnerAnalyticsConsentIfUnset(ctx context.Context, arg repo.SetLearnerAnalyticsConsentIfUnsetParams) (int64, error)
 	InsertSession(ctx context.Context, arg repo.InsertSessionParams) (repo.InsertSessionRow, error)
 	RevokeSession(ctx context.Context, id pgtype.UUID) error
@@ -454,7 +456,7 @@ func (s *SignIn) learner(ctx context.Context, u github.User, email string, st oa
 	// The server clock records the confirmation; the cookie only said the boxes were ticked.
 	at := pgtype.Timestamptz{Time: s.now(), Valid: true}
 	return createWithUsername(u.Login, u.ID, func(name string) (repo.Learner, error) {
-		return s.Store.UpsertLearner(ctx, repo.UpsertLearnerParams{OrgID: org.ID, GithubID: u.ID, GithubLogin: u.Login,
+		return s.Store.CreateLearner(ctx, repo.UpsertLearnerParams{OrgID: org.ID, GithubID: u.ID, GithubLogin: u.Login,
 			Username: name, Email: mail, Language: "en", AgeConfirmedAt: at, TermsAcceptedAt: at, TermsVersion: s.TermsVersion, UsageStats: true})
 	})
 }

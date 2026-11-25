@@ -230,6 +230,10 @@ func TestWebSignInWithoutEmailGrant(t *testing.T) {
 	if code, me := b.me(); code != http.StatusOK || me["email"] != nil {
 		t.Fatalf("me: %d %v", code, me)
 	}
+	// No address, so no welcome mail is queued (a later prompt asks for one).
+	if got := asOwner(t, "SELECT count(*) FROM email_outbox WHERE ref IN (SELECT id::text FROM learners WHERE github_id = 1003)"); got != "0" {
+		t.Fatalf("queued mail for a learner with no address: %s", got)
+	}
 }
 
 func TestWebSignInSuspendedLearnerGetsNoSession(t *testing.T) {

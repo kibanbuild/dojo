@@ -34,3 +34,9 @@ SELECT @org_id::uuid, @learner_id::uuid, p.id
 FROM paths p
 WHERE p.slug = ANY(@waitlist::text[]) AND p.status = 'planned'
 ON CONFLICT DO NOTHING;
+
+-- What GET /v1/onboarding needs beyond the catalog and doctor rows (design 3.9).
+-- name: GetOnboardingFacts :one
+SELECT
+    EXISTS (SELECT 1 FROM cli_tokens t WHERE t.learner_id = @id AND revoked_at IS NULL) AS cli_connected,
+    EXISTS (SELECT 1 FROM ticket_progress p WHERE p.learner_id = @id AND p.state IN ('passed', 'revisit')) AS finished;

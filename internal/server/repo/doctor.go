@@ -148,7 +148,7 @@ func notifyDoctor(ctx context.Context, tx pgx.Tx, learner pgtype.UUID, changed m
 	for _, id := range ids {
 		list = append(list, DoctorChange{id, changed[id]})
 	}
-	if _, err := tx.Exec(ctx, "SELECT pg_notify($1, $2)", LearnerChannel(learner), string(DoctorChangePayload(list))); err != nil {
+	if err := notifyLearner(ctx, tx, learner, DoctorChangePayload(list)); err != nil {
 		return fmt.Errorf("notify doctor: %w", err)
 	}
 	return nil

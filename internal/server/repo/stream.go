@@ -46,6 +46,12 @@ func ProgressPayload(p TicketProgress) []byte {
 	return b
 }
 
+// notifyLearner sends one message on the learner's channel inside tx, so it is delivered at commit.
+func notifyLearner(ctx context.Context, tx pgx.Tx, learner pgtype.UUID, msg []byte) error {
+	_, err := tx.Exec(ctx, "SELECT pg_notify($1, $2)", LearnerChannel(learner), string(msg))
+	return err
+}
+
 // notifyProgress sends one message per changed row inside tx, so it is delivered only at commit.
 func notifyProgress(ctx context.Context, tx pgx.Tx, learner pgtype.UUID, rows map[string]*TicketProgress) error {
 	items := make([]string, 0, len(rows))
@@ -54,7 +60,7 @@ func notifyProgress(ctx context.Context, tx pgx.Tx, learner pgtype.UUID, rows ma
 	}
 	sort.Strings(items)
 	for _, id := range items {
-		if _, err := tx.Exec(ctx, "SELECT pg_notify($1, $2)", LearnerChannel(learner), string(ProgressPayload(*rows[id]))); err != nil {
+		if err := notifyLearner(ctx, tx, learner, ProgressPayload(*rows[id])); err != nil {
 			return fmt.Errorf("notify: %w", err)
 		}
 	}

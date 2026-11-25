@@ -138,7 +138,7 @@ func TestActivityQueriesUseThePrimaryKey(t *testing.T) {
 		asOwner(t, "ANALYZE ticket_progress")
 	})
 	asOwner(t, "INSERT INTO ticket_progress (org_id, learner_id, item_id, state, first_started_at, first_passed_at) "+
-		"SELECT l.org_id, l.id, i.id, 'passed', now() - interval '1 day', now() - (random() * 300 || ' days')::interval "+
+		"SELECT l.org_id, l.id, i.id, 'passed', now() - interval '1 day', now() - random() * interval '300 days' "+
 		"FROM learners l JOIN catalog_items i ON i.id LIKE 'foundations/bulk-%' WHERE l.github_id >= 950000000 OR l.github_id = 1001")
 	asOwner(t, "ANALYZE ticket_progress")
 	lid := "(SELECT id FROM learners WHERE github_id = 1001)"

@@ -60,6 +60,9 @@ func New(ready Readiness, auth Auth, limits *RateLimits, signin *SignIn, cli *CL
 		signin.limits = limits
 		mux.HandleFunc("POST "+startPath, signin.start)
 		mux.HandleFunc("GET "+callbackPath, signin.callback)
+		mux.HandleFunc("POST "+pathChoicePath, signin.postPath)
+		mux.HandleFunc("POST "+pathWaitlistPath, signin.postWaitlist)
+		mux.HandleFunc(pathWaitlistRoute, signin.deleteWaitlist)
 	}
 	return auth.Session(limits.wrap(mux, CSRF(mux)))
 }

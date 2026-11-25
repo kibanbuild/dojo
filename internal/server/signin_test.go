@@ -70,6 +70,45 @@ type fakeStore struct {
 
 	consents   []repo.SetLearnerAnalyticsConsentIfUnsetParams
 	consentErr error
+
+	paths     map[string]repo.GetPathBySlugRow // slug -> row, for the onboarding routes
+	applies   []repo.ApplyLearnerChoiceParams
+	applyErr  error
+	chosen    []repo.SetLearnerChosenPathParams
+	listed    []repo.InsertPathWaitlistParams
+	unlisted  []repo.DeletePathWaitlistParams
+	choiceErr error
+}
+
+func (f *fakeStore) GetPathBySlug(_ context.Context, slug string) (repo.GetPathBySlugRow, error) {
+	if f.choiceErr != nil {
+		return repo.GetPathBySlugRow{}, f.choiceErr
+	}
+	p, ok := f.paths[slug]
+	if !ok {
+		return repo.GetPathBySlugRow{}, pgx.ErrNoRows
+	}
+	return p, nil
+}
+
+func (f *fakeStore) SetLearnerChosenPath(_ context.Context, a repo.SetLearnerChosenPathParams) error {
+	f.chosen = append(f.chosen, a)
+	return nil
+}
+
+func (f *fakeStore) InsertPathWaitlist(_ context.Context, a repo.InsertPathWaitlistParams) error {
+	f.listed = append(f.listed, a)
+	return nil
+}
+
+func (f *fakeStore) DeletePathWaitlist(_ context.Context, a repo.DeletePathWaitlistParams) error {
+	f.unlisted = append(f.unlisted, a)
+	return nil
+}
+
+func (f *fakeStore) ApplyLearnerChoice(_ context.Context, a repo.ApplyLearnerChoiceParams) error {
+	f.applies = append(f.applies, a)
+	return f.applyErr
 }
 
 func (f *fakeStore) SetLearnerAnalyticsConsentIfUnset(_ context.Context, a repo.SetLearnerAnalyticsConsentIfUnsetParams) (int64, error) {

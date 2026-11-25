@@ -127,6 +127,7 @@ type Learner struct {
 	AnalyticsConsent pgtype.Bool
 	SuspendedAt      pgtype.Timestamptz
 	TermsVersion     string
+	ChosenPathID     pgtype.UUID
 }
 
 type Operator struct {
@@ -165,6 +166,14 @@ type PathRole struct {
 	PathID    pgtype.UUID
 	RoleID    pgtype.UUID
 	Position  int32
+}
+
+type PathWaitlist struct {
+	OrgID     pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+	LearnerID pgtype.UUID
+	PathID    pgtype.UUID
 }
 
 type Role struct {

@@ -72,10 +72,10 @@ func write(ctx context.Context, tx pgx.Tx, cat *catalog.Catalog, bundles []*cata
 	}
 	for _, r := range cat.Roles {
 		roleSlugs = append(roleSlugs, r.Slug)
-		if err := exec(`INSERT INTO roles (org_id, slug, title, kind, has_exam, advanced) VALUES ($1, $2, $3, $4, $5, $6)
-			ON CONFLICT (slug) DO UPDATE SET title = EXCLUDED.title, kind = EXCLUDED.kind,
+		if err := exec(`INSERT INTO roles (org_id, slug, title, summary, kind, has_exam, advanced) VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (slug) DO UPDATE SET title = EXCLUDED.title, summary = EXCLUDED.summary, kind = EXCLUDED.kind,
 			has_exam = EXCLUDED.has_exam, advanced = EXCLUDED.advanced, updated_at = now()`,
-			org, r.Slug, r.Title, r.Kind, r.HasExam, r.Advanced); err != nil {
+			org, r.Slug, r.Title, r.Summary, r.Kind, r.HasExam, r.Advanced); err != nil {
 			return err
 		}
 	}

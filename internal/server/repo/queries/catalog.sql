@@ -5,7 +5,7 @@ SELECT catalog_version FROM catalog_state WHERE id = 1;
 SELECT slug, title, status, position FROM paths ORDER BY position;
 
 -- name: ListCatalogRoles :many
-SELECT slug, title, kind, has_exam, advanced FROM roles ORDER BY slug;
+SELECT slug, title, summary, kind, has_exam, advanced FROM roles ORDER BY slug;
 
 -- name: ListCatalogPathRoles :many
 SELECT p.slug AS path, r.slug AS role, pr.position

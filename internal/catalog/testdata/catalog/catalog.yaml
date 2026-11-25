@@ -7,10 +7,12 @@ paths:
 roles:
   - slug: foundations
     title: Foundations
+    summary: Linux, networks, git, English for tickets
     kind: foundations
     has_exam: false
   - slug: support-l1
     title: Support L1
+    summary: Tickets, users, permissions, a calm reply
     kind: role
     has_exam: true
 

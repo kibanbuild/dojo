@@ -113,6 +113,9 @@ func TestFreshLoad(t *testing.T) {
 	if got := psql(t, "SELECT (SELECT count(*) FROM paths) || ',' || (SELECT count(*) FROM roles) || ',' || (SELECT count(*) FROM path_roles) || ',' || (SELECT catalog_version FROM catalog_state WHERE id = 1)"); got != "1,2,2,"+v1 {
 		t.Fatalf("structure: %s", got)
 	}
+	if got := psql(t, "SELECT summary FROM roles WHERE slug = 'support-l1'"); got != "Tickets, users, permissions, a calm reply" {
+		t.Fatalf("summary: %q", got)
+	}
 	row := psql(t, "SELECT position || '|' || est_minutes || '|' || tags::text || '|' || cardinality(hints) || '|' || left(bundle_key, 28) FROM catalog_items WHERE id = 'support-l1/perms-01'")
 	if row != "1|20|{permissions}|3|bundles/support-l1/perms-01/" {
 		t.Fatalf("perms-01: %s", row)
@@ -206,3 +209,34 @@ func newStore(t *testing.T) *storage.S3 {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestLoadUpdatesAndRequiresSummary(t *testing.T) {
+	wipe(t)
+	dir := fixture(t)
+	mustLoad(t, dir, v1, "4 tickets")
+
+	file := filepath.Join(dir, "catalog.yaml")
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(strings.Replace(string(b), "Tickets, users, permissions, a calm reply", "A new summary", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustLoad(t, dir, v2, "4 tickets")
+	if got := psql(t, "SELECT summary FROM roles WHERE slug = 'support-l1'"); got != "A new summary" {
+		t.Fatalf("summary after reload: %q", got)
+	}
+
+	bad := strings.Replace(string(b), "    summary: Tickets, users, permissions, a calm reply\n", "", 1)
+	if err := os.WriteFile(file, []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := load(t, dir, v1)
+	if err == nil || !strings.Contains(out, "roles[1].summary") || !strings.Contains(out, "support-l1") {
+		t.Fatalf("missing summary: %v\n%s", err, out)
+	}
+	if got := psql(t, "SELECT catalog_version FROM catalog_state WHERE id = 1"); got != v2 {
+		t.Fatalf("failed load changed state: %q", got)
+	}
+}

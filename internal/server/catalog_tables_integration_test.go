@@ -136,6 +136,12 @@ func TestCatalogPathAndRoleChecks(t *testing.T) {
 		t.Fatalf("advanced default: %q, want false", got)
 	}
 
+	if got := asOwner(t, "SELECT summary FROM roles WHERE slug = 'ct-r1'"); got != "" {
+		t.Fatalf("summary default: %q, want empty", got)
+	}
+	rejects(t, "role summary length", "INSERT INTO roles (org_id, slug, title, summary, kind, has_exam) SELECT id, 'ct-r4', 'R', repeat('a', 121), 'role', false"+org, "roles_summary_len")
+	asOwner(t, "INSERT INTO roles (org_id, slug, title, summary, kind, has_exam) SELECT id, 'ct-r5', 'R', repeat('a', 120), 'role', false"+org)
+
 	link := func(r string, pos int) string {
 		return "INSERT INTO path_roles (org_id, path_id, role_id, position) SELECT o.id, p.id, r.id, " + string(rune('0'+pos)) +
 			" FROM orgs o, paths p, roles r WHERE o.slug = 'public' AND p.slug = 'ct-p1' AND r.slug = '" + r + "'"

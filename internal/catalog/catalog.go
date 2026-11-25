@@ -17,6 +17,7 @@ const (
 	maxPosition     = 999
 	maxSlugLen      = 40
 	maxCatalogTitle = 80
+	maxSummary      = 120
 )
 
 // Path is a learning path: an ordered list of roles (see PathRole).
@@ -31,6 +32,7 @@ type Path struct {
 type Role struct {
 	Slug     string `yaml:"slug"`
 	Title    string `yaml:"title"`
+	Summary  string `yaml:"summary"`
 	Kind     string `yaml:"kind"`
 	HasExam  bool   `yaml:"has_exam"`
 	Advanced bool   `yaml:"advanced"`
@@ -118,6 +120,9 @@ func (c *Catalog) validate(is *issues) {
 		roles[r.Slug] = true
 		if e := checkLine(r.Title, maxCatalogTitle); e != "" {
 			is.add(f+".title", "%s", e)
+		}
+		if e := checkLine(r.Summary, maxSummary); e != "" {
+			is.add(f+".summary", "role %q: %s", r.Slug, e)
 		}
 		if r.Kind != KindFoundations && r.Kind != KindRole {
 			is.add(f+".kind", "%q must be %q or %q", r.Kind, KindFoundations, KindRole)

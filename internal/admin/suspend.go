@@ -94,9 +94,12 @@ var confirmPage = template.Must(template.New("confirm").Parse(layoutTemplates + 
 <form class="card stack" method="post" action="/learners/{{.ID}}/{{.Path}}">
 <input type="hidden" name="csrf_token" value="{{.CSRF}}">
 <div class="field"><label for="reason">Reason (required, kept in the audit log)</label>
-<textarea id="reason" name="reason" rows="4" cols="60" maxlength="1000" required>{{.Reason}}</textarea>
-<span class="hint">Do not put personal data in the reason.</span></div>
-<div class="row"><a class="btn" href="/learners/{{.ID}}">Cancel</a>
+<textarea id="reason" name="reason" aria-describedby="reason-hint" rows="4" cols="60" maxlength="1000" required>{{.Reason}}</textarea>
+<span class="hint" id="reason-hint">Do not put personal data in the reason.</span></div>
+{{if .Typed}}<div class="field"><label for="typed">Type the username to confirm</label>
+<input id="typed" type="text" name="typed" aria-describedby="typed-hint" value="" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+<span class="hint" id="typed-hint">Type {{.Username}} exactly.</span></div>
+{{end}}<div class="row"><a class="btn" href="/learners/{{.ID}}">Cancel</a>
 <button class="btn {{if .Danger}}btn-danger{{else}}btn-primary{{end}}" type="submit">{{.Verb}} account</button></div>
 </form>{{end}}
 {{template "foot" .}}`))
@@ -104,7 +107,7 @@ var confirmPage = template.Must(template.New("confirm").Parse(layoutTemplates + 
 type confirmData struct {
 	Title, CSRF, ID, Username, Verb, Path, Error, Reason string
 	Effects                                              []string
-	Form, Danger                                         bool
+	Form, Danger, Typed                                  bool
 }
 
 var (

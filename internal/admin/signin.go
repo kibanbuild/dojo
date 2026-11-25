@@ -87,17 +87,15 @@ var errorText = map[string]string{
 	"server_error":       "Something went wrong. Try again.",
 }
 
-var signinPage = template.Must(template.New("signin").Parse(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Dojo operator sign-in</title>
-<meta name="viewport" content="width=device-width, initial-scale=1"></head>
-<body><main><h1>Operator sign-in</h1>
-{{if .Error}}<p role="alert">{{.Error}}</p>{{end}}
-<form method="post" action="` + startPath + `"><button type="submit">Sign in with GitHub</button></form>
+var signinPage = template.Must(template.New("signin").Parse(layoutTemplates + `{{template "top" .}}<main class="narrow"><h1>Operator sign-in</h1>
+{{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+<form method="post" action="` + startPath + `"><button class="btn btn-primary" type="submit">Sign in with GitHub</button></form>
+{{template "note"}}
 </main></body></html>
 `))
 
 func (s *signIn) page(w http.ResponseWriter, r *http.Request) {
-	render(w, http.StatusOK, signinPage, map[string]string{"Error": errorText[r.URL.Query().Get("error")]})
+	render(w, http.StatusOK, signinPage, map[string]string{"Title": "Sign-in", "Error": errorText[r.URL.Query().Get("error")]})
 }
 
 func toSignin(w http.ResponseWriter, r *http.Request, code string) {

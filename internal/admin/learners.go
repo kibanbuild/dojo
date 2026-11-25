@@ -30,6 +30,8 @@ const (
 	// SuspendAction and UnsuspendAction are the admin_audit actions of the A2 writes.
 	SuspendAction   = "learner.suspend"
 	UnsuspendAction = "learner.unsuspend"
+	// DeleteAction is the admin_audit action of deleting a learner's account.
+	DeleteAction = "learner.delete"
 
 	historyLimit   = 20
 	maxQueryLen    = 254
@@ -102,6 +104,8 @@ func (h HistoryRow) Label() string {
 		return "Suspended"
 	case UnsuspendAction:
 		return "Unsuspended"
+	case DeleteAction:
+		return "Deleted"
 	}
 	return h.Action
 }
@@ -116,6 +120,9 @@ type LearnerStore interface {
 	// SetSuspended suspends or unsuspends the learner and writes the audit row in one transaction.
 	// ErrNotFound, ErrAlreadyInState and errBadReason write nothing.
 	SetSuspended(ctx context.Context, op Operator, id string, suspend bool, reason string) error
+	// Delete deletes the learner through delete_learner and writes the audit row in one transaction.
+	// ErrNotFound (no such learner, also a repeat) and errBadReason write nothing.
+	Delete(ctx context.Context, op Operator, id, reason string) error
 	// Search returns up to searchLimit learners matching query on field and audits learner.search with
 	// the field only. more is true when there were further matches.
 	Search(ctx context.Context, op Operator, field, query, reason string) (found []LearnerSummary, more bool, err error)
@@ -335,6 +342,7 @@ var searchPage = template.Must(template.New("search").Parse(layoutTemplates + `{
 <p class="hint">Username and GitHub login match by prefix, at least 2 characters. Email matches the whole address. The search is logged by field, never by what you typed; do not put personal data in the reason.</p>
 <div class="row"><button class="btn btn-primary" type="submit">Search</button></div>
 </form>
+{{if .Notice}}<p class="note" role="status">{{.Notice}}</p>{{end}}
 {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
 {{if .Searched}}{{if .Results}}
 <div class="table-wrap" role="region" aria-label="Matches" tabindex="0"><table><caption>Matches</caption>
@@ -364,6 +372,9 @@ var learnerPage = template.Must(template.New("learner").Parse(layoutTemplates + 
 <div class="actions">{{if .V.SuspendedAt}}<a class="btn btn-primary" href="/learners/{{.V.ID}}/unsuspend">Unsuspend this account</a>
 {{else}}<a class="btn btn-quiet-danger" href="/learners/{{.V.ID}}/suspend">Suspend this account</a>
 {{end}}</div></section>
+<section class="card" aria-labelledby="erase"><h2 id="erase">Delete account</h2>
+<p class="hint">For erasure requests that come by email. Same as deleting from their Settings.</p>
+<div class="actions"><a class="btn btn-quiet-danger" href="/learners/{{.V.ID}}/delete">Delete this account</a></div></section>
 <section class="card" aria-labelledby="progress"><h2 id="progress">Progress</h2>
 {{if .V.Roles}}<div class="table-wrap" role="region" aria-label="Tickets passed by role" tabindex="0"><table><caption>Tickets passed by role</caption>
 <thead><tr><th scope="col">Role</th><th scope="col">Passed</th></tr></thead>
@@ -405,6 +416,9 @@ func (l *lookup) search(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, asked := q["q"]; !asked && q.Get("field") == "" {
 		data["Field"] = FieldUsername
+		if q.Get("deleted") == "1" {
+			data["Notice"] = "Account deleted."
+		}
 		render(w, http.StatusOK, searchPage, data)
 		return
 	}

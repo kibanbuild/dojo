@@ -24,6 +24,8 @@ type fakeLearners struct {
 	statusErr error
 	setErr    error
 	sets      []setCall
+	delErr    error
+	deletes   []setCall
 }
 
 type setCall struct {
@@ -40,6 +42,14 @@ func (f *fakeLearners) SetSuspended(_ context.Context, op Operator, id string, s
 		return f.setErr
 	}
 	f.sets = append(f.sets, setCall{op.Login, id, reason, suspend})
+	return nil
+}
+
+func (f *fakeLearners) Delete(_ context.Context, op Operator, id, reason string) error {
+	if f.delErr != nil {
+		return f.delErr
+	}
+	f.deletes = append(f.deletes, setCall{Op: op.Login, ID: id, Reason: reason})
 	return nil
 }
 

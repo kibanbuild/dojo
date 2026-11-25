@@ -43,6 +43,8 @@ func New(ready Readiness, d Deps) http.Handler {
 			mux.HandleFunc("POST /learners/{id}/suspend", s.authenticated(l.act(true)))
 			mux.HandleFunc("GET /learners/{id}/unsuspend", s.authenticated(l.confirm(false)))
 			mux.HandleFunc("POST /learners/{id}/unsuspend", s.authenticated(l.act(false)))
+			mux.HandleFunc("GET /learners/{id}/delete", s.authenticated(l.confirmDelete))
+			mux.HandleFunc("POST /learners/{id}/delete", s.authenticated(l.actDelete))
 		}
 	}
 	return onlyHost(Host, secureHeaders(mux))

@@ -307,76 +307,82 @@ type lookup struct{ Learners LearnerStore }
 
 const lookupTimeout = 10 * time.Second
 
-var layoutTemplates = `{{define "head"}}<!doctype html>
+var layoutTemplates = `{{define "top"}}<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>{{.Title}} - Dojo operator</title>
-<meta name="viewport" content="width=device-width, initial-scale=1"></head>
-<body><header><nav aria-label="Operator tools"><a href="/">Home</a> <a href="/learners" aria-current="page">Learners</a></nav>
-<form method="post" action="/signout"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button type="submit">Sign out</button></form></header>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="` + cssHref + `"></head>
+<body>{{end}}
+{{define "brand"}}<a class="brand" href="/"><svg width="28" height="28" viewBox="0 0 64 64" aria-hidden="true"><polygon class="logo-ink" points="29.40,30.01 16.82,43.68 22.87,47.91 32.30,33.88"/><polygon class="logo-ink" points="35.69,30.01 48.27,43.80 41.86,47.91 32.79,33.88"/><polygon class="logo-ink" points="4.00,21.54 60.00,21.54 60.00,30.49 4.00,30.49"/><polygon class="logo-hit" points="23.23,19.97 38.11,16.10 41.98,32.07 26.86,35.69"/></svg>dojo · admin</a>
+<span class="env">` + Host + ` · internal</span>{{end}}
+{{define "note"}}<p class="note">Internal tool, only on this computer through the private tunnel. Everything you do here is logged with your reason.</p>{{end}}
+{{define "head"}}{{template "top" .}}<header class="bar"><div class="bar-in"><div class="bar-l">{{template "brand"}}
+<nav class="nav" aria-label="Operator tools"><a href="/learners" aria-current="page">Learners</a></nav></div>
+<form class="signout" method="post" action="/signout"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button type="submit">Sign out</button></form></div>{{template "note"}}</header>
 <main>{{end}}
 {{define "foot"}}</main></body></html>{{end}}`
 
 var searchPage = template.Must(template.New("search").Parse(layoutTemplates + `{{template "head" .}}
 <h1>Learners</h1>
-<form role="search" method="get" action="/learners">
-<p><label for="field">Search by</label>
+<form class="stack" role="search" method="get" action="/learners">
+<div class="field"><label for="field">Search by</label>
 <select id="field" name="field">
 {{range .Fields}}<option value="{{.Value}}"{{if eq .Value $.Field}} selected{{end}}>{{.Label}}</option>
-{{end}}</select></p>
-<p><label for="q">Find a learner</label>
-<input id="q" type="search" name="q" value="{{.Query}}" maxlength="254" autocomplete="off" required></p>
-<p><label for="reason">Reason (optional)</label>
-<input id="reason" type="text" name="reason" value="{{.Reason}}" maxlength="1000" autocomplete="off"></p>
-<p>Username and GitHub login match by prefix, at least 2 characters. Email matches the whole address. The search is logged by field, never by what you typed; do not put personal data in the reason.</p>
-<button type="submit">Search</button>
+{{end}}</select></div>
+<div class="field"><label for="q">Find a learner</label>
+<input id="q" type="search" name="q" value="{{.Query}}" maxlength="254" autocomplete="off" required></div>
+<div class="field"><label for="reason">Reason (optional)</label>
+<input id="reason" type="text" name="reason" value="{{.Reason}}" maxlength="1000" autocomplete="off"></div>
+<p class="hint">Username and GitHub login match by prefix, at least 2 characters. Email matches the whole address. The search is logged by field, never by what you typed; do not put personal data in the reason.</p>
+<div class="row"><button class="btn btn-primary" type="submit">Search</button></div>
 </form>
-{{if .Error}}<p role="alert">{{.Error}}</p>{{end}}
+{{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
 {{if .Searched}}{{if .Results}}
-<table><caption>Matches</caption>
+<div class="table-wrap" role="region" aria-label="Matches" tabindex="0"><table><caption>Matches</caption>
 <thead><tr><th scope="col">Username</th><th scope="col">GitHub login</th><th scope="col">Account</th></tr></thead>
 <tbody>
-{{range .Results}}<tr><td><a href="{{.Href}}">{{.Username}}</a></td><td>{{.GithubLogin}}</td><td>{{if .Suspended}}Suspended{{else}}Active{{end}}</td></tr>
-{{end}}</tbody></table>
-{{if .More}}<p>More learners match. Narrow the search.</p>{{end}}
+{{range .Results}}<tr><td><a href="{{.Href}}">{{.Username}}</a></td><td>{{.GithubLogin}}</td><td>{{if .Suspended}}<span class="pill pill-bad">Suspended</span>{{else}}<span class="pill pill-ok">Active</span>{{end}}</td></tr>
+{{end}}</tbody></table></div>
+{{if .More}}<p class="hint">More learners match. Narrow the search.</p>{{end}}
 {{else if not .Error}}<p>No learner found.</p>{{end}}{{end}}
 {{template "foot" .}}`))
 
 // learnerPage links each action to its confirm page; later actions add their links to the Actions section.
 var learnerPage = template.Must(template.New("learner").Parse(layoutTemplates + `{{template "head" .}}
-<p><a href="/learners">Back to search</a></p>
-<h1>@{{.V.Username}}</h1>
-<p>GitHub {{.V.GithubLogin}} · {{if .V.Email}}{{.V.Email}}{{else}}no email{{end}} · joined {{.Joined}}</p>
-<section aria-labelledby="identity"><h2 id="identity">Account</h2>
+<p class="back"><a href="/learners">Back to search</a></p>
+<div><h1>@{{.V.Username}}</h1>
+<p class="lede">GitHub {{.V.GithubLogin}} · {{if .V.Email}}{{.V.Email}}{{else}}no email{{end}} · joined {{.Joined}}</p></div>
+<section class="card" aria-labelledby="identity"><h2 id="identity">Account</h2>
 <dl>
 <dt>Username</dt><dd>{{.V.Username}}</dd>
 <dt>GitHub login</dt><dd>{{.V.GithubLogin}}</dd>
 <dt>Email</dt><dd>{{if .V.Email}}{{.V.Email}}{{else}}None{{end}}</dd>
 <dt>Language</dt><dd>{{.V.Language}}</dd>
 <dt>Created</dt><dd>{{.Joined}}</dd>
-<dt>Status</dt><dd>{{if .V.SuspendedAt}}Suspended since {{.Suspended}}{{else}}Active{{end}}</dd>
+<dt>Status</dt><dd>{{if .V.SuspendedAt}}<span class="pill pill-bad">Suspended since {{.Suspended}}</span>{{else}}<span class="pill pill-ok">Active</span>{{end}}</dd>
 </dl></section>
-<section aria-labelledby="actions"><h2 id="actions">Actions</h2>
-{{if .V.SuspendedAt}}<p><a href="/learners/{{.V.ID}}/unsuspend">Unsuspend this account</a></p>
-{{else}}<p><a href="/learners/{{.V.ID}}/suspend">Suspend this account</a></p>
-{{end}}</section>
-<section aria-labelledby="progress"><h2 id="progress">Progress</h2>
-{{if .V.Roles}}<table><caption>Tickets passed by role</caption>
+<section class="card" aria-labelledby="actions"><h2 id="actions">Actions</h2>
+<div class="actions">{{if .V.SuspendedAt}}<a class="btn btn-primary" href="/learners/{{.V.ID}}/unsuspend">Unsuspend this account</a>
+{{else}}<a class="btn btn-quiet-danger" href="/learners/{{.V.ID}}/suspend">Suspend this account</a>
+{{end}}</div></section>
+<section class="card" aria-labelledby="progress"><h2 id="progress">Progress</h2>
+{{if .V.Roles}}<div class="table-wrap" role="region" aria-label="Tickets passed by role" tabindex="0"><table><caption>Tickets passed by role</caption>
 <thead><tr><th scope="col">Role</th><th scope="col">Passed</th></tr></thead>
 <tbody>{{range .V.Roles}}<tr><td>{{.Title}}</td><td>{{.Passed}} of {{.Total}}</td></tr>
-{{end}}</tbody></table>{{else}}<p>No catalog loaded.</p>{{end}}
+{{end}}</tbody></table></div>{{else}}<p>No catalog loaded.</p>{{end}}
 <h3>Recent tickets</h3>
-{{if .V.Recent}}<table>
+{{if .V.Recent}}<div class="table-wrap" role="region" aria-label="Recent tickets" tabindex="0"><table>
 <thead><tr><th scope="col">Ticket</th><th scope="col">State</th><th scope="col">Lab</th><th scope="col">Checks</th><th scope="col">Last check</th><th scope="col">Last seen</th></tr></thead>
 <tbody>{{range .V.Recent}}<tr><td>{{.Title}} ({{.ItemID}})</td><td>{{.State}}</td><td>{{if .LabState}}{{.LabState}}{{else}}-{{end}}</td><td>{{.Checks}}</td><td>{{if .LastCheck}}{{.LastCheck}}{{else}}-{{end}}</td><td>{{.Seen}}</td></tr>
-{{end}}</tbody></table>{{else}}<p>No tickets started yet.</p>{{end}}
+{{end}}</tbody></table></div>{{else}}<p>No tickets started yet.</p>{{end}}
 </section>
-<section aria-labelledby="history"><h2 id="history">Operator history</h2>
-{{if .V.History}}<table><caption>Latest actions on this learner, newest first</caption>
+<section class="card" aria-labelledby="history"><h2 id="history">Operator history</h2>
+{{if .V.History}}<div class="table-wrap" role="region" aria-label="Operator history" tabindex="0"><table><caption>Latest actions on this learner, newest first</caption>
 <thead><tr><th scope="col">When</th><th scope="col">Operator</th><th scope="col">Action</th><th scope="col">Reason</th></tr></thead>
 <tbody>{{range .V.History}}<tr><td>{{.When}}</td><td>{{.Operator}}</td><td>{{.Label}}</td><td>{{if .Reason}}{{.Reason}}{{else}}-{{end}}</td></tr>
-{{end}}</tbody></table>{{else}}<p>No operator has acted on this learner yet.</p>{{end}}
+{{end}}</tbody></table></div>{{else}}<p>No operator has acted on this learner yet.</p>{{end}}
 </section>
-<section aria-labelledby="later"><h2 id="later">Not available yet</h2>
-<p>Plan, comps, hosted hours, exam attempts, devices and the last doctor report.</p></section>
+<section class="card" aria-labelledby="later"><h2 id="later">Not available yet</h2>
+<p class="hint">Plan, comps, hosted hours, exam attempts, devices and the last doctor report.</p></section>
 {{template "foot" .}}`))
 
 type fieldOption struct{ Value, Label string }

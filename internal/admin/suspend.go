@@ -85,25 +85,26 @@ func (s PGLearners) SetSuspended(ctx context.Context, op Operator, id string, su
 }
 
 var confirmPage = template.Must(template.New("confirm").Parse(layoutTemplates + `{{template "head" .}}
-<p><a href="/learners/{{.ID}}">Back to @{{.Username}}</a></p>
+<p class="back"><a href="/learners/{{.ID}}">Back to @{{.Username}}</a></p>
 <h1>{{.Verb}} @{{.Username}}</h1>
-{{if .Error}}<p role="alert">{{.Error}}</p>{{end}}
-{{if .Form}}<section aria-labelledby="change"><h2 id="change">What will change</h2>
-<ul>{{range .Effects}}<li>{{.}}</li>
+{{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+{{if .Form}}<section class="card" aria-labelledby="change"><h2 id="change">What will change</h2>
+<ul class="effects">{{range .Effects}}<li>{{.}}</li>
 {{end}}</ul></section>
-<form method="post" action="/learners/{{.ID}}/{{.Path}}">
+<form class="card stack" method="post" action="/learners/{{.ID}}/{{.Path}}">
 <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-<p><label for="reason">Reason (required, kept in the audit log)</label></p>
-<p><textarea id="reason" name="reason" rows="4" cols="60" maxlength="1000" required>{{.Reason}}</textarea></p>
-<p>Do not put personal data in the reason.</p>
-<button type="submit">{{.Verb}} account</button> <a href="/learners/{{.ID}}">Cancel</a>
+<div class="field"><label for="reason">Reason (required, kept in the audit log)</label>
+<textarea id="reason" name="reason" rows="4" cols="60" maxlength="1000" required>{{.Reason}}</textarea>
+<span class="hint">Do not put personal data in the reason.</span></div>
+<div class="row"><a class="btn" href="/learners/{{.ID}}">Cancel</a>
+<button class="btn {{if .Danger}}btn-danger{{else}}btn-primary{{end}}" type="submit">{{.Verb}} account</button></div>
 </form>{{end}}
 {{template "foot" .}}`))
 
 type confirmData struct {
 	Title, CSRF, ID, Username, Verb, Path, Error, Reason string
 	Effects                                              []string
-	Form                                                 bool
+	Form, Danger                                         bool
 }
 
 var (
@@ -120,9 +121,9 @@ var (
 
 func (l *lookup) confirmData(r *http.Request, st LearnerStatus, suspend bool) confirmData {
 	d := confirmData{Title: "Suspend", CSRF: csrfFrom(r.Context()), ID: st.ID, Username: st.Username,
-		Verb: "Suspend", Path: "suspend", Effects: suspendEffects, Form: true}
+		Verb: "Suspend", Path: "suspend", Effects: suspendEffects, Form: true, Danger: true}
 	if !suspend {
-		d.Title, d.Verb, d.Path, d.Effects = "Unsuspend", "Unsuspend", "unsuspend", unsuspendEffects
+		d.Title, d.Verb, d.Path, d.Effects, d.Danger = "Unsuspend", "Unsuspend", "unsuspend", unsuspendEffects, false
 	}
 	if suspend == (st.SuspendedAt != nil) {
 		d.Form = false

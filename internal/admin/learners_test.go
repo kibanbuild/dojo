@@ -222,7 +222,7 @@ func TestSearchPattern(t *testing.T) {
 func TestSecureHeadersCoverLearnerPages(t *testing.T) {
 	e := newEnv(t)
 	rec := e.do(http.MethodGet, "/learners/"+someID, signedIn(t, e))
-	if rec.Header().Get("Cache-Control") != "no-store" || !strings.Contains(rec.Header().Get("Content-Security-Policy"), "default-src 'none'") {
+	if rec.Header().Get("Cache-Control") != "no-store" || !strings.Contains(rec.Header().Get("Content-Security-Policy"), "default-src 'none'; style-src 'self'") {
 		t.Fatalf("headers: %v", rec.Header())
 	}
 }

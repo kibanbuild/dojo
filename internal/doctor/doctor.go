@@ -4,6 +4,7 @@ package doctor
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/kibanbuild/dojo/internal/lab"
 )
@@ -17,11 +18,40 @@ const (
 	Fail
 )
 
+// String is the status as the doctor.run event spells it.
+func (s Status) String() string {
+	switch s {
+	case OK:
+		return "ok"
+	case Warn:
+		return "warn"
+	default:
+		return "fail"
+	}
+}
+
+// Group says what a result gates: only machine results decide Ready.
+type Group string
+
+const (
+	GroupMachine Group = "machine"
+	GroupKey     Group = "key"
+	GroupRepo    Group = "repo"
+	GroupAdvice  Group = "advisory"
+)
+
 // Result is one line of the report.
 type Result struct {
+	// ID is the check id of the wire contract (memory, disk, ssh_key ...).
+	ID     string
+	Group  Group
 	Status Status
 	Text   string
 	Fix    string
+}
+
+func res(id string, g Group, s Status, text, fix string) Result {
+	return Result{ID: id, Group: g, Status: s, Text: text, Fix: fix}
 }
 
 // Machine is what the checks need to know about the host.
@@ -80,91 +110,159 @@ const (
 // Evaluate turns machine facts and the VM manager's state into a report.
 func Evaluate(m Machine, backendName string, backendErr error) []Result {
 	var rs []Result
+	add := func(id string, g Group, s Status, text, fix string) { rs = append(rs, res(id, g, s, text, fix)) }
+	const mach = GroupMachine
 
 	switch {
 	case m.MemoryBytes == 0:
-		rs = append(rs, Result{Warn, "could not read the amount of RAM", ""})
+		add("memory", mach, Warn, "could not read the amount of RAM", "")
 	case m.MemoryBytes < minMemory:
-		rs = append(rs, Result{Fail, fmt.Sprintf("%s GB RAM, the labs need at least 8 GB", gb(m.MemoryBytes)), "the labs need at least 8 GB of RAM on this computer"})
+		add("memory", mach, Fail, fmt.Sprintf("%s GB RAM, the labs need at least 8 GB", gb(m.MemoryBytes)), "the labs need at least 8 GB of RAM on this computer")
 	case m.MemoryBytes < recMemory:
-		rs = append(rs, Result{Warn, fmt.Sprintf("%s GB RAM: enough, close other apps while a lab runs", gb(m.MemoryBytes)), ""})
+		add("memory", mach, Warn, fmt.Sprintf("%s GB RAM: enough, close other apps while a lab runs", gb(m.MemoryBytes)), "")
 	default:
-		rs = append(rs, Result{OK, fmt.Sprintf("%s GB RAM", gb(m.MemoryBytes)), ""})
+		add("memory", mach, OK, fmt.Sprintf("%s GB RAM", gb(m.MemoryBytes)), "")
 	}
 
 	switch {
 	case m.FreeDiskBytes == 0:
-		rs = append(rs, Result{Warn, "could not read the free disk space", ""})
+		add("disk", mach, Warn, "could not read the free disk space", "")
 	case m.FreeDiskBytes < minDisk:
-		rs = append(rs, Result{Fail, fmt.Sprintf("%s GB free disk, the labs need at least 15 GB", gb(m.FreeDiskBytes)), "free some space and run dojo doctor again"})
+		add("disk", mach, Fail, fmt.Sprintf("%s GB free disk, the labs need at least 15 GB", gb(m.FreeDiskBytes)), "free some space and run dojo doctor again")
 	case m.FreeDiskBytes < recDisk:
-		rs = append(rs, Result{Warn, fmt.Sprintf("%s GB free disk: enough for now, 30 GB is comfortable", gb(m.FreeDiskBytes)), ""})
+		add("disk", mach, Warn, fmt.Sprintf("%s GB free disk: enough for now, 30 GB is comfortable", gb(m.FreeDiskBytes)), "")
 	default:
-		rs = append(rs, Result{OK, fmt.Sprintf("%s GB free disk", gb(m.FreeDiskBytes)), ""})
+		add("disk", mach, OK, fmt.Sprintf("%s GB free disk", gb(m.FreeDiskBytes)), "")
 	}
 
 	switch {
 	case m.CPUs < minCPUs:
-		rs = append(rs, Result{Fail, fmt.Sprintf("%d CPU core, the labs need 2", m.CPUs), "the labs need at least 2 CPU cores on this computer"})
+		add("cpu", mach, Fail, fmt.Sprintf("%d CPU core, the labs need 2", m.CPUs), "the labs need at least 2 CPU cores on this computer")
 	case m.CPUs < recCPUs:
-		rs = append(rs, Result{Warn, fmt.Sprintf("%d CPU cores: enough, labs will be a bit slow", m.CPUs), ""})
+		add("cpu", mach, Warn, fmt.Sprintf("%d CPU cores: enough, labs will be a bit slow", m.CPUs), "")
 	default:
-		rs = append(rs, Result{OK, fmt.Sprintf("%d CPU cores", m.CPUs), ""})
+		add("cpu", mach, OK, fmt.Sprintf("%d CPU cores", m.CPUs), "")
 	}
 
 	switch {
 	case m.KVMDenied:
-		rs = append(rs, Result{Warn, "/dev/kvm exists but your user cannot open it", "add yourself to the kvm group (sudo usermod -aG kvm $USER), then log out and back in"})
+		add("virtualization", mach, Warn, "/dev/kvm exists but your user cannot open it", "add yourself to the kvm group (sudo usermod -aG kvm $USER), then log out and back in")
 	case m.KVMMissing:
-		rs = append(rs, Result{Fail, "the CPU supports virtualisation but /dev/kvm is missing", "load the kvm module (sudo modprobe kvm_intel or kvm_amd), or enable virtualisation in the BIOS/UEFI"})
+		add("virtualization", mach, Fail, "the CPU supports virtualisation but /dev/kvm is missing", "load the kvm module (sudo modprobe kvm_intel or kvm_amd), or enable virtualisation in the BIOS/UEFI")
 	case !m.VirtualizationKnown:
-		rs = append(rs, Result{Warn, "could not tell whether CPU virtualisation is enabled", "if the lab fails to start, check VT-x/AMD-V in your BIOS"})
+		add("virtualization", mach, Warn, "could not tell whether CPU virtualisation is enabled", "if the lab fails to start, check VT-x/AMD-V in your BIOS")
 	case !m.Virtualization:
-		rs = append(rs, Result{Fail, "CPU virtualisation is disabled", "enable VT-x (Intel) or AMD-V/SVM (AMD) in your BIOS/UEFI settings"})
+		add("virtualization", mach, Fail, "CPU virtualisation is disabled", "enable VT-x (Intel) or AMD-V/SVM (AMD) in your BIOS/UEFI settings")
 	default:
-		rs = append(rs, Result{OK, "CPU virtualisation is enabled", ""})
+		add("virtualization", mach, OK, "CPU virtualisation is enabled", "")
 	}
 
 	switch {
 	case m.OS == "windows":
-		rs = append(rs, Result{Fail, "Windows labs are not supported yet", "Windows support (WSL2) is coming; for now the labs run on macOS and Linux"})
+		add("vm_manager", mach, Fail, "Windows labs are not supported yet", "Windows support (WSL2) is coming; for now the labs run on macOS and Linux")
 	case errors.Is(backendErr, lab.ErrNotInstalled):
-		rs = append(rs, Result{Fail, fmt.Sprintf("VM manager (%s) not ready: %v", backendName, backendErr), "install Lima: https://lima-vm.io/docs/installation/ (macOS: brew install lima)"})
+		add("vm_manager", mach, Fail, fmt.Sprintf("VM manager (%s) not ready: %v", backendName, backendErr), "install Lima: https://lima-vm.io/docs/installation/ (macOS: brew install lima)")
 	case backendErr != nil:
-		rs = append(rs, Result{Fail, fmt.Sprintf("VM manager (%s) not ready: %v", backendName, backendErr), ""})
+		add("vm_manager", mach, Fail, fmt.Sprintf("VM manager (%s) not ready: %v", backendName, backendErr), "")
 	default:
-		rs = append(rs, Result{OK, fmt.Sprintf("VM manager ready (%s)", backendName), ""})
+		add("vm_manager", mach, OK, fmt.Sprintf("VM manager ready (%s)", backendName), "")
 	}
 
 	switch {
 	case m.GitUnknown:
-		rs = append(rs, Result{Warn, "could not check git: it did not answer in time", ""})
+		add("git", mach, Warn, "could not check git: it did not answer in time", "")
 	case !m.HasGit:
-		rs = append(rs, Result{Fail, "git is not installed", "install it: https://git-scm.com/downloads"})
+		add("git", mach, Fail, "git is not installed", "install it: https://git-scm.com/downloads")
 	default:
-		rs = append(rs, Result{OK, "git is installed", ""})
+		add("git", mach, OK, "git is installed", "")
 		if m.GitName == "" || m.GitEmail == "" {
-			rs = append(rs, Result{Warn, "git has no name or email yet",
-				`git config --global user.name "Your Name" && git config --global user.email "you@example.com"`})
+			add("git_identity", mach, Warn, "git has no name or email yet",
+				`git config --global user.name "Your Name" && git config --global user.email "you@example.com"`)
 		} else {
-			rs = append(rs, Result{OK, "git identity: " + m.GitName + " <" + m.GitEmail + ">", ""})
+			add("git_identity", mach, OK, "git identity: "+m.GitName+" <"+m.GitEmail+">", "")
 		}
 	}
 	rs = append(rs, sshChecks(m)...)
 	if !m.HasVSCode {
-		rs = append(rs, Result{Warn, "`code` command not found (optional, any editor works)", "install VS Code and its shell command: https://code.visualstudio.com"})
+		add("editor", mach, Warn, "`code` command not found (optional, any editor works)", "install VS Code and its shell command: https://code.visualstudio.com")
 	} else {
-		rs = append(rs, Result{OK, "`code` command found", ""})
+		add("editor", mach, OK, "`code` command found", "")
 	}
 	return rs
 }
 
-// Ready reports whether no check failed.
+// Ready reports whether no machine check failed. Key and repo results never
+// block: they fail while a step is undone, and the page walks the learner through them.
 func Ready(rs []Result) bool {
 	for _, r := range rs {
-		if r.Status == Fail {
+		if r.Group == GroupMachine && r.Status == Fail {
 			return false
 		}
 	}
 	return true
+}
+
+// WireCheck is one entry of the doctor.run event.
+type WireCheck struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Text   string `json:"text"`
+	Fix    string `json:"fix"`
+}
+
+const (
+	wireTextMax = 200
+	wireFixMax  = 600
+)
+
+// WireChecks turns a report into the doctor.run payload: no git name or
+// email, the home directory as "~", text and fix cut to the contract's limits.
+func WireChecks(rs []Result, home string) []WireCheck {
+	out := make([]WireCheck, 0, len(rs))
+	for _, r := range rs {
+		text := r.Text
+		if r.ID == "git_identity" && r.Status == OK {
+			text = "git identity is set"
+		}
+		out = append(out, WireCheck{
+			ID:     r.ID,
+			Status: r.Status.String(),
+			Text:   cutRunes(tilde(text, home), wireTextMax),
+			Fix:    cutRunes(tilde(r.Fix, home), wireFixMax),
+		})
+	}
+	return out
+}
+
+// tilde replaces home with "~" only where it ends at a path boundary, so
+// /home/ana leaves /home/anabel alone. A root home is never replaced.
+func tilde(s, home string) string {
+	home = strings.TrimRight(home, `/\`)
+	if home == "" || (len(home) == 2 && home[1] == ':') {
+		return s
+	}
+	var b strings.Builder
+	for {
+		i := strings.Index(s, home)
+		if i < 0 {
+			break
+		}
+		end := i + len(home)
+		b.WriteString(s[:i])
+		if end == len(s) || s[end] == '/' || s[end] == '\\' || s[end] == '"' || s[end] == ' ' || s[end] == '\n' {
+			b.WriteString("~")
+		} else {
+			b.WriteString(home)
+		}
+		s = s[end:]
+	}
+	b.WriteString(s)
+	return b.String()
+}
+
+func cutRunes(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
+	}
+	return s
 }

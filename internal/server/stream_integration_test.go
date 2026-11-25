@@ -137,6 +137,42 @@ func streamFixture(t *testing.T) (c *cliClient, tok string, ada *browser) {
 	return c, tok, ada
 }
 
+// waitStreamsServe returns once /v1/stream accepts a subscriber. After the database restarts the
+// API's listener reconnects on its own schedule; the next stream test must not race it.
+func waitStreamsServe(t *testing.T) {
+	t.Helper()
+	asOwner(t, "DELETE FROM learners WHERE github_id = 1001")
+	defer asOwner(t, "DELETE FROM learners WHERE github_id = 1001")
+	b := newBrowser(t)
+	if resp := b.signIn("ada", "", "age=on&terms=on", false); resp.Header.Get("Location") != "/app" {
+		t.Errorf("stream readiness sign-in: %q", resp.Header.Get("Location"))
+		return
+	}
+	cookie := cookieOf(t, b)
+	deadline := time.Now().Add(15 * time.Second)
+	last := "no attempt"
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithCancel(context.Background())
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, apiURL(t)+"/v1/stream", nil)
+		req.AddCookie(cookie)
+		resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+		if err == nil {
+			code := resp.StatusCode
+			_ = resp.Body.Close()
+			cancel()
+			if code == http.StatusOK {
+				return
+			}
+			last = http.StatusText(code)
+		} else {
+			cancel()
+			last = err.Error()
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Errorf("/v1/stream still refuses subscribers 15s after the database restart (last: %s)", last)
+}
+
 func killListener(t *testing.T) {
 	t.Helper()
 	if n := asOwner(t, "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE application_name = 'dojo-api-listener'"); n == "0" {

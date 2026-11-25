@@ -69,6 +69,7 @@ test:
 test-integration:
 	@$(COMPOSE) down -v --remove-orphans
 	@set -e; trap '$(COMPOSE) down -v --remove-orphans' EXIT; \
+	$(COMPOSE) --profile jobs build catalog-load; \
 	$(COMPOSE) up -d --build --wait; \
 	port=$$($(COMPOSE) port api 8080 | sed 's/.*://'); \
 	edge=$$($(COMPOSE) port edge 8080 | sed 's/.*://'); \

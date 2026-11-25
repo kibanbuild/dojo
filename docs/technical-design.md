@@ -760,7 +760,7 @@ each migration states the grants for `dojo_api` and `dojo_admin` (section 3.7).
 | `learners` | `github_id` (unique), `github_login`, `username` (unique), `email`, `language` (en, es: explanations), `extra_time`, `hosted_default`, `age_confirmed_at`, `terms_accepted_at`, `terms_version`, `usage_stats` (bool), `analytics_consent` (null, true, false), `chosen_path_id`, `record_shared` (default false), `record_token_hash` (null when not shared), `suspended_at` | `extra_time` applies to every exam. `terms_version` is the API's required `TERMS_VERSION` at creation (1 to 32 of `a-z 0-9 . -`), insert-only like `terms_accepted_at`; rows from before the column read `unrecorded`. `record_shared` is the opt-in for the share link; the token is shown once, stored hashed, and regenerating replaces the hash. |
 | `sessions`, `cli_tokens` | `learner_id`, `token_hash`, `last_used_at`, `revoked_at`; tokens add `device_name`, `os`, `cli_version`, `ssh_public_key` | Hashes only. M1 creates `cli_tokens` without `ssh_public_key` (the exam milestone adds it). `dojo_api` reads, inserts the device row and updates `last_used_at`, `revoked_at` and `updated_at`; no `DELETE`, and `dojo_admin` has no grant. No expiry: a token ends when revoked or when the learner is deleted (cascade). |
 | `paths` | `slug`, `title`, `status` (available, planned), `position` | Content, loaded at deploy from `catalog.yaml`. v1 data: one available path. |
-| `roles` | `slug`, `title`, `kind` (foundations, role), `has_exam`, `advanced` (default false) | Content. A role has no home path and no order of its own: membership and order live in `path_roles`, so Foundations is one row shared by every path. |
+| `roles` | `slug`, `title`, `summary` (one line, at most 120 characters, default empty), `kind` (foundations, role), `has_exam`, `advanced` (default false) | Content. A role has no home path and no order of its own: membership and order live in `path_roles`, so Foundations is one row shared by every path. |
 | `path_roles` | `path_id`, `role_id`, `position` | Content. Unique `(path_id, role_id)`. |
 | `catalog_state` | `id` (always 1, `CHECK (id = 1)`), `catalog_version` | One row, upserted on `id = 1` by every successful catalog load (section 3.8) in the same transaction; before the first load there is no row and `GET /v1/catalog` answers `catalog_version: null` with empty lists. It is where `GET /v1/catalog` reads the top-level version; `catalog_items.catalog_version` keeps the version each item was last loaded with. |
 | `catalog_items` | `id` (for example `support-l1/perms-03`), `role_id` (null for practice), `kind` (ticket, writing, quiz, story, feedback, practice), `position`, `title`, `est_minutes`, `tags` (text array), `brief` (markdown), `hints` (text array, one to three), `awards_mark`, `catalog_version`, `bundle_key`, `bundle_sha256`, `bundle_bytes` | Loaded from the catalog at deploy; the API never parses YAML per request. Tickets fill `brief`, `hints` and the bundle columns (section 3.8); other kinds leave them null until their milestone. |
@@ -1033,8 +1033,9 @@ reads its copy from the bundle.
 
 **Catalog source.** The catalog repo has a top-level `catalog.yaml` with three lists, decoded as
 strictly as `ticket.yaml`: `paths` (`slug`, `title`, `position`, `status` of `available` or
-`planned`), `roles` (`slug`, `title`, `kind` of `foundations` or `role`, `has_exam`, optional
-`advanced`, default false) and `path_roles` (`path`, `role`, `position`; a role that several paths
+`planned`), `roles` (`slug`, `title`, `summary`, `kind` of `foundations` or `role`, `has_exam`, optional
+`advanced`, default false; `summary` is required, one line of at most 120 characters, shown under the
+role title on the Path page, and a load that lacks it or exceeds it fails naming the role) and `path_roles` (`path`, `role`, `position`; a role that several paths
 share, like Foundations, appears once in `roles` and once per path here, and this list alone says
 which roles a path has and in what order). The load fills `paths`, `roles`, `path_roles` and
 `catalog_state` from it, validates every `ticket.yaml` `role` against it, and sets `kind` to
@@ -1232,10 +1233,12 @@ the ticket route), `429 rate_limited` with `Retry-After`, `500 server_error`. An
  "paths": [{"slug": "systems-devops", "title": "Systems and DevOps", "status": "available",
             "position": 1},
            {"slug": "security", "title": "Security", "status": "planned", "position": 2}],
- "roles": [{"slug": "foundations", "title": "Foundations", "kind": "foundations",
+ "roles": [{"slug": "foundations", "title": "Foundations",
+            "summary": "Linux, networks, git, English for tickets", "kind": "foundations",
             "has_exam": false, "advanced": false},
-           {"slug": "support-l1", "title": "Support L1", "kind": "role", "has_exam": true,
-            "advanced": false}],
+           {"slug": "support-l1", "title": "Support L1",
+            "summary": "Tickets, users, permissions, a calm reply", "kind": "role",
+            "has_exam": true, "advanced": false}],
  "path_roles": [{"path": "systems-devops", "role": "foundations", "position": 1},
                 {"path": "systems-devops", "role": "support-l1", "position": 2}],
  "items": [{"id": "support-l1/perms-03", "role": "support-l1", "order": 3, "kind": "ticket",
@@ -1248,13 +1251,15 @@ available path and `"chosen": false` (section 2.1). A role is `locked` when its 
 
 ```json
 {"path": "systems-devops", "chosen": false,
- "roles": [{"slug": "foundations", "title": "Foundations", "locked": false, "passed": false,
+ "roles": [{"slug": "foundations", "title": "Foundations",
+            "summary": "Linux, networks, git, English for tickets", "locked": false, "passed": false,
             "tickets_passed": 4, "tickets_total": 6,
             "items": [{"id": "foundations/terminal-01", "title": "Find the log", "order": 1,
                        "state": "passed", "lab_state": "stopped"},
                       {"id": "foundations/terminal-05", "title": "Free the disk", "order": 5,
                        "state": null, "lab_state": null}]},
-           {"slug": "systems-l2", "title": "Systems L2", "locked": true, "passed": false,
+           {"slug": "systems-l2", "title": "Systems L2", "summary": "...", "locked": true,
+            "passed": false,
             "tickets_passed": 0, "tickets_total": 0, "items": []}]}
 ```
 

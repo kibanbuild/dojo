@@ -16,6 +16,7 @@ export interface CatalogPath {
 export interface CatalogRole {
   slug: string;
   title: string;
+  summary: string;
   kind: string;
   has_exam: boolean;
   advanced: boolean;
@@ -50,6 +51,7 @@ export interface PathItem {
 export interface PathRole {
   slug: string;
   title: string;
+  summary: string;
   locked: boolean;
   passed: boolean;
   tickets_passed: number;

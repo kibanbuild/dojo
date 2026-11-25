@@ -23,7 +23,7 @@ const sudo = { id: 'support-l1/sudo-01', title: 'Who gave the intern sudo?', sta
 const path: LearnerPath = {
   path: 'support',
   chosen: true,
-  roles: [{ slug: 'support-l1', title: 'Support L1', locked: false, passed: false, tickets_passed: 7, tickets_total: 12, items: [{ ...sudo, order: 1 }] }],
+  roles: [{ slug: 'support-l1', title: 'Support L1', summary: '', locked: false, passed: false, tickets_passed: 7, tickets_total: 12, items: [{ ...sudo, order: 1 }] }],
 };
 
 function ticket(id: string, extra: Partial<Ticket> = {}): Ticket {

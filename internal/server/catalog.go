@@ -33,6 +33,7 @@ type catalogPath struct {
 type catalogRole struct {
 	Slug     string `json:"slug"`
 	Title    string `json:"title"`
+	Summary  string `json:"summary"`
 	Kind     string `json:"kind"`
 	HasExam  bool   `json:"has_exam"`
 	Advanced bool   `json:"advanced"`
@@ -88,7 +89,7 @@ func (a Auth) catalog(w http.ResponseWriter, r *http.Request) {
 		out.Paths = append(out.Paths, catalogPath{p.Slug, p.Title, p.Status, p.Position})
 	}
 	for _, x := range roles {
-		out.Roles = append(out.Roles, catalogRole{x.Slug, x.Title, x.Kind, x.HasExam, x.Advanced})
+		out.Roles = append(out.Roles, catalogRole{x.Slug, x.Title, x.Summary, x.Kind, x.HasExam, x.Advanced})
 	}
 	for _, x := range prs {
 		out.PathRole = append(out.PathRole, catalogPathRole{x.Path, x.Role, x.Position})
@@ -114,6 +115,7 @@ type pathItem struct {
 type pathRole struct {
 	Slug          string     `json:"slug"`
 	Title         string     `json:"title"`
+	Summary       string     `json:"summary"`
 	Locked        bool       `json:"locked"`
 	Passed        bool       `json:"passed"`
 	TicketsPassed int        `json:"tickets_passed"`
@@ -192,7 +194,7 @@ func buildPath(paths []repo.ListCatalogPathsRow, roles []repo.ListCatalogRolesRo
 			continue
 		}
 		role := roleBySlug[pr.Role]
-		pr := pathRole{Slug: role.Slug, Title: role.Title, Items: []pathItem{}}
+		pr := pathRole{Slug: role.Slug, Title: role.Title, Summary: role.Summary, Items: []pathItem{}}
 		for _, t := range tickets[role.Slug] {
 			it := pathItem{ID: t.ID, Title: t.Title, Order: t.Position}
 			if st, ok := state[t.ID]; ok {

@@ -167,6 +167,7 @@ type Role struct {
 	Kind      string
 	HasExam   bool
 	Advanced  bool
+	Summary   string
 }
 
 type Session struct {

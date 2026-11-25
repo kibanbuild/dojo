@@ -165,12 +165,13 @@ func (q *Queries) ListCatalogPaths(ctx context.Context) ([]ListCatalogPathsRow, 
 }
 
 const listCatalogRoles = `-- name: ListCatalogRoles :many
-SELECT slug, title, kind, has_exam, advanced FROM roles ORDER BY slug
+SELECT slug, title, summary, kind, has_exam, advanced FROM roles ORDER BY slug
 `
 
 type ListCatalogRolesRow struct {
 	Slug     string
 	Title    string
+	Summary  string
 	Kind     string
 	HasExam  bool
 	Advanced bool
@@ -188,6 +189,7 @@ func (q *Queries) ListCatalogRoles(ctx context.Context) ([]ListCatalogRolesRow, 
 		if err := rows.Scan(
 			&i.Slug,
 			&i.Title,
+			&i.Summary,
 			&i.Kind,
 			&i.HasExam,
 			&i.Advanced,

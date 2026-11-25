@@ -97,6 +97,7 @@ function RoleRow({ role, status, hereTitle, hasExam, last }: { role: PathRole; s
           <h2 className="m-0 text-lg font-extrabold">{role.title}</h2>
           {pill}
         </div>
+        {role.summary && <p className="m-0 text-sm leading-normal text-fg2">{role.summary}</p>}
         {hasExam && <div className={META}>ends in a role exam: one work day</div>}
         {status === 'passed' ? (
           <div className="font-mono text-xs text-accentink">passed</div>

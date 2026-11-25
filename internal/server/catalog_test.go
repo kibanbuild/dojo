@@ -64,7 +64,7 @@ func populatedCatalog() *fakeCatalog {
 		},
 		roles: []repo.ListCatalogRolesRow{
 			{Slug: "foundations", Title: "Foundations", Kind: "foundations"},
-			{Slug: "support-l1", Title: "Support L1", Kind: "role", HasExam: true},
+			{Slug: "support-l1", Title: "Support L1", Summary: "Tickets, users, permissions, a calm reply", Kind: "role", HasExam: true},
 			{Slug: "systems-l2", Title: "Systems L2", Kind: "role", HasExam: true},
 		},
 		pathRole: []repo.ListCatalogPathRolesRow{
@@ -116,6 +116,9 @@ func TestCatalogPopulated(t *testing.T) {
 	}
 	if got.Version != "a1b2c3d4e5f6" || len(got.Paths) != 2 || len(got.Roles) != 3 || len(got.PathRole) != 4 || len(got.Items) != 4 {
 		t.Fatalf("shape: %s", rec.Body)
+	}
+	if got.Roles[1]["summary"] != "Tickets, users, permissions, a calm reply" || got.Roles[0]["summary"] != "" {
+		t.Fatalf("role summaries: %v", got.Roles)
 	}
 	it := got.Items[0]
 	if it["id"] != "foundations/a" || it["role"] != "foundations" || it["order"] != float64(1) || it["kind"] != "ticket" ||

@@ -15,6 +15,7 @@ const me = { id: '1', username: 'irene', github_login: 'irene-gh', email: null, 
 const role = (slug: string, title: string, o: object = {}) => ({
   slug,
   title,
+  summary: '',
   locked: false,
   passed: false,
   tickets_passed: 0,
@@ -30,9 +31,9 @@ const catalog = {
     { slug: 'security', title: 'Security', status: 'planned', position: 2 },
   ],
   roles: [
-    { slug: 'foundations', title: 'Foundations', kind: 'foundations', has_exam: false, advanced: false },
-    { slug: 'support-l1', title: 'Support L1', kind: 'role', has_exam: true, advanced: false },
-    { slug: 'soc-l1', title: 'SOC L1', kind: 'role', has_exam: true, advanced: false },
+    { slug: 'foundations', title: 'Foundations', summary: '', kind: 'foundations', has_exam: false, advanced: false },
+    { slug: 'support-l1', title: 'Support L1', summary: '', kind: 'role', has_exam: true, advanced: false },
+    { slug: 'soc-l1', title: 'SOC L1', summary: '', kind: 'role', has_exam: true, advanced: false },
   ],
   path_roles: [
     { path: 'systems-devops', role: 'foundations', position: 1 },
@@ -50,6 +51,7 @@ const fullPath = {
   roles: [
     role('foundations', 'Foundations', { passed: true, tickets_passed: 2, tickets_total: 2 }),
     role('support-l1', 'Support L1', {
+      summary: 'Tickets, users, permissions, a calm reply',
       tickets_passed: 1,
       tickets_total: 2,
       items: [
@@ -144,6 +146,8 @@ describe('Path page', () => {
     expect(text(1)).toContain('You are here');
     expect(text(1)).toContain('ends in a role exam: one work day');
     expect(text(1)).toContain('1 of 2 tickets');
+    expect(items[1]?.querySelector('p')?.textContent).toBe('Tickets, users, permissions, a calm reply');
+    expect(items[0]?.querySelector('p')).toBeNull();
     expect(text(2)).toContain('after Support L1');
     expect(text(3)).not.toContain('after');
     expect(items[2]?.querySelector('details')).not.toBeNull();

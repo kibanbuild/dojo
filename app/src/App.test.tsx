@@ -72,7 +72,7 @@ describe('bootstrap routing', () => {
     stubApi(() => me);
     await mount('/');
     expect(router.state.location.pathname).toBe('/today');
-    expect(container.textContent).toContain('irene');
+    expect(container.querySelector('header a[href="/settings"]')?.getAttribute('aria-label')).toBe('Settings, @irene');
     expect(container.textContent).toContain('Sign out');
   });
 

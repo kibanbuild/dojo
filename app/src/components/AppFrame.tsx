@@ -12,7 +12,7 @@ export async function signOut(): Promise<boolean> {
   return res.status === 204 || res.status === 401 || res.status === 404;
 }
 
-/** The signed-in shell: header (home, Settings, sign out) around a page. */
+/** The signed-in shell: header (home, nav, sign out, profile avatar to Settings) around a page. */
 export function AppFrame({ me, children }: { me: Me; children: ReactNode }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -34,31 +34,37 @@ export function AppFrame({ me, children }: { me: Me; children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-bg font-sans text-fg">
-      <header className="border-b border-line">
-        <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-4 py-2 pr-2 pl-4 md:px-6 md:py-3.5">
-          <div className="flex items-center gap-5">
-            <Link to="/today" aria-label="Dojo, home" className="flex min-h-11 items-center gap-2.5 text-fg no-underline">
+      <header className="border-b border-line bg-bg">
+        <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-4 py-2 pr-2 pl-4 md:px-6 md:py-3">
+          <div className="flex items-center gap-5 md:gap-[22px]">
+            <Link to="/today" aria-label="Dojo, home" className="flex min-h-11 items-center gap-2 text-fg no-underline md:gap-2.5">
               <Logo size={28} stroke={2.66} />
               <span className="font-mono text-base font-semibold md:text-lg">dojo</span>
             </Link>
             <TopNav />
           </div>
-          <div className="flex items-center gap-3">
-            <Link
-              to="/settings"
-              aria-label={`Settings, signed in as ${me.username}`}
-              className="flex min-h-11 items-center font-mono text-[13px] text-fg2 no-underline hover:text-fg"
-            >
-              {me.username}
-            </Link>
+          <div className="flex items-center gap-2.5">
             <button
               type="button"
               onClick={onSignOut}
               disabled={busy}
-              className="h-9 rounded-[10px] border border-line bg-surface px-3.5 text-sm font-bold text-fg disabled:opacity-45"
+              className="h-11 rounded-[10px] px-3 text-sm font-bold text-fg2 hover:text-fg disabled:opacity-45 md:h-10"
             >
               Sign out
             </button>
+            <Link
+              to="/settings"
+              aria-label={`Settings, @${me.username}`}
+              className="inline-flex size-11 items-center justify-center rounded-full md:size-10"
+            >
+              <span
+                className="inline-flex size-[30px] items-center justify-center rounded-full text-[13px] font-extrabold text-white uppercase md:size-8"
+                style={{ background: 'var(--hlbg)' }}
+                aria-hidden="true"
+              >
+                {me.username.slice(0, 1)}
+              </span>
+            </Link>
           </div>
         </div>
       </header>

@@ -8,15 +8,15 @@ import {
   READ_MESSAGES,
   ReadError,
   ticketKey,
-  usePath,
+  useActivity,
   useToday,
-  type LearnerPath,
+  type Activity,
   type Ticket,
   type Today as TodayData,
   type TodayTicket,
 } from '../lib/read';
 import { useLiveData } from '../lib/stream';
-import { ago, capitalize, initial, parseBrief, sameDay, shortCommit, type BriefMessage } from '../lib/today';
+import { ago, buildHeatGrid, capitalize, heatSummary, initial, parseBrief, sameDay, shortCommit, type BriefMessage } from '../lib/today';
 
 const card = 'flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5';
 const badge = 'inline-flex h-[26px] flex-none items-center rounded-md px-2.5 text-xs font-bold whitespace-nowrap';
@@ -95,34 +95,9 @@ function useTicketIf(id: string | null) {
   return useQuery({ ...ticketQuery(id ?? ''), enabled: id !== null }).data ?? null;
 }
 
-interface LastPass {
-  id: string;
-  title: string;
-  /** Tickets passed across the path. */
-  count: number;
-  commit: string | null;
-  at: string | null;
-  /** The one ticket read is still going. */
-  loading: boolean;
-}
-
-/**
- * The only extra read Today makes: the last passed ticket in path order (the highest-numbered passed
- * item of the last role that has one), for its commit and pass time. Null when nothing is passed.
- */
-function useLastPass(path: LearnerPath | undefined): LastPass | null {
-  const passed = (path?.roles ?? []).flatMap((r) => r.items).filter((i) => i.state === 'passed');
-  const last = passed.at(-1);
-  const q = useQuery({ ...ticketQuery(last?.id ?? ''), enabled: last !== undefined });
-  if (!last) return null;
-  return {
-    id: last.id,
-    title: last.title,
-    count: passed.length,
-    commit: q.data?.progress?.passed_commit ?? null,
-    at: q.data?.progress?.first_passed_at ?? null,
-    loading: q.isPending,
-  };
+/** The latest pass, from the one activity read; null while it loads, when it failed or when nothing is passed. */
+function lastPass(activity: Activity | undefined) {
+  return activity?.recent[0] ?? null;
 }
 
 // ---------------------------------------------------------------- pieces
@@ -184,23 +159,74 @@ function RoleStrip({ role }: { role: NonNullable<TodayData['role']> }) {
   );
 }
 
-/** First run only: the board's dashed note. "One so far" needs exactly one pass and its commit loaded. */
-function ActivityNote({ last }: { last: LastPass | null }) {
-  const one = last !== null && last.count === 1 && last.commit !== null;
+const panel = 'hidden flex-col gap-3.5 rounded-[20px] border border-line bg-surface p-[22px] md:flex';
+const HEAT = ['bg-heat0', 'bg-heat1', 'bg-heat2', 'bg-heat3', 'bg-heat4'] as const;
+
+/** First run only: the board's dashed note. "One so far" needs exactly one pass in total. */
+function ActivityNote({ activity }: { activity: Activity }) {
+  const one = activity.total === 1 ? (activity.recent[0] ?? null) : null;
   return (
-    <section aria-label="Activity" className="hidden flex-col gap-3.5 rounded-[20px] border border-line bg-surface p-[22px] md:flex">
+    <section aria-label="Activity" className={panel}>
       <h2 className="m-0 text-base font-extrabold">Activity</h2>
       <p className="m-0 rounded-xl border border-dashed border-ctl p-4 text-[13px] leading-normal text-muted">
-        Each ticket you pass shows up here as a signed commit.
+        Each ticket you pass shows up here.
         {one && (
           <>
             {' '}
-            One so far: <span className="font-mono text-accentink">{shortCommit(last.commit as string)}</span> {last.id}
+            One so far: {one.commit && <span className="font-mono text-accentink">{shortCommit(one.commit)} </span>}
+            {one.ticket_id}
           </>
         )}
       </p>
     </section>
   );
+}
+
+/** The returning learner's heat grid and last passes. Draws nothing for a learner with no passes. */
+function ActivityPanel({ activity }: { activity: Activity }) {
+  if (activity.total === 0) return null;
+  const grid = buildHeatGrid(activity.to, activity.days);
+  return (
+    <section aria-label="Activity" className={panel}>
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="m-0 text-base font-extrabold">Activity</h2>
+        <span className="font-mono text-xs text-muted">last 20 weeks</span>
+      </div>
+      <div role="img" aria-label={heatSummary(grid)} className="grid grid-flow-col grid-rows-[repeat(7,10px)] gap-[3px]">
+        {grid.weeks.flatMap((week) =>
+          week.map((c) => (
+            <div key={c.day} className={`size-2.5 rounded-xs ${c.future ? '' : HEAT[c.level]}`} />
+          )),
+        )}
+      </div>
+      <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-[13px]">
+        {activity.recent.map((r) => (
+          <li key={r.ticket_id} className="flex min-w-0 items-baseline gap-2 text-fg2">
+            {r.commit && <span className="flex-none font-mono text-xs text-accentink">{shortCommit(r.commit)}</span>}
+            <span className="min-w-0 flex-1 truncate">{r.title}</span>
+            <span className="flex-none font-mono text-xs text-muted">{ago(r.at)}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Holds the panel's space while the read is out, so nothing below it moves. */
+function ActivityPlaceholder() {
+  return (
+    <section aria-hidden="true" className={`${panel} min-h-[216px]`}>
+      <div className="h-5 w-24 rounded-md bg-surface2" />
+      <div className="h-[88px] rounded-md bg-surface2" />
+      <div className="h-[66px] rounded-md bg-surface2" />
+    </section>
+  );
+}
+
+/** The aside's activity slot on the returning view: placeholder, panel, or nothing when the read failed. */
+function ActivitySlot({ query }: { query: ReturnType<typeof useActivity> }) {
+  if (query.isPending) return <ActivityPlaceholder />;
+  return query.data ? <ActivityPanel activity={query.data} /> : null;
 }
 
 function Message({ brief }: { brief: BriefMessage }) {
@@ -318,7 +344,7 @@ function Row({ tag, tone, id, title, end }: { tag: string; tone: 'passed' | 'now
   );
 }
 
-function Recent({ last, current, next, role }: { last: LastPass | null; current: TodayTicket | null; next: TodayTicket | null; role: TodayData['role'] }) {
+function Recent({ last, current, next, role }: { last: Activity['recent'][number] | null; current: TodayTicket | null; next: TodayTicket | null; role: TodayData['role'] }) {
   return (
     <section aria-label="Recent and next" className="hidden overflow-hidden rounded-2xl border border-line bg-surface md:block">
       <div className="flex items-baseline justify-between gap-3 border-b border-line px-5 py-4">
@@ -330,7 +356,7 @@ function Recent({ last, current, next, role }: { last: LastPass | null; current:
         )}
       </div>
       <ul className="m-0 list-none p-0">
-        {last && <Row tone="passed" tag="Passed" id={last.id} title={last.title} end={last.commit ? shortCommit(last.commit) : null} />}
+        {last && <Row tone="passed" tag="Passed" id={last.ticket_id} title={last.title} end={last.commit ? shortCommit(last.commit) : null} />}
         {current && <Row tone="now" tag="Now" id={current.id} title={current.title} />}
         {next && <Row tone="next" tag="Next" id={next.id} title={next.title} />}
       </ul>
@@ -341,9 +367,9 @@ function Recent({ last, current, next, role }: { last: LastPass | null; current:
 // ---------------------------------------------------------------- views
 
 function CurrentView({ current, next, role }: { current: TodayTicket; next: TodayTicket | null; role: TodayData['role'] }) {
-  const path = usePath().data;
+  const activity = useActivity();
   const ticket = useTicketIf(current.id);
-  const last = useLastPass(path);
+  const last = lastPass(activity.data);
   const brief = ticket ? parseBrief(ticket.brief) : null;
   return (
     <div className={grid2}>
@@ -375,20 +401,21 @@ function CurrentView({ current, next, role }: { current: TodayTicket; next: Toda
             <RoleCard role={role} />
           </div>
         )}
+        <ActivitySlot query={activity} />
       </aside>
     </div>
   );
 }
 
 function NextView({ next, role, name }: { next: TodayTicket; role: TodayData['role']; name: string }) {
-  const pathQuery = usePath();
+  const activityQuery = useActivity();
   const nextTicket = useTicketIf(next.id);
-  const last = useLastPass(pathQuery.data);
+  const activity = activityQuery.data;
+  const done = lastPass(activity);
   const brief = nextTicket ? parseBrief(nextTicket.brief) : null;
-  // Day one is told apart by the one passed ticket's own pass time, so the headline waits for that read.
-  const settling = pathQuery.isPending || (last !== null && last.count === 1 && last.loading);
-  const first = last !== null && last.count === 1 && role?.tickets_passed === 1 && sameDay(last.at);
-  const done = last;
+  // Day one is told apart by the one pass's own time, so the headline waits for the activity read.
+  const settling = activityQuery.isPending;
+  const first = activity?.total === 1 && done !== null && role?.tickets_passed === 1 && sameDay(done.at);
   const left = role ? role.tickets_total - role.tickets_passed : 0;
 
   return (
@@ -417,7 +444,7 @@ function NextView({ next, role, name }: { next: TodayTicket; role: TodayData['ro
             <section aria-label="Your first ticket is done" className={`${card} border-ok`}>
               <div className="flex items-center justify-between gap-3">
                 <h2 className="m-0 text-base font-extrabold">Your first ticket is done</h2>
-                <span className={`${badge} bg-oksoft font-mono text-ok`}>{shortId(done.id)}</span>
+                <span className={`${badge} bg-oksoft font-mono text-ok`}>{shortId(done.ticket_id)}</span>
               </div>
               <p className="m-0 text-sm leading-[1.55] text-fg2">
                 {done.commit && (
@@ -450,7 +477,7 @@ function NextView({ next, role, name }: { next: TodayTicket; role: TodayData['ro
         </div>
         <aside aria-label="Your progress" className="flex flex-col gap-[18px]">
           {role && <RoleCard role={role} />}
-          {first && <ActivityNote last={last} />}
+          {!settling && activity && (first ? <ActivityNote activity={activity} /> : <ActivityPanel activity={activity} />)}
         </aside>
       </div>
     </div>

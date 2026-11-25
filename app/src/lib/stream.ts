@@ -105,6 +105,8 @@ export function openStream(h: StreamHandlers, url: string = STREAM_URL): () => v
 export function patchTicket(ticket: Ticket, e: ProgressEvent): Ticket {
   if (ticket.id !== e.item_id || !ticket.progress) return ticket;
   const p = ticket.progress;
+  // A new check's counts and output are not in the event: drop the old ones rather than mix two checks.
+  const newCheck = e.last_check_at !== p.last_check_at;
   return {
     ...ticket,
     progress: {
@@ -115,6 +117,7 @@ export function patchTicket(ticket: Ticket, e: ProgressEvent): Ticket {
       check_count: e.check_count ?? p.check_count,
       last_check_ok: e.last_check_ok,
       last_check_at: e.last_check_at,
+      ...(newCheck && { last_check_passed: null, last_check_total: null, last_check_output: null }),
     },
   };
 }

@@ -57,6 +57,9 @@ func TestSignoutNeedsCSRFToken(t *testing.T) {
 		{"same-site fetch metadata", url.Values{csrfField: {tok}}, map[string]string{"Sec-Fetch-Site": "same-site"}},
 		{"other-port origin", url.Values{csrfField: {tok}}, map[string]string{"Origin": "http://127.0.0.1:9999"}},
 		{"null origin", url.Values{csrfField: {tok}}, map[string]string{"Origin": "null"}},
+		{"null origin, cross-site", url.Values{csrfField: {tok}}, map[string]string{"Origin": "null", "Sec-Fetch-Site": "cross-site"}},
+		{"null origin, same-site", url.Values{csrfField: {tok}}, map[string]string{"Origin": "null", "Sec-Fetch-Site": "same-site"}},
+		{"null origin, same-origin, wrong token", url.Values{csrfField: {"nope"}}, map[string]string{"Origin": "null", "Sec-Fetch-Site": "same-origin"}},
 		{"wrong token in header", nil, map[string]string{csrfHeader: "nope"}},
 	}
 	for _, tt := range refused {
@@ -80,6 +83,13 @@ func TestSignoutNeedsCSRFToken(t *testing.T) {
 		if sessionAlive(e, s) {
 			t.Fatal("session survived sign-out")
 		}
+	})
+	t.Run("chrome form post under no-referrer", func(t *testing.T) {
+		e := newEnv(t)
+		s := signedIn(t, e)
+		rec := e.post("/signout", url.Values{csrfField: {pageToken(t, e, s)}},
+			map[string]string{"Origin": "null", "Sec-Fetch-Site": "same-origin"}, s)
+		wantRedirect(t, rec, "/signin")
 	})
 	t.Run("token in the header", func(t *testing.T) {
 		e := newEnv(t)

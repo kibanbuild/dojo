@@ -345,6 +345,7 @@ func (a *App) start(ctx context.Context, backend lab.Backend, id, key string) er
 	if err := a.tryMentorFiles(ctx, backend); err != nil {
 		return err
 	}
+	a.seedMentorFiles()
 	fmt.Fprintf(a.Out, "Lab ready in %s.\n\n", a.Now().Sub(t0).Round(time.Second))
 	a.printBrief(k)
 	fmt.Fprintln(a.Out, "Next: dojo ssh (or ssh dojo) to get in, dojo check when you think it's fixed.")

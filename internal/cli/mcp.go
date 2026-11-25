@@ -2,8 +2,12 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/kibanbuild/dojo/internal/catalog"
 	"github.com/kibanbuild/dojo/internal/mcp"
@@ -72,10 +76,49 @@ func (a *App) toolLastCheck() (string, error) {
 	return "Output of the last `dojo check`:\n\n" + st.LastCheck, nil
 }
 
+// hintsFromAPI reads the hints the learner opened on the web (GET /v1/tickets/{id} returns the
+// opened ones, or all once the ticket is passed). Logged out or offline it says so.
+func (a *App) hintsFromAPI(id string) (string, error) {
+	tok, err := state.LoadToken()
+	if err != nil {
+		return "", errors.New("cannot read the opened hints: the learner is not logged in (ask them to run `dojo login`)")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	r, err := a.callAPI(ctx, http.MethodGet, a.telemetryAPI(), "/v1/tickets/"+escapeID(id), tok, nil)
+	if err != nil {
+		return "", fmt.Errorf("cannot read the opened hints: the dojo API is not reachable (%w)", netErr("request", err))
+	}
+	if r.status != http.StatusOK {
+		return "", fmt.Errorf("cannot read the opened hints: the API answered %d", r.status)
+	}
+	var t struct {
+		HintCount int `json:"hint_count"`
+		Hints     []struct {
+			N    int    `json:"n"`
+			Text string `json:"text"`
+		} `json:"hints"`
+	}
+	if err := json.Unmarshal(r.body, &t); err != nil {
+		return "", errors.New("cannot read the opened hints: the API answer was not understood")
+	}
+	if len(t.Hints) == 0 {
+		return "The learner has not opened any hint yet.", nil
+	}
+	var b strings.Builder
+	for _, h := range t.Hints {
+		fmt.Fprintf(&b, "Hint %d/%d: %s\n", h.N, t.HintCount, h.Text)
+	}
+	return b.String(), nil
+}
+
 func (a *App) toolHints() (string, error) {
 	st, k, err := a.mcpCurrent()
 	if k == nil {
 		return noTicket, err
+	}
+	if a.bundleMode() {
+		return a.hintsFromAPI(k.ID)
 	}
 	n := min(max(st.HintsShown, 0), len(k.Hints))
 	if n == 0 {

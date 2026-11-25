@@ -1686,6 +1686,9 @@ We never hold write access to their GitHub.
 | `last_check` | The output of the last `dojo check` kept locally | none |
 | `hints_opened` | The written hints the learner opened, each as `Hint n/N: text` | Reads `GET /v1/tickets/{id}` with the CLI token (hints open on the web, section 3.8, so the local counter never moves); offline or logged out it says it cannot read them. With `DOJO_KATAS` it keeps the local counter |
 
+  On a ticket in `passed` or `revisit`, `hints_opened` lists every hint, because the ticket reveals
+  them all (section 3.8).
+
   The "docs links" tool of section 2.5 is dropped from M3: `ticket.yaml` has no field for links, and
   adding one changes the 3.8 contract. A later milestone adds a tool with its source.
 

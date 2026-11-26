@@ -31,6 +31,7 @@ var (
 type Message struct {
 	From    string // bare address
 	To      string // bare address
+	ReplyTo string // bare address; empty sets no Reply-To
 	Subject string
 	Text    string
 	HTML    string
@@ -135,6 +136,12 @@ func Build(m Message, now time.Time, id string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("to: %w", err)
 	}
+	replyTo := ""
+	if m.ReplyTo != "" {
+		if replyTo, err = bare(m.ReplyTo); err != nil {
+			return nil, fmt.Errorf("reply-to: %w", err)
+		}
+	}
 	if strings.ContainsAny(m.Subject, "\r\n") {
 		return nil, ErrBadSubject
 	}
@@ -144,6 +151,9 @@ func Build(m Message, now time.Time, id string) ([]byte, error) {
 	h := func(k, v string) { b.WriteString(k + ": " + v + "\r\n") }
 	h("From", from)
 	h("To", to)
+	if replyTo != "" {
+		h("Reply-To", replyTo)
+	}
 	h("Subject", mime.QEncoding.Encode("utf-8", m.Subject))
 	h("Date", now.UTC().Format(time.RFC1123Z))
 	h("Message-ID", "<"+id+"@"+domain+">")
@@ -168,6 +178,12 @@ func writeQP(w io.Writer, s string) error {
 		return err
 	}
 	return q.Close()
+}
+
+// ValidAddress reports whether v is a bare address Build accepts.
+func ValidAddress(v string) bool {
+	_, err := bare(v)
+	return err == nil
 }
 
 // bare returns the address alone and refuses a display name, a list or a line break.

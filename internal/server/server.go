@@ -55,6 +55,9 @@ func New(ready Readiness, auth Auth, limits *RateLimits, signin *SignIn, cli *CL
 	if auth.Tickets != nil {
 		mux.HandleFunc("POST "+ticketsPrefix, requireSession(auth.postTicketRoute))
 	}
+	if auth.Reports != nil {
+		mux.HandleFunc("POST "+reportsPath, requireSession(auth.postReport))
+	}
 	if auth.Stream != nil {
 		mux.HandleFunc("GET "+streamPath, auth.stream)
 	}

@@ -112,9 +112,14 @@ var errTemplate = errors.New("template")
 // the row id are logged, and the error text only for a network failure, which carries no address.
 // An SMTP 5xx and an invalid address are permanent: retried in an hour, not minutes.
 func (o *Outbox) noteFailure(r repo.ListUnsentEmailsRow, id string, err error, now time.Time) {
+	o.retryAt[r.ID.Bytes] = now.Add(logSendFailure(id, r.Kind, err))
+}
+
+// logSendFailure logs a failed send by class and returns how long to leave the row alone.
+func logSendFailure(id, kind string, err error) time.Duration {
 	var se *textproto.Error
 	var ne net.Error
-	attrs := []any{"id", id, "kind", r.Kind}
+	attrs := []any{"id", id, "kind", kind}
 	wait, level, class := transientBackoff, slog.LevelError, "other"
 	switch {
 	case errors.As(err, &se):
@@ -131,8 +136,8 @@ func (o *Outbox) noteFailure(r repo.ListUnsentEmailsRow, id string, err error, n
 		class = "network"
 		attrs = append(attrs, "error", err.Error())
 	}
-	o.retryAt[r.ID.Bytes] = now.Add(wait)
 	slog.Log(context.Background(), level, "email send failed", append(attrs, "class", class, "retry_in", wait.String())...)
+	return wait
 }
 
 // send renders and sends one row. It runs inside DeliverEmail's transaction, under the row's lock.
@@ -171,17 +176,22 @@ func (o *Outbox) send(ctx context.Context, e repo.Email) error {
 // retried next tick.
 func RunOutbox(ctx context.Context, o *Outbox, every time.Duration) {
 	o.Origin = strings.TrimRight(o.Origin, "/")
+	runSweeps(ctx, "outbox", every, o.Sweep)
+}
+
+// runSweeps calls sweep once, then every interval until ctx ends, logging a failure or a count of sent mails.
+func runSweeps(ctx context.Context, name string, every time.Duration, sweep func(context.Context) (int, error)) {
 	t := time.NewTicker(every)
 	defer t.Stop()
 	for {
-		n, err := o.Sweep(ctx)
+		n, err := sweep(ctx)
 		switch {
 		case ctx.Err() != nil:
 			return
 		case err != nil:
-			slog.Error("outbox sweep failed", "error", err)
+			slog.Error(name+" sweep failed", "error", err)
 		case n > 0:
-			slog.Info("sent queued emails", "count", n)
+			slog.Info("sent queued emails", "count", n, "queue", name)
 		}
 		select {
 		case <-ctx.Done():

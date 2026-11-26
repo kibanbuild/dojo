@@ -112,12 +112,22 @@ func TestWelcomeMailGoesOutOnFirstSignInOnly(t *testing.T) {
 	mailpitGet(t, "/api/v1/message/"+msgs[0].ID, &full)
 	username := asOwner(t, "SELECT username FROM learners WHERE github_id = "+gh)
 	pathTitle := asOwner(t, "SELECT title FROM paths WHERE status = 'available' ORDER BY position LIMIT 1")
+	roleTitle := asOwner(t, "SELECT r.title FROM path_roles pr JOIN paths p ON p.id = pr.path_id JOIN roles r ON r.id = pr.role_id "+
+		"WHERE p.status = 'available' ORDER BY p.position, pr.position LIMIT 1")
 	for name, body := range map[string]string{"text": full.Text, "html": full.HTML} {
 		if !strings.Contains(body, username) || !strings.Contains(body, "/app") {
 			t.Errorf("%s part misses the username or the link: %q", name, body)
 		}
 		if pathTitle != "" && !strings.Contains(body, pathTitle+" path") {
 			t.Errorf("%s part does not name the path %q: %q", name, pathTitle, body)
+		}
+		for _, want := range []string{"/install | sh", "dojo login", "dojo doctor", "z/dojo repo", "If you did not sign up, ignore this message."} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s part misses %q: %q", name, want, body)
+			}
+		}
+		if roleTitle != "" && !strings.Contains(body, "first role is "+roleTitle) {
+			t.Errorf("%s part does not name the first role %q: %q", name, roleTitle, body)
 		}
 	}
 

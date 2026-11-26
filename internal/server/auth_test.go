@@ -41,6 +41,9 @@ type fakeSessions struct {
 	updates   []repo.UpdateLearnerProfileParams
 	updateErr error
 
+	emails    []string // addresses SetLearnerEmail stored
+	firstSeen int      // MarkFirstRunSeen calls that changed the learner
+
 	telemetry    []repo.InsertTelemetryEventsParams
 	telemetryErr error
 	learnerErr   error

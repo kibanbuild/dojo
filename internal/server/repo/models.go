@@ -142,6 +142,8 @@ type Learner struct {
 	TermsVersion     string
 	ChosenPathID     pgtype.UUID
 	HostedDefault    bool
+	EmailSource      pgtype.Text
+	FirstRunSeenAt   pgtype.Timestamptz
 }
 
 type Operator struct {

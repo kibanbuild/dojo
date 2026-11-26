@@ -9,6 +9,26 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// UpsertLearnerParams is the sign-in refresh and the new-learner insert.
+type UpsertLearnerParams = UpsertLearnerWithWelcomeParams
+
+// UpsertLearner refreshes a learner at sign-in. A GitHub email replaces the stored one; a learner whose first
+// address arrives now gets E1 in the same statement.
+func (q *Queries) UpsertLearner(ctx context.Context, a UpsertLearnerParams) (Learner, error) {
+	row, err := q.UpsertLearnerWithWelcome(ctx, a)
+	return Learner(row), err
+}
+
+// SetLearnerEmail stores the learner's own address while none is on file and queues E1 with it. The bool is
+// false when an address was already stored, and nothing changed.
+func (q *Queries) SetLearnerEmail(ctx context.Context, id pgtype.UUID, email string) (Learner, bool, error) {
+	row, err := q.SetLearnerEmailWithWelcome(ctx, SetLearnerEmailWithWelcomeParams{ID: id, Email: email})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Learner{}, false, nil
+	}
+	return Learner(row), err == nil, err
+}
+
 // CreateLearner inserts a new learner and queues their welcome mail (E1) in the same statement. When the
 // GitHub account already has a learner (a concurrent first sign-in), it refreshes that one instead and
 // queues nothing: the winner queued the mail.

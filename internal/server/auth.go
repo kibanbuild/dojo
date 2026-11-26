@@ -43,6 +43,8 @@ type SessionStore interface {
 	RevokeLearnerCLIToken(ctx context.Context, arg repo.RevokeLearnerCLITokenParams) (int64, error)
 	GetLearnerByID(ctx context.Context, id pgtype.UUID) (repo.Learner, error)
 	UpdateLearnerProfile(ctx context.Context, arg repo.UpdateLearnerProfileParams) (repo.Learner, error)
+	SetLearnerEmail(ctx context.Context, id pgtype.UUID, email string) (repo.Learner, bool, error)
+	MarkFirstRunSeen(ctx context.Context, id pgtype.UUID) (repo.Learner, error)
 	DeleteLearner(ctx context.Context, id pgtype.UUID) (bool, error)
 	InsertTelemetryEvents(ctx context.Context, arg repo.InsertTelemetryEventsParams) error
 }

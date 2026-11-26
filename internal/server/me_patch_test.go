@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -36,6 +37,108 @@ func (f *fakeSessions) UpdateLearnerProfile(_ context.Context, a repo.UpdateLear
 	}
 	f.learner = l
 	return l, nil
+}
+
+func (f *fakeSessions) SetLearnerEmail(_ context.Context, _ pgtype.UUID, email string) (repo.Learner, bool, error) {
+	if f.learner.Email.Valid {
+		return repo.Learner{}, false, nil
+	}
+	f.emails = append(f.emails, email)
+	f.learner.Email = pgtype.Text{String: email, Valid: true}
+	f.learner.EmailSource = pgtype.Text{String: "learner", Valid: true}
+	return f.learner, true, nil
+}
+
+func (f *fakeSessions) MarkFirstRunSeen(context.Context, pgtype.UUID) (repo.Learner, error) {
+	if f.learner.FirstRunSeenAt.Valid {
+		return repo.Learner{}, pgx.ErrNoRows
+	}
+	f.firstSeen++
+	f.learner.FirstRunSeenAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
+	return f.learner, nil
+}
+
+func TestNormalizeEmail(t *testing.T) {
+	long := strings.Repeat("a", 64)
+	tests := []struct {
+		in, want string
+		ok       bool
+	}{
+		{"ada@example.com", "ada@example.com", true},
+		{"Ada.Lovelace+dojo_1%x-y@Example.COM", "Ada.Lovelace+dojo_1%x-y@example.com", true},
+		{"a@b.c", "a@b.c", true},
+		{"a@sub.ex-ample.co.uk", "a@sub.ex-ample.co.uk", true},
+		{"", "", false},
+		{"a@b", "", false},
+		{"@example.com", "", false},
+		{"ada@", "", false},
+		{"ada@@example.com", "", false},
+		{"a@b@example.com", "", false},
+		{"ada@example..com", "", false},
+		{"ada@.example.com", "", false},
+		{"ada@example.com.", "", false},
+		{"ad a@example.com", "", false},
+		{" ada@example.com", "", false},
+		{"ada@example.com\n", "", false},
+		{"ada@exa mple.com", "", false},
+		{"ada@exam_ple.com", "", false},
+		{"ada@exämple.com", "", false},
+		{"\"ada\"@example.com", "", false},
+		{"ada,bob@example.com", "", false},
+		{"<ada>@example.com", "", false},
+		{"ada\r\nBcc: x@y.z@example.com", "", false},
+		{"adä@example.com", "", false},
+		{long + "@example.com", long + "@example.com", true},
+		{strings.Repeat("a", 300) + "@" + strings.Repeat("b", 20) + ".com", "", false},
+	}
+	for _, tt := range tests {
+		got, ok := normalizeEmail(tt.in)
+		if ok != tt.ok || got != tt.want {
+			t.Errorf("normalizeEmail(%q) = %q, %v; want %q, %v", tt.in, got, ok, tt.want, tt.ok)
+		}
+	}
+}
+
+func TestPatchMeEmail(t *testing.T) {
+	f := newPatchFake()
+	rec := doPatch(t, f, patchCall{cookie: true, csrf: true, body: `{"email":"Ada@Example.COM"}`})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"email":"Ada@example.com"`) || len(f.emails) != 1 || len(f.updates) != 0 {
+		t.Fatalf("got %d %q, emails %v, updates %d", rec.Code, rec.Body.String(), f.emails, len(f.updates))
+	}
+	rec = doPatch(t, f, patchCall{cookie: true, csrf: true, body: `{"email":"other@example.com"}`})
+	if rec.Code != http.StatusConflict || rec.Body.String() != `{"error":"email_set"}`+"\n" || len(f.emails) != 1 {
+		t.Fatalf("second: %d %q, emails %v", rec.Code, rec.Body.String(), f.emails)
+	}
+}
+
+func TestPatchMeEmailSetWritesNothing(t *testing.T) {
+	f := newPatchFake()
+	f.learner.Email = pgtype.Text{String: "gh@example.com", Valid: true}
+	rec := doPatch(t, f, patchCall{cookie: true, csrf: true, body: `{"language":"es","email":"new@example.com"}`})
+	if rec.Code != http.StatusConflict || len(f.updates) != 0 || len(f.emails) != 0 {
+		t.Fatalf("got %d %q, updates %d, emails %v", rec.Code, rec.Body.String(), len(f.updates), f.emails)
+	}
+}
+
+func TestPatchMeEmailWithProfile(t *testing.T) {
+	f := newPatchFake()
+	rec := doPatch(t, f, patchCall{cookie: true, csrf: true, body: `{"language":"es","email":"ada@example.com"}`})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"language":"es"`) || !strings.Contains(rec.Body.String(), `"email":"ada@example.com"`) {
+		t.Fatalf("got %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPatchMeFirstRunSeen(t *testing.T) {
+	f := newPatchFake()
+	for i := 0; i < 2; i++ {
+		rec := doPatch(t, f, patchCall{cookie: true, csrf: true, body: `{"first_run_seen":true}`})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("call %d: %d %q", i, rec.Code, rec.Body.String())
+		}
+	}
+	if f.firstSeen != 1 || len(f.updates) != 0 {
+		t.Fatalf("changed %d times, profile updates %d", f.firstSeen, len(f.updates))
+	}
 }
 
 type patchCall struct {
@@ -89,7 +192,12 @@ func TestPatchMeValidation(t *testing.T) {
 		{"usage_stats number", `{"usage_stats":0}`, "bad_request"},
 		{"usage_stats object", `{"usage_stats":{}}`, "bad_request"},
 		{"not json", `nope`, "bad_request"},
-		{"unknown field", `{"username":"abc","email":"x@y.z"}`, "bad_request"},
+		{"unknown field", `{"username":"abc","nickname":"x"}`, "bad_request"},
+		{"first_run_seen false", `{"first_run_seen":false}`, "bad_request"},
+		{"first_run_seen string", `{"first_run_seen":"true"}`, "bad_request"},
+		{"email number", `{"email":5}`, "bad_request"},
+		{"email empty", `{"email":""}`, "invalid_email"},
+		{"email invalid beside a valid field", `{"language":"es","email":"nope"}`, "invalid_email"},
 		{"trailing data", `{"username":"abc"}{}`, "bad_request"},
 		{"wrong type", `{"username":5}`, "bad_request"},
 		{"too short", `{"username":"ab"}`, "invalid_username"},

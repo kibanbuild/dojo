@@ -23,6 +23,14 @@ type State struct {
 	SSHKey string `json:"ssh_key,omitempty"`
 	// HostedDefault is the account's hosted_default as of the last login or online start.
 	HostedDefault bool `json:"hosted_default,omitempty"`
+	// Repo is the practice clone dojo check --repo chose; empty means $HOME/dojo.
+	Repo string `json:"repo,omitempty"`
+	// GithubLogin is the account's login as of the last time the API said it.
+	GithubLogin string `json:"github_login,omitempty"`
+	// Commits maps a ticket id to the sha of its signed pass commit.
+	Commits map[string]string `json:"commits,omitempty"`
+	// PushPending counts signed commits made here and not pushed yet.
+	PushPending int `json:"push_pending,omitempty"`
 }
 
 // MaxCheckOutput bounds LastCheck so the state file stays small.

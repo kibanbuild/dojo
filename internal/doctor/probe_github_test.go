@@ -74,7 +74,7 @@ func TestProbeGitHubCloneOrigin(t *testing.T) {
 				e.clone(tt.origin)
 			}
 			var m Machine
-			ProbeGitHub(context.Background(), &m, tt.base)
+			ProbeGitHub(context.Background(), &m, tt.base, "")
 			if m.CloneOverSSH != tt.want {
 				t.Errorf("CloneOverSSH = %v", m.CloneOverSSH)
 			}
@@ -82,6 +82,21 @@ func TestProbeGitHubCloneOrigin(t *testing.T) {
 				t.Errorf("an HTTPS clone must not read keys: %v", m.SSHOfferedKeys)
 			}
 		})
+	}
+}
+
+func TestProbeGitHubReadsTheRememberedClone(t *testing.T) {
+	e := newProbeEnv(t)
+	e.script("ssh", "exit 1")
+	e.script("git", `echo "https://github.com/ada/dojo.git"`)
+	mine := filepath.Join(t.TempDir(), "mine")
+	if err := os.MkdirAll(filepath.Join(mine, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var m Machine
+	ProbeGitHub(context.Background(), &m, "", mine)
+	if m.CloneOverSSH {
+		t.Error("the remembered clone's HTTPS origin was not read")
 	}
 }
 
@@ -93,7 +108,7 @@ func TestProbeGitHubDirWithoutGitFallsBackToTheBase(t *testing.T) {
 		t.Fatal(err)
 	}
 	var m Machine
-	ProbeGitHub(context.Background(), &m, "")
+	ProbeGitHub(context.Background(), &m, "", "")
 	if !m.CloneOverSSH {
 		t.Error("a folder that is not a clone says nothing about the origin")
 	}
@@ -114,7 +129,7 @@ echo "port 22"`)
 	e.script("ssh-add", `echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAGENT agent"
 echo "The agent has no identities."`)
 	var m Machine
-	ProbeGitHub(context.Background(), &m, "")
+	ProbeGitHub(context.Background(), &m, "", "")
 	want := []string{pubA, pubB, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAGENT agent"}
 	if !m.CloneOverSSH || !reflect.DeepEqual(m.SSHOfferedKeys, want) {
 		t.Errorf("keys = %q", m.SSHOfferedKeys)
@@ -128,14 +143,14 @@ func TestProbeGitHubNoAgentAndNoSSH(t *testing.T) {
 	e.script("ssh-add", `echo "Could not open a connection to your authentication agent." >&2
 exit 2`)
 	var m Machine
-	ProbeGitHub(context.Background(), &m, "")
+	ProbeGitHub(context.Background(), &m, "", "")
 	if !reflect.DeepEqual(m.SSHOfferedKeys, []string{pubA}) {
 		t.Errorf("no agent: keys = %q", m.SSHOfferedKeys)
 	}
 
 	t.Setenv("PATH", t.TempDir()) // neither ssh nor ssh-add
 	m = Machine{}
-	ProbeGitHub(context.Background(), &m, "")
+	ProbeGitHub(context.Background(), &m, "", "")
 	if !m.CloneOverSSH || len(m.SSHOfferedKeys) != 0 {
 		t.Errorf("no ssh: %+v", m)
 	}

@@ -13,15 +13,19 @@ const DefaultGitURL = "git@github.com:"
 
 // ProbeGitHub reads what key_auth needs: whether the practice clone ($HOME/dojo, or the default
 // clone when none exists yet) goes over SSH and, if so, the public keys ssh offers for github.com,
-// from `ssh -G` identity files and `ssh-add -L`. It reads public keys only.
-func ProbeGitHub(ctx context.Context, m *Machine, gitURLBase string) {
+// from `ssh -G` identity files and `ssh-add -L`. It reads public keys only. cloneDir is the clone
+// dojo check --repo remembered; empty means $HOME/dojo.
+func ProbeGitHub(ctx context.Context, m *Machine, gitURLBase, cloneDir string) {
 	origin := gitURLBase
 	if origin == "" {
 		origin = DefaultGitURL
 	}
 	home, _ := os.UserHomeDir()
-	if home != "" {
-		dir := filepath.Join(home, "dojo")
+	dir := cloneDir
+	if dir == "" && home != "" {
+		dir = filepath.Join(home, "dojo")
+	}
+	if dir != "" {
 		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
 			out, err := runCmd(ctx, func(c context.Context) *exec.Cmd {
 				return exec.CommandContext(c, "git", "-C", dir, "remote", "get-url", "origin") //nolint:gosec // dir is $HOME/dojo, an argument not a shell

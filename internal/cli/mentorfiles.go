@@ -5,48 +5,19 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/kibanbuild/dojo/internal/mentor"
+	"github.com/kibanbuild/dojo/internal/state"
 )
-
-// cloneDir is the default local clone of the learner's practice repo (design 3.9).
-func cloneDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, "dojo"), nil
-}
-
-// isPracticeClone reports whether dir is a git clone whose origin is named dojo. Only the repo
-// name is checked: the login is not known offline.
-func isPracticeClone(dir string) bool {
-	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
-		return false
-	}
-	cmd := exec.Command("git", "-C", dir, "config", "--get", "remote.origin.url") //nolint:gosec // G204: dir is the learner's own clone path
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "GIT_") {
-			cmd.Env = append(cmd.Env, kv)
-		}
-	}
-	out, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-	url := strings.TrimSuffix(strings.TrimSpace(string(out)), "/")
-	url = strings.TrimSuffix(strings.ToLower(url), ".git")
-	return strings.HasSuffix(url, "/dojo") || strings.HasSuffix(url, ":dojo")
-}
 
 // seedMentorFiles writes AGENTS.md and CLAUDE.md into the local practice clone when it exists and
 // the file is absent. It never overwrites and never stages: the files stay local. Failures only warn.
-func (a *App) seedMentorFiles() {
-	dir, err := cloneDir()
-	if err != nil || !isPracticeClone(dir) {
+// The clone is the one the pass commit uses (resolveClone).
+func (a *App) seedMentorFiles(st *state.State) {
+	dir, needClone, err := resolveClone(st, st.GithubLogin)
+	if err != nil || needClone {
 		return
 	}
 	files := []struct{ name, text string }{{"AGENTS.md", mentor.AgentsMD()}, {"CLAUDE.md", mentor.ClaudeMD}}

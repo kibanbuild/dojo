@@ -50,9 +50,9 @@ func newEventID(t time.Time) string {
 }
 
 // recordEvent queues one progress event and never fails the command.
-func (a *App) recordEvent(ev state.ProgressEvent) {
+func (a *App) recordEvent(ev state.ProgressEvent) string {
 	if !a.eventsEnabled() {
-		return
+		return ""
 	}
 	now := a.now()
 	ev.ID, ev.At = newEventID(now), now.UTC().Format(time.RFC3339)
@@ -62,7 +62,7 @@ func (a *App) recordEvent(ev state.ProgressEvent) {
 	if errors.Is(err, state.ErrCorruptEvents) {
 		q = state.EventQueue{} // unreadable content is replaced; an I/O or permission error leaves the file alone
 	} else if err != nil {
-		return
+		return ""
 	}
 	if acct := state.LoadAccount(); acct != "" {
 		if q.Account != "" && q.Account != acct {
@@ -75,6 +75,7 @@ func (a *App) recordEvent(ev state.ProgressEvent) {
 	}
 	q.Events = append(q.Events, ev)
 	_ = state.SaveEvents(q)
+	return ev.ID
 }
 
 // dropDoctorRuns removes every unsent doctor.run, so the queue keeps only the latest one.
@@ -220,6 +221,11 @@ func (a *App) flushEvents(ctx context.Context) {
 		case err != nil:
 			retry = now.Add(eventsBackoff)
 			return
+		case r.status == http.StatusBadRequest && badIndex(r.body, n) >= 0:
+			// One event is never acceptable (a type an older API does not know): drop it, resend the rest.
+			i := badIndex(r.body, n)
+			done[pending[i].ID] = true
+			pending = append(pending[:i:i], pending[i+1:]...)
 		case r.status == http.StatusOK, r.status == http.StatusBadRequest: // stored, or never acceptable
 			for _, ev := range pending[:n] {
 				done[ev.ID] = true
@@ -261,6 +267,17 @@ func settleEvents(done map[string]bool, hold bool, retry time.Time) {
 	_ = state.SaveEvents(q)
 }
 
+// badIndex reads the failing event's index from a 400 answer; -1 when absent or outside the batch.
+func badIndex(body []byte, n int) int {
+	var e struct {
+		Index *int `json:"index"`
+	}
+	if json.Unmarshal(body, &e) != nil || e.Index == nil || *e.Index < 0 || *e.Index >= n {
+		return -1
+	}
+	return *e.Index
+}
+
 func retryDelay(ra time.Duration) time.Duration {
 	if ra <= 0 {
 		return eventsBackoff
@@ -295,8 +312,8 @@ func (a *App) afterLogin(me *apiReply) {
 	_ = state.SaveEvents(q)
 }
 
-// recordCheck queues the verdict of a full check run.
-func (a *App) recordCheck(item string, code int, out []byte, took time.Duration) {
+// recordCheck queues the verdict of a full check run and returns the event's id ("" when events are off).
+func (a *App) recordCheck(item string, code int, out []byte, took time.Duration) string {
 	ms := min(max(int(took/time.Millisecond), 0), 86_400_000)
 	ev := state.ProgressEvent{Type: "check.run", ItemID: item, Result: "pass", DurationMS: &ms, Output: string(out)}
 	if code != 0 {
@@ -305,7 +322,7 @@ func (a *App) recordCheck(item string, code int, out []byte, took time.Duration)
 	if p, t, ok := checkCounts(out); ok {
 		ev.Passed, ev.Total = &p, &t
 	}
-	a.recordEvent(ev)
+	return a.recordEvent(ev)
 }
 
 // checkCounts reads the PASS and FAIL lines of a check's output.

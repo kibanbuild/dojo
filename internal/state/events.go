@@ -26,6 +26,7 @@ type ProgressEvent struct {
 	Passed         *int   `json:"passed,omitempty"`
 	Total          *int   `json:"total,omitempty"`
 	Output         string `json:"output,omitempty"`
+	Commit         string `json:"commit,omitempty"` // ticket.commit: 40 lowercase hex
 	// Checks is the report of a doctor.run event.
 	Checks []DoctorCheck `json:"checks,omitempty"`
 }

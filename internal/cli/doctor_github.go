@@ -51,7 +51,11 @@ func (a *App) githubChecks(ctx context.Context, m doctor.Machine) ([]doctor.Resu
 	probe := a.ProbeGitHub
 	if probe == nil {
 		probe = func(ctx context.Context, m *doctor.Machine) {
-			doctor.ProbeGitHub(ctx, m, a.getenv("DOJO_GITHUB_GIT_URL"))
+			repo := ""
+			if st, err := state.Load(); err == nil {
+				repo = st.Repo
+			}
+			doctor.ProbeGitHub(ctx, m, a.getenv("DOJO_GITHUB_GIT_URL"), repo)
 		}
 	}
 	probe(ctx, &m)

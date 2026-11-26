@@ -32,6 +32,8 @@ type Config struct {
 	APIURL       string // origin of the REST API (https://api.github.com)
 	// Scopes is the space-separated scope list asked for at sign-in; empty means the public app's Scopes.
 	Scopes string
+	// ReadToken (DOJO_GITHUB_READ_TOKEN, no scopes) lifts the anonymous limit of the public reads; optional.
+	ReadToken Secret
 }
 
 // String and LogValue keep the secret out of logs and error output.
@@ -50,7 +52,8 @@ func (c Config) LogValue() slog.Value { return slog.StringValue(c.String()) }
 // GITHUB_AUTHORIZE_URL, GITHUB_OAUTH_URL and GITHUB_API_URL (default: the real GitHub).
 // Outside the local environment the origins must be https, so the secret never travels in clear.
 func LoadConfig(get func(string) string, local bool) (Config, error) {
-	c := Config{ClientID: get("GITHUB_CLIENT_ID"), ClientSecret: Secret(get("GITHUB_CLIENT_SECRET"))}
+	c := Config{ClientID: get("GITHUB_CLIENT_ID"), ClientSecret: Secret(get("GITHUB_CLIENT_SECRET")),
+		ReadToken: Secret(strings.TrimSpace(get("DOJO_GITHUB_READ_TOKEN")))}
 	if c.ClientID == "" || c.ClientSecret == "" {
 		return Config{}, errors.New("GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET are required")
 	}
@@ -73,6 +76,15 @@ func LoadConfig(get func(string) string, local bool) (Config, error) {
 		*o.dst = v
 	}
 	return c, nil
+}
+
+// RequireReadToken fails startup in pre and pro when DOJO_GITHUB_READ_TOKEN is empty: without it one
+// IP exhausts the anonymous limit of 60 reads an hour. Local runs may go without.
+func RequireReadToken(env string, c Config) error {
+	if (env == "pre" || env == "pro") && c.ReadToken == "" {
+		return errors.New("DOJO_GITHUB_READ_TOKEN is required when DOJO_ENV is " + env)
+	}
+	return nil
 }
 
 // LoadAPIConfig reads only GITHUB_API_URL (default: the real GitHub) for the unauthenticated

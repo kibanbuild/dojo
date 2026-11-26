@@ -40,6 +40,8 @@ type Repo struct {
 
 // account is the mutable read-side data of one user, behind readStore.mu.
 type account struct {
+	id            int64
+	login         string // the current login: a test can rename the account
 	keys, signing []Key
 	repos         map[string]Repo
 }
@@ -49,6 +51,11 @@ type readStore struct {
 	seed     []User
 	accounts map[string]*account // by lower-case login
 	hits     map[string]*window  // by remote IP
+	// logins is the current login by account id once a test renames an account.
+	logins map[int64]string
+	// limit replaces Config.RateLimit once a test sets it; negative means spent for everyone.
+	limit    int
+	limitSet bool
 }
 
 type window struct {
@@ -68,8 +75,9 @@ func (r *readStore) reset() {
 	defer r.mu.Unlock()
 	r.accounts = map[string]*account{}
 	r.hits = map[string]*window{}
+	r.logins, r.limit, r.limitSet = map[int64]string{}, 0, false
 	for _, u := range r.seed {
-		a := &account{keys: append([]Key(nil), u.Keys...), signing: append([]Key(nil), u.SigningKeys...), repos: map[string]Repo{}}
+		a := &account{id: u.ID, login: u.Login, keys: append([]Key(nil), u.Keys...), signing: append([]Key(nil), u.SigningKeys...), repos: map[string]Repo{}}
 		for _, repo := range u.Repos {
 			a.repos[strings.ToLower(repo.Name)] = repo
 		}
@@ -84,14 +92,26 @@ func (s *server) limited(w http.ResponseWriter, r *http.Request) bool {
 	if err != nil {
 		ip = r.RemoteAddr
 	}
+	s.reads.mu.Lock()
 	limit := s.cfg.RateLimit
+	if s.reads.limitSet {
+		limit = s.reads.limit
+	}
+	s.reads.mu.Unlock()
 	now := s.cfg.Now()
 	h := w.Header()
-	if limit <= 0 { // off: nothing is counted, so nothing is stored per address
+	if limit == 0 { // off: nothing is counted, so nothing is stored per address
 		h.Set("X-RateLimit-Limit", "5000")
 		h.Set("X-RateLimit-Remaining", "5000")
 		h.Set("X-RateLimit-Reset", strconv.FormatInt(now.Add(rateWindow).Unix(), 10))
 		return false
+	}
+	if limit < 0 { // a test turned the budget into "spent for everyone"
+		h.Set("X-RateLimit-Limit", "1")
+		h.Set("X-RateLimit-Remaining", "0")
+		h.Set("X-RateLimit-Reset", strconv.FormatInt(now.Add(rateWindow).Unix(), 10))
+		apiError(w, http.StatusForbidden, "API rate limit exceeded")
+		return true
 	}
 	s.reads.mu.Lock()
 	win := s.reads.hits[ip]
@@ -143,7 +163,13 @@ func (s *server) userByID(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	for _, u := range s.cfg.Users {
 		if err == nil && u.ID == id {
-			writeJSON(w, map[string]any{"id": u.ID, "login": u.Login, "type": "User"})
+			login := u.Login
+			s.reads.mu.Lock()
+			if renamed, ok := s.reads.logins[id]; ok {
+				login = renamed
+			}
+			s.reads.mu.Unlock()
+			writeJSON(w, map[string]any{"id": u.ID, "login": login, "type": "User"})
 			return
 		}
 	}
@@ -230,6 +256,10 @@ func (s *server) registerReads(mux *http.ServeMux) {
 	mux.HandleFunc("GET /repos/{owner}/{repo}", s.read(s.repo))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/rules/branches/{branch...}", s.read(s.rules))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/contents/{path...}", s.read(s.contents))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/commits/{sha}", s.read(s.commit))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/compare/{spec}", s.read(s.compare))
+	mux.HandleFunc("PUT /_fake/users/{login}/rename", s.rename)
+	mux.HandleFunc("PUT /_fake/rate_limit", s.setRateLimit)
 
 	mux.HandleFunc("PUT /_fake/users/{login}/keys", s.control(func(a *account, _ string, body []byte) error {
 		return json.Unmarshal(body, &a.keys)

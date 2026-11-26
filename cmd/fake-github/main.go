@@ -56,7 +56,8 @@ func run() error {
 	srv := &http.Server{
 		Addr: addr,
 		Handler: fakegithub.New(fakegithub.Config{Clients: clients, Users: fakegithub.DefaultUsers(),
-			PublicURL: os.Getenv("FAKE_GITHUB_PUBLIC_URL"), DeviceInterval: interval, RateLimit: rateLimit}),
+			PublicURL: os.Getenv("FAKE_GITHUB_PUBLIC_URL"), DeviceInterval: interval, RateLimit: rateLimit,
+			GitRoot: os.Getenv("FAKE_GITHUB_GIT_ROOT")}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

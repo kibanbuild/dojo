@@ -190,6 +190,17 @@ type PathWaitlist struct {
 	PathID    pgtype.UUID
 }
 
+type PendingCommit struct {
+	ID        pgtype.UUID
+	OrgID     pgtype.UUID
+	LearnerID pgtype.UUID
+	ItemID    string
+	Commit    string
+	ClientAt  pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
 type Role struct {
 	ID        pgtype.UUID
 	OrgID     pgtype.UUID
@@ -247,4 +258,9 @@ type TicketProgress struct {
 	FirstPassedAt   pgtype.Timestamptz
 	PassedSeconds   pgtype.Int4
 	PassedCommit    pgtype.Text
+	CommitState     pgtype.Text
+	CommitTries     int32
+	CommitNextAt    pgtype.Timestamptz
+	CommitCheckedAt pgtype.Timestamptz
+	CommitAt        pgtype.Timestamptz
 }

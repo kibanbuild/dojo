@@ -78,6 +78,10 @@ func (f *fakeTickets) ListHintOpens(context.Context, repo.ListHintOpensParams) (
 	return f.opened, nil
 }
 
+func (f *fakeTickets) GetLearnerByID(context.Context, pgtype.UUID) (repo.Learner, error) {
+	return repo.Learner{GithubLogin: "ada"}, nil
+}
+
 func (f *fakeTickets) OpenHint(_ context.Context, _ pgtype.UUID, _ string, n int16) (string, error) {
 	f.opens = append(f.opens, n)
 	return f.openText, f.openErr
@@ -154,6 +158,32 @@ func TestTicketReadShowsAllHintsWhenPassed(t *testing.T) {
 		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || len(got.Hints) != 3 ||
 			got.Progress["state"] != state || got.Progress["last_check_output"] != "out" || got.Progress["last_check_at"] != "2026-11-23T10:31:40Z" {
 			t.Fatalf("%s: %v %s", state, err, rec.Body)
+		}
+	}
+}
+
+func TestTicketReadCommitState(t *testing.T) {
+	sha := strings.Repeat("ab", 20)
+	for _, tt := range []struct {
+		state, wantState, wantURL string
+	}{
+		{"", "", ""},
+		{"pending", "pending", ""},
+		{"unverified", "unverified", ""},
+		{"verified", "verified", "https://github.com/ada/dojo/commit/" + sha},
+	} {
+		f := ticketFake()
+		f.progress = &repo.TicketProgress{State: "passed", PassedCommit: pgtype.Text{String: sha, Valid: tt.state != ""},
+			CommitState: pgtype.Text{String: tt.state, Valid: tt.state != ""}}
+		rec := ticketCall(t, f, http.MethodGet, "/v1/tickets/support-l1/perms-03", false, false, false)
+		var got struct{ Progress map[string]any }
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		state, url := got.Progress["passed_commit_state"], got.Progress["passed_commit_url"]
+		if (tt.wantState == "") != (state == nil) || (tt.wantState != "" && state != tt.wantState) ||
+			(tt.wantURL == "") != (url == nil) || (tt.wantURL != "" && url != tt.wantURL) {
+			t.Fatalf("%q: state %v url %v", tt.state, state, url)
 		}
 	}
 }

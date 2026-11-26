@@ -28,12 +28,17 @@ func ProgressPayload(p TicketProgress) []byte {
 		CheckCount  int32   `json:"check_count"`
 		LastCheckOK *bool   `json:"last_check_ok"`
 		LastCheckAt *string `json:"last_check_at"`
+
+		PassedCommitState *string `json:"passed_commit_state"`
 	}{ItemID: p.ItemID, State: p.State, CheckCount: p.CheckCount}
 	if p.LabState.Valid {
 		m.LabState = &p.LabState.String
 	}
 	if p.Lab.Valid {
 		m.Lab = &p.Lab.String
+	}
+	if p.CommitState.Valid {
+		m.PassedCommitState = &p.CommitState.String
 	}
 	if p.LastCheckOk.Valid {
 		m.LastCheckOK = &p.LastCheckOk.Bool

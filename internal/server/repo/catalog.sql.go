@@ -260,7 +260,7 @@ func (q *Queries) ListLearnerActivityDays(ctx context.Context, arg ListLearnerAc
 }
 
 const listLearnerRecentPasses = `-- name: ListLearnerRecentPasses :many
-SELECT p.item_id, i.title, p.first_passed_at, p.passed_commit
+SELECT p.item_id, i.title, p.first_passed_at, p.passed_commit, p.commit_state
 FROM ticket_progress p
 JOIN catalog_items i ON i.id = p.item_id AND i.kind = 'ticket'
 WHERE p.learner_id = $1 AND p.first_passed_at IS NOT NULL
@@ -273,6 +273,7 @@ type ListLearnerRecentPassesRow struct {
 	Title         string
 	FirstPassedAt pgtype.Timestamptz
 	PassedCommit  pgtype.Text
+	CommitState   pgtype.Text
 }
 
 func (q *Queries) ListLearnerRecentPasses(ctx context.Context, learnerID pgtype.UUID) ([]ListLearnerRecentPassesRow, error) {
@@ -289,6 +290,7 @@ func (q *Queries) ListLearnerRecentPasses(ctx context.Context, learnerID pgtype.
 			&i.Title,
 			&i.FirstPassedAt,
 			&i.PassedCommit,
+			&i.CommitState,
 		); err != nil {
 			return nil, err
 		}

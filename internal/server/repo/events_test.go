@@ -119,3 +119,55 @@ func TestFailNeverChangesStateAndOutputIsReplaced(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+func TestAcceptCommitFirstShaWins(t *testing.T) {
+	const old, fresh = "1111111111111111111111111111111111111111", "2222222222222222222222222222222222222222"
+	row := func(state, commitState, sha string) *TicketProgress {
+		p := &TicketProgress{State: state}
+		if commitState != "" {
+			p.CommitState = pgtype.Text{String: commitState, Valid: true}
+		}
+		if sha != "" {
+			p.PassedCommit = pgtype.Text{String: sha, Valid: true}
+		}
+		return p
+	}
+	tests := []struct {
+		name string
+		cur  *TicketProgress
+		want bool
+	}{
+		{"no row", nil, false},
+		{"started ticket", row("started", "", ""), false},
+		{"passed, no sha yet", row("passed", "", ""), true},
+		{"revisit, no sha yet", row("revisit", "", ""), true},
+		{"pending keeps the first sha", row("passed", "pending", old), false},
+		{"verified keeps the first sha", row("passed", "verified", old), false},
+		{"unverified takes a new sha", row("passed", "unverified", old), true},
+		{"unverified ignores the same sha", row("passed", "unverified", fresh), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := acceptCommit(tt.cur, fresh, now)
+			if ok != tt.want {
+				t.Fatalf("accepted %v, want %v", ok, tt.want)
+			}
+			if !ok {
+				return
+			}
+			if got.PassedCommit.String != fresh || got.CommitState.String != "pending" || got.CommitTries != 0 ||
+				!got.CommitAt.Time.Equal(now) || !got.CommitNextAt.Time.Equal(now.Add(5*time.Second)) {
+				t.Fatalf("accepted row: %+v", got)
+			}
+		})
+	}
+}
+
+func TestAcceptCommitResetsTries(t *testing.T) {
+	cur := &TicketProgress{State: "passed", CommitTries: 6, CommitState: pgtype.Text{String: "unverified", Valid: true},
+		PassedCommit: pgtype.Text{String: "1111111111111111111111111111111111111111", Valid: true}, CommitAt: ts(t0)}
+	got, ok := acceptCommit(cur, "2222222222222222222222222222222222222222", now)
+	if !ok || got.CommitTries != 0 || !got.CommitAt.Time.Equal(now) || cur.CommitTries != 6 {
+		t.Fatalf("%v %+v (input %+v)", ok, got, cur)
+	}
+}

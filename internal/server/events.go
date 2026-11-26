@@ -33,6 +33,7 @@ var (
 	eventIDRE      = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	ticketIDRE     = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*/[a-z0-9]+(-[a-z0-9]+)*$`)
 	catalogVerRE   = regexp.MustCompile(`^[0-9a-f]{12}$`)
+	commitRE       = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	labFailReasons = map[string]bool{"disk": true, "memory": true, "vm": true, "setup": true, "other": true}
 )
 
@@ -56,6 +57,7 @@ type wireEvent struct {
 	Passed         *int        `json:"passed"`
 	Total          *int        `json:"total"`
 	Output         *string     `json:"output"`
+	Commit         *string     `json:"commit"`
 	Checks         []wireCheck `json:"checks"`
 }
 
@@ -140,6 +142,7 @@ func parseEvent(raw json.RawMessage) (repo.EventIn, bool) {
 		"lab": w.Lab != nil, "catalog_version": w.CatalogVersion != nil, "reason": w.Reason != nil,
 		"detail": w.Detail != nil, "result": w.Result != nil, "duration_ms": w.DurationMS != nil,
 		"passed": w.Passed != nil, "total": w.Total != nil, "output": w.Output != nil, "checks": w.Checks != nil,
+		"commit": w.Commit != nil,
 	}
 	allowed := map[string][]string{
 		"ticket.started": {"lab", "catalog_version"},
@@ -148,6 +151,7 @@ func parseEvent(raw json.RawMessage) (repo.EventIn, bool) {
 		"lab.failed":     {"reason", "detail"},
 		"check.run":      {"result", "duration_ms", "passed", "total", "output"},
 		"doctor.run":     {"checks"},
+		"ticket.commit":  {"commit"},
 	}[*w.Type]
 	if allowed == nil { // unknown type, and hint.opened (server side only)
 		return out, false
@@ -176,6 +180,12 @@ func parseEvent(raw json.RawMessage) (repo.EventIn, bool) {
 		}
 		e.Lab = *w.Lab
 		payload["lab"], payload["catalog_version"] = *w.Lab, *w.CatalogVersion
+	case "ticket.commit":
+		if w.Commit == nil || !commitRE.MatchString(*w.Commit) {
+			return out, false
+		}
+		e.Commit = *w.Commit
+		payload["commit"] = *w.Commit
 	case "lab.failed":
 		if w.Reason == nil || !labFailReasons[*w.Reason] {
 			return out, false

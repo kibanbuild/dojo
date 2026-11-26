@@ -62,7 +62,8 @@ table PR adds its grant rows (allowed and refused) to `grantCases` in `internal/
   `DOJO_SMTP_USERNAME` and `DOJO_SMTP_PASSWORD` (credentials require STARTTLS) and `DOJO_EMAIL_DOMAIN` (mail goes out as
   `carmen@` that domain); compose sets Mailpit and `dojo.test`. Read the mail at the web inbox on `http://localhost:8025`
   (`MAILPIT_PORT` moves it; the integration run takes a random port). A new learner's welcome mail (E1) shows up there
-  within a few seconds of the first sign-in.
+  within a few seconds of the first sign-in. Learner reports (`POST /v1/reports`) are forwarded to `DOJO_REPORTS_TO`
+  (`reports@dojo.test` in compose; required in `pre` and `pro`).
 - `make admin-bootstrap LOGIN=ada` makes that GitHub login the first operator of the dev stack, so you can
   sign in to the operator service locally (the fake GitHub knows `ada`, `bob` and `cy`; sign-in needs a
   user with two-factor on: `ada` or `cy`, not `bob`). It runs `dojo-admin bootstrap` as a one-off with the migration

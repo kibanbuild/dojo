@@ -62,6 +62,8 @@ type Auth struct {
 	Tickets *Tickets
 	// Onboarding backs GET /v1/onboarding (it also needs Catalog); nil leaves the route out.
 	Onboarding *Onboarding
+	// Reports backs POST /v1/reports; nil leaves the route out.
+	Reports ReportStore
 }
 
 // ParseOrigin validates PUBLIC_ORIGIN for the environment (local, pre or pro) and reports

@@ -169,6 +169,8 @@ services:
       DOJO_SMTP_HOST: ${DOJO_SMTP_HOST:-mailpit}
       DOJO_SMTP_PORT: ${DOJO_SMTP_PORT:-1025}
       DOJO_EMAIL_DOMAIN: ${DOJO_EMAIL_DOMAIN:-dojo.test}
+      # Where learner reports are forwarded (POST /v1/reports); Mailpit catches it locally.
+      DOJO_REPORTS_TO: ${DOJO_REPORTS_TO:-reports@dojo.test}
       # Object store (internal/storage). The API signs URLs for DOJO_S3_PUBLIC_ENDPOINT, the address the
       # host (the CLI) reaches the published port on; it connects to s3:9000 itself.
       DOJO_S3_ENDPOINT: http://s3:9000

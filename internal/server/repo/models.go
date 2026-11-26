@@ -264,3 +264,18 @@ type TicketProgress struct {
 	CommitCheckedAt pgtype.Timestamptz
 	CommitAt        pgtype.Timestamptz
 }
+
+type TicketReport struct {
+	ID              pgtype.UUID
+	OrgID           pgtype.UUID
+	LearnerID       pgtype.UUID
+	ItemID          pgtype.Text
+	Kind            string
+	CliVersion      string
+	LastCheckOutput pgtype.Text
+	Message         string
+	DoctorSummary   string
+	EmailedAt       pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}

@@ -165,6 +165,34 @@ func TestSMTPSendIsBounded(t *testing.T) {
 	}
 }
 
+func TestBuildSetsReplyTo(t *testing.T) {
+	raw, err := Build(Message{From: "hello@dojo.test", To: "us@dojo.test", ReplyTo: "ada@example.test", Subject: "s"}, time.Unix(0, 0), "abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hdr, err := textproto.NewReader(bufio.NewReader(strings.NewReader(string(raw)))).ReadMIMEHeader()
+	if err != nil || hdr.Get("Reply-To") != "ada@example.test" {
+		t.Fatalf("reply-to: %v %v", hdr, err)
+	}
+	raw, err = Build(Message{From: "hello@dojo.test", To: "us@dojo.test", Subject: "s"}, time.Unix(0, 0), "abc")
+	if err != nil || strings.Contains(string(raw), "Reply-To") {
+		t.Fatalf("no reply-to expected: %v %q", err, raw)
+	}
+	for _, bad := range []string{"Ada <ada@example.test>", "a@b.c, d@e.f", "a@b.c\r\nBcc: x@y.z"} {
+		if _, err := Build(Message{From: "hello@dojo.test", To: "us@dojo.test", ReplyTo: bad, Subject: "s"}, time.Now(), "id"); !errors.Is(err, ErrBadAddress) {
+			t.Errorf("reply-to %q: %v", bad, err)
+		}
+	}
+}
+
+func TestValidAddress(t *testing.T) {
+	for addr, want := range map[string]bool{"ada@example.test": true, "": false, "Ada <ada@example.test>": false, "a@b.c, d@e.f": false, "x": false} {
+		if got := ValidAddress(addr); got != want {
+			t.Errorf("ValidAddress(%q) = %v", addr, got)
+		}
+	}
+}
+
 // Errors name the problem, never the input: callers log them.
 func TestBuildErrorsCarryNoAddressOrSubject(t *testing.T) {
 	_, err := Build(Message{From: "carmen@dojo.test", To: "secret@example.test, x@y.z", Subject: "s"}, time.Now(), "id")

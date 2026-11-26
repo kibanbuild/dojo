@@ -103,7 +103,7 @@ func run(args []string) error {
 	auth := server.Auth{Store: store.Queries(), Catalog: store.Queries(),
 		Bundles: &server.Bundles{Store: store.Queries(), Signer: objects}, Secure: secure, Events: store,
 		Stream: hub, StreamHeartbeat: heartbeat,
-		Tickets: &server.Tickets{Reader: store.Queries(), Opener: store},
+		Tickets: &server.Tickets{Reader: store.Queries(), Opener: store}, Reports: store,
 		Onboarding: &server.Onboarding{Facts: store.Queries(), Doctor: store, Confirmer: store,
 			Env: os.Getenv("DOJO_ENV"), PublicOrigin: strings.TrimRight(os.Getenv("PUBLIC_ORIGIN"), "/")}}
 	cli := &server.CLILogin{GitHub: gh, Store: store.Queries(), Tokens: store}
@@ -162,6 +162,13 @@ func envOr(key, def string) string {
 // startOutbox runs the email sender (design 3.3). With no DOJO_SMTP_HOST it logs that mail is off and
 // returns: queued mail then waits in email_outbox.
 func startOutbox(ctx context.Context, store *repo.Store) error {
+	reportsTo := os.Getenv("DOJO_REPORTS_TO")
+	switch {
+	case reportsTo == "" && os.Getenv("DOJO_ENV") != "local":
+		return errors.New("DOJO_REPORTS_TO is required outside local")
+	case reportsTo != "" && !mail.ValidAddress(reportsTo):
+		return errors.New("DOJO_REPORTS_TO must be a bare email address")
+	}
 	host := os.Getenv("DOJO_SMTP_HOST")
 	if host == "" {
 		slog.Warn("DOJO_SMTP_HOST is not set: queued email will not be sent")
@@ -176,5 +183,10 @@ func startOutbox(ctx context.Context, store *repo.Store) error {
 	o := &server.Outbox{Queue: store, Reader: store.Queries(), Mail: smtp, Domain: domain, Origin: os.Getenv("PUBLIC_ORIGIN")}
 	slog.Info("email sender configured", "host", host, "port", smtp.Port, "domain", domain)
 	go server.RunOutbox(ctx, o, server.OutboxInterval)
+	if reportsTo == "" {
+		slog.Warn("DOJO_REPORTS_TO is not set: reports are stored and not forwarded")
+		return nil
+	}
+	go server.RunReportForwarder(ctx, &server.ReportForwarder{Queue: store, Mail: smtp, To: reportsTo, Domain: domain}, server.OutboxInterval)
 	return nil
 }

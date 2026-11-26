@@ -42,6 +42,7 @@ jobs:
             production.cloudfront.docker.com:443
             docker-images-prod.s3.dualstack.us-east-1.amazonaws.com:443
             registry.npmjs.org:443
+            dl-cdn.alpinelinux.org:443
 
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

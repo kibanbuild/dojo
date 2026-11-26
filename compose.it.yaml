@@ -7,7 +7,12 @@ services:
     environment:
       # Short, so the stream tests see a heartbeat and a revoked session within seconds.
       STREAM_HEARTBEAT_SECONDS: "1"
+      # The commit verifier ticks every second, so its tests wait seconds, not minutes.
+      DOJO_COMMIT_VERIFY_INTERVAL_SECONDS: "1"
   fake-github:
     environment:
       # A short poll interval keeps the device-flow smoke test fast.
       FAKE_GITHUB_DEVICE_INTERVAL: "1"
+    volumes:
+      # The tests push signed commits into <login>/dojo.git here; the fake reads them with git.
+      - ${DOJO_FAKE_GITHUB_GIT_DIR:-./.tmp/fake-git}:/git

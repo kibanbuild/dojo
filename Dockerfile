@@ -4,6 +4,9 @@ ARG GO_IMAGE=golang:1.27.4-alpine3.24@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb
 ARG NODE_IMAGE=node:24.22.3-alpine3.24@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5
 ARG CADDY_IMAGE=caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
 
+# The fake GitHub needs git and ssh-keygen to answer commit reads; same Alpine release as the images above.
+ARG ALPINE_IMAGE=alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
+
 FROM ${GO_IMAGE} AS build-api
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -74,7 +77,9 @@ USER 65532:65532
 ENTRYPOINT ["/dojo-catalog-load"]
 
 # The GitHub stand-in for local and test stacks only; never part of the api image.
-FROM scratch AS fake-github
+FROM ${ALPINE_IMAGE} AS fake-github
+# ssh-keygen refuses to run as a uid with no passwd entry, so 65532 gets one.
+RUN apk add --no-cache git openssh-keygen && adduser -D -H -u 65532 -h /tmp fake
 COPY --from=build-fake-github /out/fake-github /fake-github
 USER 65532:65532
 EXPOSE 8081

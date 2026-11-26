@@ -64,6 +64,10 @@ type Config struct {
 	// (FAKE_GITHUB_RATE_LIMIT); zero means no limit, though the headers are still sent.
 	RateLimit int
 
+	// GitRoot holds the bare repositories behind the commit and compare reads, <login>/<repo>.git
+	// (FAKE_GITHUB_GIT_ROOT); empty means those reads are 404.
+	GitRoot string
+
 	// PublicURL is the address browsers use to reach the fake; it fills verification_uri.
 	// Empty means derive it from the request's Host header.
 	PublicURL string

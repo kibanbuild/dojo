@@ -189,6 +189,10 @@ services:
       GITHUB_AUTHORIZE_URL: ${DOJO_GITHUB_AUTHORIZE_URL:-http://localhost:8081}
       GITHUB_OAUTH_URL: ${DOJO_GITHUB_OAUTH_URL:-http://fake-github:8081}
       GITHUB_API_URL: ${DOJO_GITHUB_API_URL:-http://fake-github:8081}
+      # Ours, no scopes: lifts the anonymous limit of the commit reads. Empty locally.
+      DOJO_GITHUB_READ_TOKEN: ${DOJO_GITHUB_READ_TOKEN:-}
+      DOJO_COMMIT_VERIFY_INTERVAL_SECONDS: ${DOJO_COMMIT_VERIFY_INTERVAL_SECONDS:-60}
+      DOJO_COMMIT_VERIFY_BATCH: ${DOJO_COMMIT_VERIFY_BATCH:-20}
       TERMS_VERSION: ${TERMS_VERSION:?copy .env.example to .env}
       AUTH_STATE_KEY: ${AUTH_STATE_KEY:-local-dev-state-key-not-a-secret-0123456789}
       DATABASE_URL: postgres://dojo_api:${DOJO_API_DB_PASSWORD:?copy .env.example to .env}@db:5432/dojo?sslmode=disable&application_name=dojo-api
@@ -258,6 +262,9 @@ services:
       FAKE_GITHUB_DEVICE_INTERVAL: ${FAKE_GITHUB_DEVICE_INTERVAL:-5}
       # Unauthenticated reads allowed per remote address per hour; 0 is no limit (the rate-limit test sets it).
       FAKE_GITHUB_RATE_LIMIT: ${FAKE_GITHUB_RATE_LIMIT:-0}
+      # Bare repositories <login>/dojo.git behind the commit and compare reads (design 3.9). The integration
+      # run mounts a host directory here (compose.it.yaml) so the test can push to it.
+      FAKE_GITHUB_GIT_ROOT: /git
     ports:
       # The browser is redirected to the authorize page. Unset = 8081; set but empty = a random free port.
       - "127.0.0.1:${FAKE_GITHUB_PORT-8081}:8081"

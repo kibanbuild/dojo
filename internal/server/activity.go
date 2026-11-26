@@ -98,7 +98,7 @@ func (a Auth) activity(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, x := range recent {
 		rc := activityRecent{TicketID: x.ItemID, Title: x.Title, At: x.FirstPassedAt.Time.UTC().Format(time.RFC3339)}
-		if x.PassedCommit.Valid {
+		if x.PassedCommit.Valid && x.CommitState.String == "verified" {
 			rc.Commit = &x.PassedCommit.String
 		}
 		out.Recent = append(out.Recent, rc)

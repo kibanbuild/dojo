@@ -93,6 +93,8 @@ export interface TicketProgress {
   first_passed_at: string | null;
   passed_seconds: number | null;
   passed_commit: string | null;
+  passed_commit_state?: 'pending' | 'verified' | 'unverified' | null;
+  passed_commit_url?: string | null;
 }
 
 export interface Ticket {

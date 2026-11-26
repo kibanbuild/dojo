@@ -58,6 +58,7 @@ type TicketReader interface {
 	GetTicketView(ctx context.Context, id string) (repo.GetTicketViewRow, error)
 	GetTicketProgress(ctx context.Context, arg repo.GetTicketProgressParams) (repo.TicketProgress, error)
 	ListHintOpens(ctx context.Context, arg repo.ListHintOpensParams) ([]int16, error)
+	GetLearnerByID(ctx context.Context, id pgtype.UUID) (repo.Learner, error)
 }
 
 // HintOpener opens one written hint.
@@ -89,6 +90,9 @@ type ticketProgress struct {
 	FirstPassedAt   *string `json:"first_passed_at"`
 	PassedSeconds   *int32  `json:"passed_seconds"`
 	PassedCommit    *string `json:"passed_commit"`
+
+	PassedCommitState *string `json:"passed_commit_state"`
+	PassedCommitURL   *string `json:"passed_commit_url"`
 }
 
 type ticketResponse struct {
@@ -125,12 +129,19 @@ func timePtr(t pgtype.Timestamptz) *string {
 	return &s
 }
 
-func progressOf(p repo.TicketProgress) *ticketProgress {
+// progressOf builds the progress object; login is the learner's GitHub login, needed only for a
+// verified commit's link.
+func progressOf(p repo.TicketProgress, login string) *ticketProgress {
 	out := &ticketProgress{
 		State: p.State, Lab: textPtr(p.Lab), LabState: textPtr(p.LabState), CheckCount: p.CheckCount,
 		LastCheckAt: timePtr(p.LastCheckAt), LastCheckPassed: int4Ptr(p.LastCheckPassed),
 		LastCheckTotal: int4Ptr(p.LastCheckTotal), LastCheckOutput: textPtr(p.LastCheckOutput),
 		FirstPassedAt: timePtr(p.FirstPassedAt), PassedSeconds: int4Ptr(p.PassedSeconds), PassedCommit: textPtr(p.PassedCommit),
+		PassedCommitState: textPtr(p.CommitState),
+	}
+	if p.CommitState.String == "verified" && p.PassedCommit.Valid && login != "" {
+		u := "https://github.com/" + login + "/dojo/commit/" + p.PassedCommit.String
+		out.PassedCommitURL = &u
 	}
 	if p.LastCheckOk.Valid {
 		out.LastCheckOK = &p.LastCheckOk.Bool
@@ -139,7 +150,7 @@ func progressOf(p repo.TicketProgress) *ticketProgress {
 }
 
 // buildTicket assembles the L3 answer: opened hints only, or all of them once the ticket is passed.
-func buildTicket(t repo.GetTicketViewRow, prog *repo.TicketProgress, opened []int16) ticketResponse {
+func buildTicket(t repo.GetTicketViewRow, prog *repo.TicketProgress, opened []int16, login string) ticketResponse {
 	out := ticketResponse{
 		ID: t.ID, Title: t.Title, Role: textPtr(t.Role), EstMinutes: t.EstMinutes, Tags: t.Tags,
 		Brief: t.Brief.String, HintCount: len(t.Hints), Hints: []ticketHint{},
@@ -149,7 +160,7 @@ func buildTicket(t repo.GetTicketViewRow, prog *repo.TicketProgress, opened []in
 	}
 	all := false
 	if prog != nil {
-		out.Progress = progressOf(*prog)
+		out.Progress = progressOf(*prog, login)
 		all = prog.State == "passed" || prog.State == "revisit"
 	}
 	open := make(map[int]bool, len(opened))
@@ -212,7 +223,16 @@ func (t *Tickets) read(w http.ResponseWriter, r *http.Request, id string) {
 		readFailed(w, r, err)
 		return
 	}
-	writeNoStore(w, buildTicket(view, prog, opened))
+	login := ""
+	if prog != nil && prog.CommitState.String == "verified" {
+		l, err := t.Reader.GetLearnerByID(r.Context(), p.learner)
+		if err != nil {
+			readFailed(w, r, err)
+			return
+		}
+		login = l.GithubLogin
+	}
+	writeNoStore(w, buildTicket(view, prog, opened, login))
 }
 
 func (t *Tickets) openHint(w http.ResponseWriter, r *http.Request, id string, n int16) {

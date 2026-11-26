@@ -35,7 +35,8 @@ func TestActivityShape(t *testing.T) {
 		total: 7,
 		recent: []repo.ListLearnerRecentPassesRow{
 			{ItemID: "foundations/a", Title: "A", FirstPassedAt: pgtype.Timestamptz{Time: at, Valid: true}},
-			{ItemID: "support-l1/c", Title: "C", FirstPassedAt: pgtype.Timestamptz{Time: at, Valid: true}, PassedCommit: pgtype.Text{String: "abc123", Valid: true}},
+			{ItemID: "support-l1/c", Title: "C", FirstPassedAt: pgtype.Timestamptz{Time: at, Valid: true}, PassedCommit: pgtype.Text{String: "abc123", Valid: true}, CommitState: pgtype.Text{String: "verified", Valid: true}},
+			{ItemID: "support-l1/d", Title: "D", FirstPassedAt: pgtype.Timestamptz{Time: at, Valid: true}, PassedCommit: pgtype.Text{String: "def456", Valid: true}, CommitState: pgtype.Text{String: "pending", Valid: true}},
 		},
 	}
 	rec := getCatalogRoute(t, f, "/v1/activity", false, false)
@@ -54,7 +55,7 @@ func TestActivityShape(t *testing.T) {
 	if len(got.Days) != 1 || got.Days[0]["day"] != "2026-11-24" || got.Days[0]["count"] != float64(2) || got.Total != 7 {
 		t.Fatalf("days/total: %s", rec.Body)
 	}
-	if len(got.Recent) != 2 || got.Recent[0]["commit"] != nil || got.Recent[1]["commit"] != "abc123" ||
+	if len(got.Recent) != 3 || got.Recent[0]["commit"] != nil || got.Recent[1]["commit"] != "abc123" || got.Recent[2]["commit"] != nil ||
 		got.Recent[0]["at"] != "2026-11-24T21:30:00Z" || got.Recent[0]["ticket_id"] != "foundations/a" || got.Recent[0]["title"] != "A" {
 		t.Fatalf("recent: %s", rec.Body)
 	}

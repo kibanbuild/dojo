@@ -276,11 +276,16 @@ describe('Ticket passed', () => {
     expect(container.querySelector('a[href="/path"]')).not.toBeNull();
   });
 
-  it('shows the commit only when there is one', async () => {
-    await mount(passed({ passed_commit: '3f9a1c2d9e0b' }));
+  it('shows the commit as signed only when it is verified', async () => {
+    await mount(passed({ passed_commit: '3f9a1c2d9e0b', passed_commit_state: 'verified' }));
     expect(text()).toContain('signed');
     expect(text()).toContain('3f9a1c2');
     expect(text()).not.toContain('3f9a1c2d');
+  });
+
+  it.each(['pending', 'unverified'] as const)('does not claim signed for a %s commit', async (state) => {
+    await mount(passed({ passed_commit: '3f9a1c2d9e0b', passed_commit_state: state }));
+    expect(text()).not.toContain('signed');
   });
 });
 

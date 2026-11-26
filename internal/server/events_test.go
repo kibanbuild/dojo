@@ -34,6 +34,12 @@ func started(id string) string {
 	return `{"id":"` + id + `","type":"ticket.started","at":"2026-11-23T10:15:02Z","item_id":"support-l1/perms-03","lab":"local","catalog_version":"a1b2c3d4e5f6"}`
 }
 
+const sha40 = "3f9a1c2d9e0b4a5c6d7e8f90a1b2c3d4e5f60718"
+
+func commitEv(sha string) string {
+	return `{"id":"` + evID1 + `","type":"ticket.commit","at":"2026-11-23T10:40:00Z","item_id":"support-l1/perms-03","commit":"` + sha + `"}`
+}
+
 func check(id, extra string) string {
 	return `{"id":"` + id + `","type":"check.run","at":"2026-11-23T10:31:40Z","item_id":"support-l1/perms-03","result":"fail","duration_ms":2210` + extra + `}`
 }
@@ -76,6 +82,13 @@ func TestEventsValidation(t *testing.T) {
 		{"output over 16384 bytes", `{"events":[` + check(evID1, `,"output":"`+big+`"`) + `]}`, `"index":0`},
 		{"output over 16384 bytes once NULs become U+FFFD", `{"events":[` + check(evID1, `,"output":"`+strings.Repeat(`\u0000`, 5462)+`"`) + `]}`, `"index":0`},
 		{"bad lab.failed reason", `{"events":[{"id":"` + evID1 + `","type":"lab.failed","at":"2026-11-23T10:15:02Z","item_id":"a/b","reason":"fire"}]}`, `"index":0`},
+		{"ticket.commit", `{"events":[` + commitEv(sha40) + `]}`, ""},
+		{"ticket.commit without commit", `{"events":[` + strings.Replace(commitEv(sha40), `,"commit":"`+sha40+`"`, "", 1) + `]}`, `"index":0`},
+		{"ticket.commit short sha", `{"events":[` + commitEv(sha40[:39]) + `]}`, `"index":0`},
+		{"ticket.commit upper-case sha", `{"events":[` + commitEv(strings.ToUpper(sha40)) + `]}`, `"index":0`},
+		{"ticket.commit non-hex sha", `{"events":[` + commitEv(strings.Repeat("g", 40)) + `]}`, `"index":0`},
+		{"commit on check.run", `{"events":[` + check(evID1, `,"commit":"`+sha40+`"`) + `]}`, `"index":0`},
+		{"ticket.commit with result", `{"events":[` + strings.Replace(commitEv(sha40), `"commit"`, `"result":"pass","commit"`, 1) + `]}`, `"index":0`},
 		{"item id with one part", `{"events":[` + strings.Replace(started(evID1), "support-l1/perms-03", "single", 1) + `]}`, `"index":0`},
 	}
 	for _, tt := range tests {
@@ -269,6 +282,18 @@ func TestDoctorRunValidation(t *testing.T) {
 				t.Fatalf("got %d %q", rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestTicketCommitIsParsed(t *testing.T) {
+	f := &fakeEvents{res: repo.EventsResult{Accepted: 1}}
+	rec := postEvents(f, &fakeSessions{cli: activeCLI(time.Now(), false)}, "Bearer "+goodCLIToken, "application/json", `{"events":[`+commitEv(sha40)+`]}`)
+	if rec.Code != 200 || len(f.got) != 1 {
+		t.Fatalf("got %d %q", rec.Code, rec.Body.String())
+	}
+	if e := f.got[0]; e.Type != "ticket.commit" || e.Commit != sha40 || e.ItemID != "support-l1/perms-03" ||
+		string(e.Payload) != `{"commit":"`+sha40+`","item_id":"support-l1/perms-03"}` {
+		t.Fatalf("event %+v payload %s", e, e.Payload)
 	}
 }
 

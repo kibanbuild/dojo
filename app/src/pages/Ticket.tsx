@@ -182,14 +182,15 @@ function LabCard({ ticket, view, progress }: { ticket: Ticket; view: View; progr
       );
     case 'passed': {
       const p = progress;
+      const verified = p?.passed_commit_state === 'verified' && !!p.passed_commit;
       return (
         <section aria-label="Your lab" className={card}>
           <div className="flex items-center justify-between gap-3">
             <h2 className={cardTitle}>Ticket passed</h2>
-            {p?.passed_commit && <span className={`${badge} bg-oksoft text-ok`}>signed</span>}
+            {verified && <span className={`${badge} bg-oksoft text-ok`}>signed</span>}
           </div>
           <p className="m-0 text-sm leading-normal text-fg2">
-            {p?.passed_commit ? 'Your fix is a signed commit.' : p?.passed_seconds != null ? `You fixed it in ${duration(p.passed_seconds)}.` : 'You fixed it.'}
+            {verified ? 'Your fix is a signed commit.' : p?.passed_seconds != null ? `You fixed it in ${duration(p.passed_seconds)}.` : 'You fixed it.'}
           </p>
           {(p?.passed_seconds != null || (p?.last_check_passed != null && p.last_check_total != null)) && (
             <dl className="m-0 grid grid-cols-2 gap-2.5">

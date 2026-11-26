@@ -193,7 +193,7 @@ func TestStreamReadyProgressHeartbeat(t *testing.T) {
 		t.Fatalf("%d %q", code, body)
 	}
 	ev := s.next("progress", 5*time.Second)
-	want := `{"item_id":"ev-role/one","state":"started","lab_state":"starting","lab":"local","check_count":0,"last_check_ok":null,"last_check_at":null}`
+	want := `{"item_id":"ev-role/one","state":"started","lab_state":"starting","lab":"local","check_count":0,"last_check_ok":null,"last_check_at":null,"passed_commit_state":null}`
 	if ev.data != want {
 		t.Fatalf("progress: %s", ev.data)
 	}

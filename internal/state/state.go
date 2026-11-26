@@ -21,6 +21,8 @@ type State struct {
 	LastCheck string `json:"last_check,omitempty"`
 	// SSHKey is the private key ssh dojo was last set up with; empty means auto-detect.
 	SSHKey string `json:"ssh_key,omitempty"`
+	// HostedDefault is the account's hosted_default as of the last login or online start.
+	HostedDefault bool `json:"hosted_default,omitempty"`
 }
 
 // MaxCheckOutput bounds LastCheck so the state file stays small.

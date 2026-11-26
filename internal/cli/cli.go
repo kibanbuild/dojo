@@ -31,7 +31,8 @@ Usage:
   dojo start [--key PATH] <role>/<ticket>
                           create a fresh lab and break it for the ticket; also lets your
                           SSH key into the lab and sets up "ssh dojo" (--key picks the
-                          key, a private or .pub path, from now on)
+                          key, a private or .pub path, from now on; --hosted asks for a
+                          hosted lab, which is coming soon)
   dojo status             show the current ticket, lab, login and waiting events
   dojo ssh                open a terminal inside the lab (or: ssh dojo)
   dojo hint               show the next hint for the current ticket
@@ -129,7 +130,7 @@ func (a *App) run(ctx context.Context, args []string) error {
 	}
 	fset := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fset.SetOutput(io.Discard)
-	quick, key := new(bool), new(string)
+	quick, key, hosted := new(bool), new(string), new(bool)
 	var lf *loginFlags
 	switch cmd {
 	case "login", "logout":
@@ -138,6 +139,7 @@ func (a *App) run(ctx context.Context, args []string) error {
 		quick = fset.Bool("quick", false, "skip the reboot")
 	case "start":
 		key = fset.String("key", "", "SSH key to use")
+		hosted = fset.Bool("hosted", false, "use a hosted lab")
 	}
 	err := fset.Parse(rest)
 	var positional []string
@@ -188,6 +190,11 @@ func (a *App) run(ctx context.Context, args []string) error {
 		return a.login(ctx, lf)
 	case "logout":
 		return a.logout(ctx, lf)
+	}
+	if cmd == "start" {
+		if err := a.hostedGate(ctx, *hosted); err != nil {
+			return err
+		}
 	}
 	backend, err := a.NewBackend(a.BackendName)
 	if err != nil {

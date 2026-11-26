@@ -94,7 +94,7 @@ func run(args []string) error {
 		Bundles: &server.Bundles{Store: store.Queries(), Signer: objects}, Secure: secure, Events: store,
 		Stream: hub, StreamHeartbeat: heartbeat,
 		Tickets: &server.Tickets{Reader: store.Queries(), Opener: store},
-		Onboarding: &server.Onboarding{Facts: store.Queries(), Doctor: store,
+		Onboarding: &server.Onboarding{Facts: store.Queries(), Doctor: store, Confirmer: store,
 			Env: os.Getenv("DOJO_ENV"), PublicOrigin: strings.TrimRight(os.Getenv("PUBLIC_ORIGIN"), "/")}}
 	gh := github.New(ghCfg)
 	cli := &server.CLILogin{GitHub: gh, Store: store.Queries(), Tokens: store}

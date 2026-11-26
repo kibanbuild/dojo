@@ -247,6 +247,7 @@ type meResponse struct {
 	Language         string  `json:"language"`
 	UsageStats       bool    `json:"usage_stats"`
 	AnalyticsConsent *bool   `json:"analytics_consent"`
+	HostedDefault    bool    `json:"hosted_default"`
 }
 
 func (a Auth) me(w http.ResponseWriter, r *http.Request) {
@@ -267,7 +268,7 @@ func (a Auth) me(w http.ResponseWriter, r *http.Request) {
 func newMeResponse(l repo.Learner) meResponse {
 	out := meResponse{
 		ID: l.ID.String(), Username: l.Username, GithubLogin: l.GithubLogin, GithubID: l.GithubID,
-		Language: l.Language, UsageStats: l.UsageStats,
+		Language: l.Language, UsageStats: l.UsageStats, HostedDefault: l.HostedDefault,
 	}
 	if l.Email.Valid {
 		out.Email = &l.Email.String

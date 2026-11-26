@@ -11,6 +11,25 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const confirmDoctorStep = `-- name: ConfirmDoctorStep :exec
+INSERT INTO doctor_results (org_id, learner_id, check_id, status, text, fix, source, checked_at)
+SELECT l.org_id, l.id, $1, 'ok', 'Confirmed by you', '', 'learner', now()
+FROM learners l WHERE l.id = $2
+ON CONFLICT (learner_id, check_id) DO UPDATE
+SET updated_at = now(), status = 'ok', text = excluded.text, fix = '', source = 'learner', checked_at = now()
+`
+
+type ConfirmDoctorStepParams struct {
+	CheckID   string
+	LearnerID pgtype.UUID
+}
+
+// The learner confirms an advisory step (design 3.9); the org comes from the learner row.
+func (q *Queries) ConfirmDoctorStep(ctx context.Context, arg ConfirmDoctorStepParams) error {
+	_, err := q.db.Exec(ctx, confirmDoctorStep, arg.CheckID, arg.LearnerID)
+	return err
+}
+
 const listDoctorResults = `-- name: ListDoctorResults :many
 SELECT check_id, status, text, fix, source, checked_at
 FROM doctor_results WHERE learner_id = $1 ORDER BY check_id
@@ -50,6 +69,23 @@ func (q *Queries) ListDoctorResults(ctx context.Context, learnerID pgtype.UUID) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const unconfirmDoctorStep = `-- name: UnconfirmDoctorStep :execrows
+DELETE FROM doctor_results WHERE learner_id = $1 AND check_id = $2 AND source = 'learner'
+`
+
+type UnconfirmDoctorStepParams struct {
+	LearnerID pgtype.UUID
+	CheckID   string
+}
+
+func (q *Queries) UnconfirmDoctorStep(ctx context.Context, arg UnconfirmDoctorStepParams) (int64, error) {
+	result, err := q.db.Exec(ctx, unconfirmDoctorStep, arg.LearnerID, arg.CheckID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const upsertDoctorResult = `-- name: UpsertDoctorResult :one

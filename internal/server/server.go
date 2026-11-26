@@ -39,6 +39,10 @@ func New(ready Readiness, auth Auth, limits *RateLimits, signin *SignIn, cli *CL
 		mux.HandleFunc("GET /v1/activity", requireSession(auth.activity))
 		if auth.Onboarding != nil {
 			mux.HandleFunc("GET "+onboardingPath, requireSession(auth.onboarding))
+			if auth.Onboarding.Confirmer != nil {
+				mux.HandleFunc("PUT "+confirmRoute, requireSession(auth.confirmStep(true)))
+				mux.HandleFunc("DELETE "+confirmRoute, requireSession(auth.confirmStep(false)))
+			}
 		}
 	}
 	if auth.Events != nil {

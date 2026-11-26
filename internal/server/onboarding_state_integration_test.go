@@ -18,8 +18,9 @@ type onboardingBody struct {
 		Slug   *string `json:"slug"`
 		Chosen bool    `json:"chosen"`
 	} `json:"path"`
-	CLIConnected bool `json:"cli_connected"`
-	Checks       []struct {
+	HostedDefault bool `json:"hosted_default"`
+	CLIConnected  bool `json:"cli_connected"`
+	Checks        []struct {
 		ID, Group, Status, Text, Source string
 		CheckedAt                       string `json:"checked_at"`
 	} `json:"checks"`

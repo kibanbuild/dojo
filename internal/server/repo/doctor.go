@@ -153,3 +153,38 @@ func notifyDoctor(ctx context.Context, tx pgx.Tx, learner pgtype.UUID, changed m
 	}
 	return nil
 }
+
+// SelfConfirmable reports whether the learner may confirm the check id by hand (design 3.9).
+func SelfConfirmable(id string) bool { return id == "two_factor" || id == "secret_scanning" }
+
+// ConfirmStep records the learner's confirmation of an advisory step and tells the stream.
+func (s *Store) ConfirmStep(ctx context.Context, learner pgtype.UUID, id string) error {
+	return s.changeStep(ctx, learner, id, "ok", func(q *Queries) (int64, error) {
+		return 1, q.ConfirmDoctorStep(ctx, ConfirmDoctorStepParams{CheckID: id, LearnerID: learner})
+	})
+}
+
+// UnconfirmStep removes the learner's confirmation, if any, and tells the stream (the check reads unknown).
+func (s *Store) UnconfirmStep(ctx context.Context, learner pgtype.UUID, id string) error {
+	return s.changeStep(ctx, learner, id, "unknown", func(q *Queries) (int64, error) {
+		return q.UnconfirmDoctorStep(ctx, UnconfirmDoctorStepParams{LearnerID: learner, CheckID: id})
+	})
+}
+
+func (s *Store) changeStep(ctx context.Context, learner pgtype.UUID, id, status string, write func(*Queries) (int64, error)) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	n, err := write(s.q.WithTx(tx))
+	if err != nil {
+		return fmt.Errorf("write doctor step: %w", err)
+	}
+	if n > 0 {
+		if err := notifyDoctor(ctx, tx, learner, map[string]string{id: status}); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}

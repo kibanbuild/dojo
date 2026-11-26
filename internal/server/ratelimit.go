@@ -266,7 +266,7 @@ func isLearnerWrite(pattern string) bool {
 	case "PATCH /v1/me", "DELETE /v1/me", "DELETE /v1/me/devices/{id}":
 		return true
 	}
-	return isOnboardingWrite(pattern)
+	return isOnboardingWrite(pattern) || pattern == "PUT "+confirmRoute || pattern == "DELETE "+confirmRoute
 }
 
 func matches(pattern string, r *http.Request, is func(string) bool) bool {

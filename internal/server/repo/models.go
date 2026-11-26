@@ -141,6 +141,7 @@ type Learner struct {
 	SuspendedAt      pgtype.Timestamptz
 	TermsVersion     string
 	ChosenPathID     pgtype.UUID
+	HostedDefault    bool
 }
 
 type Operator struct {

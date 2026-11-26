@@ -24,7 +24,7 @@ func (q *Queries) DeleteLearner(ctx context.Context, id pgtype.UUID) (bool, erro
 }
 
 const getLearnerByGithubID = `-- name: GetLearnerByGithubID :one
-SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id FROM learners WHERE github_id = $1
+SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id, hosted_default FROM learners WHERE github_id = $1
 `
 
 func (q *Queries) GetLearnerByGithubID(ctx context.Context, githubID int64) (Learner, error) {
@@ -47,12 +47,13 @@ func (q *Queries) GetLearnerByGithubID(ctx context.Context, githubID int64) (Lea
 		&i.SuspendedAt,
 		&i.TermsVersion,
 		&i.ChosenPathID,
+		&i.HostedDefault,
 	)
 	return i, err
 }
 
 const getLearnerByID = `-- name: GetLearnerByID :one
-SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id FROM learners WHERE id = $1
+SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id, hosted_default FROM learners WHERE id = $1
 `
 
 func (q *Queries) GetLearnerByID(ctx context.Context, id pgtype.UUID) (Learner, error) {
@@ -75,6 +76,7 @@ func (q *Queries) GetLearnerByID(ctx context.Context, id pgtype.UUID) (Learner, 
 		&i.SuspendedAt,
 		&i.TermsVersion,
 		&i.ChosenPathID,
+		&i.HostedDefault,
 	)
 	return i, err
 }
@@ -85,13 +87,13 @@ WITH ins AS (
                           age_confirmed_at, terms_accepted_at, terms_version, usage_stats)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     ON CONFLICT (github_id) DO NOTHING
-    RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id
+    RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id, hosted_default
 ), queued AS (
     INSERT INTO email_outbox (learner_id, to_address, kind, ref)
     SELECT id, email, 'E1', id::text FROM ins WHERE email IS NOT NULL
     ON CONFLICT (kind, ref) DO NOTHING
 )
-SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id FROM ins
+SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id, hosted_default FROM ins
 `
 
 type InsertLearnerWithWelcomeParams struct {
@@ -124,6 +126,7 @@ type InsertLearnerWithWelcomeRow struct {
 	SuspendedAt      pgtype.Timestamptz
 	TermsVersion     string
 	ChosenPathID     pgtype.UUID
+	HostedDefault    bool
 }
 
 // A new learner and their welcome mail (E1, ref = the learner id) in one statement, so both exist or
@@ -159,6 +162,7 @@ func (q *Queries) InsertLearnerWithWelcome(ctx context.Context, arg InsertLearne
 		&i.SuspendedAt,
 		&i.TermsVersion,
 		&i.ChosenPathID,
+		&i.HostedDefault,
 	)
 	return i, err
 }
@@ -188,9 +192,10 @@ SET username = COALESCE($2, username),
     language = COALESCE($3, language),
     usage_stats = COALESCE($4, usage_stats),
     analytics_consent = COALESCE($5, analytics_consent),
+    hosted_default = COALESCE($6, hosted_default),
     updated_at = now()
 WHERE id = $1
-RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id
+RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id, hosted_default
 `
 
 type UpdateLearnerProfileParams struct {
@@ -199,6 +204,7 @@ type UpdateLearnerProfileParams struct {
 	Language         pgtype.Text
 	UsageStats       pgtype.Bool
 	AnalyticsConsent pgtype.Bool
+	HostedDefault    pgtype.Bool
 }
 
 func (q *Queries) UpdateLearnerProfile(ctx context.Context, arg UpdateLearnerProfileParams) (Learner, error) {
@@ -208,6 +214,7 @@ func (q *Queries) UpdateLearnerProfile(ctx context.Context, arg UpdateLearnerPro
 		arg.Language,
 		arg.UsageStats,
 		arg.AnalyticsConsent,
+		arg.HostedDefault,
 	)
 	var i Learner
 	err := row.Scan(
@@ -227,6 +234,7 @@ func (q *Queries) UpdateLearnerProfile(ctx context.Context, arg UpdateLearnerPro
 		&i.SuspendedAt,
 		&i.TermsVersion,
 		&i.ChosenPathID,
+		&i.HostedDefault,
 	)
 	return i, err
 }
@@ -239,7 +247,7 @@ ON CONFLICT (github_id) DO UPDATE
 SET github_login = EXCLUDED.github_login,
     email = COALESCE(EXCLUDED.email, learners.email),
     updated_at = now()
-RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id
+RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id, hosted_default
 `
 
 type UpsertLearnerParams struct {
@@ -286,6 +294,7 @@ func (q *Queries) UpsertLearner(ctx context.Context, arg UpsertLearnerParams) (L
 		&i.SuspendedAt,
 		&i.TermsVersion,
 		&i.ChosenPathID,
+		&i.HostedDefault,
 	)
 	return i, err
 }

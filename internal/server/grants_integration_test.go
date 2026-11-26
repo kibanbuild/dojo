@@ -234,6 +234,12 @@ var grantCases = []struct {
 	{"dojo_api", "SELECT prune_events()", false},
 	{"dojo_admin", "SELECT prune_events()", false},
 
+	// hosted_default (migration 00020): the API updates it and never inserts it; the operator service only reads.
+	{"dojo_api", "UPDATE learners SET hosted_default = true, updated_at = now() WHERE false", true},
+	{"dojo_api", "SELECT hosted_default FROM learners", true},
+	{"dojo_api", "INSERT INTO learners (org_id, github_id, github_login, username, age_confirmed_at, terms_accepted_at, terms_version, hosted_default) SELECT id, 1, 'a', 'abc', now(), now(), 'x', true FROM orgs WHERE false", false},
+	{"dojo_admin", "SELECT hosted_default FROM learners", true},
+	{"dojo_admin", "UPDATE learners SET hosted_default = true WHERE false", false},
 	// doctor_results: the API reads, inserts and updates the projected columns, and deletes (the
 	// unconfirm route); identity columns and created_at never change from it. dojo_admin only reads.
 	{"dojo_api", "SELECT learner_id, check_id, created_at, updated_at, status, text, fix, source, checked_at FROM doctor_results", true},

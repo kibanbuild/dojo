@@ -27,13 +27,14 @@ type DoctorReader interface {
 type Onboarding struct {
 	Facts        OnboardingFacts
 	Doctor       DoctorReader
-	Env          string // DOJO_ENV
-	PublicOrigin string // PUBLIC_ORIGIN
+	Confirmer    StepConfirmer // nil leaves the confirmation routes out
+	Env          string        // DOJO_ENV
+	PublicOrigin string        // PUBLIC_ORIGIN
 }
 
 type onboardingInputs struct {
-	finished, chosen, cliConnected bool
-	ready                          repo.Readiness
+	finished, chosen, cliConnected, hostedDefault bool
+	ready                                         repo.Readiness
 }
 
 // nextStep derives the step on every read, never stored; done is sticky (design 3.9).
@@ -45,7 +46,7 @@ func nextStep(in onboardingInputs) string {
 		return "o0"
 	case !in.cliConnected:
 		return "o2"
-	case !in.ready.O3:
+	case !in.ready.O3 && !in.hostedDefault:
 		return "o3"
 	case !in.ready.O4:
 		return "o4"
@@ -69,14 +70,15 @@ type onboardingCheck struct {
 }
 
 type onboardingResponse struct {
-	NextStep     string            `json:"next_step"`
-	Env          string            `json:"env"`
-	PublicOrigin string            `json:"public_origin"`
-	Path         onboardingPathOut `json:"path"`
-	CLIConnected bool              `json:"cli_connected"`
-	Checks       []onboardingCheck `json:"checks"`
-	AgentsMD     string            `json:"agents_md"`
-	FirstTicket  *firstTicket      `json:"first_ticket"`
+	NextStep      string            `json:"next_step"`
+	Env           string            `json:"env"`
+	PublicOrigin  string            `json:"public_origin"`
+	Path          onboardingPathOut `json:"path"`
+	HostedDefault bool              `json:"hosted_default"`
+	CLIConnected  bool              `json:"cli_connected"`
+	Checks        []onboardingCheck `json:"checks"`
+	AgentsMD      string            `json:"agents_md"`
+	FirstTicket   *firstTicket      `json:"first_ticket"`
 }
 
 type firstTicket struct {
@@ -104,9 +106,9 @@ func (a Auth) onboarding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := onboardingResponse{
-		NextStep: nextStep(onboardingInputs{finished: facts.Finished, chosen: path.Chosen, cliConnected: facts.CliConnected, ready: ready}),
+		NextStep: nextStep(onboardingInputs{finished: facts.Finished, chosen: path.Chosen, cliConnected: facts.CliConnected, hostedDefault: facts.HostedDefault, ready: ready}),
 		Env:      o.Env, PublicOrigin: o.PublicOrigin, Path: onboardingPathOut{path.Path, path.Chosen},
-		CLIConnected: facts.CliConnected, Checks: make([]onboardingCheck, 0, len(checks)), AgentsMD: mentor.AgentsMD(),
+		HostedDefault: facts.HostedDefault, CLIConnected: facts.CliConnected, Checks: make([]onboardingCheck, 0, len(checks)), AgentsMD: mentor.AgentsMD(),
 	}
 	for _, c := range checks {
 		out.Checks = append(out.Checks, onboardingCheck{c.ID, c.Group, c.Status, c.Text, c.Fix, c.Source, c.CheckedAt.UTC().Format(time.RFC3339)})

@@ -27,6 +27,8 @@ type patchMeRequest struct {
 	UsageStats *bool `json:"usage_stats"`
 	// AnalyticsConsent is the web analytics choice (design section on web analytics); a JSON null is absent.
 	AnalyticsConsent *bool `json:"analytics_consent"`
+	// HostedDefault is "use a hosted lab" (design 3.9); a JSON null is absent.
+	HostedDefault *bool `json:"hosted_default"`
 }
 
 func validLanguage(l string) bool { return l == "en" || l == "es" }
@@ -41,7 +43,7 @@ func (a Auth) patchMe(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxPatchBody))
 	dec.DisallowUnknownFields()
 	var req patchMeRequest
-	if err := dec.Decode(&req); err != nil || dec.Decode(&struct{}{}) != io.EOF || (req.Username == nil && req.Language == nil && req.UsageStats == nil && req.AnalyticsConsent == nil) {
+	if err := dec.Decode(&req); err != nil || dec.Decode(&struct{}{}) != io.EOF || (req.Username == nil && req.Language == nil && req.UsageStats == nil && req.AnalyticsConsent == nil && req.HostedDefault == nil) {
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
@@ -67,6 +69,9 @@ func (a Auth) patchMe(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.AnalyticsConsent != nil {
 		arg.AnalyticsConsent = pgtype.Bool{Bool: *req.AnalyticsConsent, Valid: true}
+	}
+	if req.HostedDefault != nil {
+		arg.HostedDefault = pgtype.Bool{Bool: *req.HostedDefault, Valid: true}
 	}
 
 	l, err := a.Store.UpdateLearnerProfile(context.WithoutCancel(r.Context()), arg)

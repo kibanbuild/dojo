@@ -39,4 +39,5 @@ ON CONFLICT DO NOTHING;
 -- name: GetOnboardingFacts :one
 SELECT
     EXISTS (SELECT 1 FROM cli_tokens t WHERE t.learner_id = @id AND revoked_at IS NULL) AS cli_connected,
-    EXISTS (SELECT 1 FROM ticket_progress p WHERE p.learner_id = @id AND p.state IN ('passed', 'revisit')) AS finished;
+    EXISTS (SELECT 1 FROM ticket_progress p WHERE p.learner_id = @id AND p.state IN ('passed', 'revisit')) AS finished,
+    COALESCE((SELECT l.hosted_default FROM learners l WHERE l.id = @id), false)::boolean AS hosted_default;

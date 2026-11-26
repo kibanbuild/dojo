@@ -71,16 +71,31 @@ func (q *fakeQueue) DeliverEmail(ctx context.Context, id pgtype.UUID, send func(
 }
 
 type fakeReader struct {
-	paths []repo.ListCatalogPathsRow
-	err   error
+	paths     []repo.ListCatalogPathsRow
+	pathRoles []repo.ListCatalogPathRolesRow
+	roles     []repo.ListCatalogRolesRow
+	chosen    string
+	err       error
 }
 
 func (f fakeReader) GetLearnerByID(context.Context, pgtype.UUID) (repo.Learner, error) {
-	return repo.Learner{Username: "ada"}, f.err
+	return repo.Learner{Username: "ada", GithubLogin: "Ada-GH"}, f.err
 }
 
 func (f fakeReader) ListCatalogPaths(context.Context) ([]repo.ListCatalogPathsRow, error) {
 	return f.paths, nil
+}
+
+func (f fakeReader) ListCatalogPathRoles(context.Context) ([]repo.ListCatalogPathRolesRow, error) {
+	return f.pathRoles, nil
+}
+
+func (f fakeReader) ListCatalogRoles(context.Context) ([]repo.ListCatalogRolesRow, error) {
+	return f.roles, nil
+}
+
+func (f fakeReader) GetLearnerChosenPathSlug(context.Context, pgtype.UUID) (string, error) {
+	return f.chosen, nil
 }
 
 type fakeMail struct {
@@ -146,6 +161,59 @@ func TestWelcomeWithoutAPathStillReads(t *testing.T) {
 	text := welcomeText(welcomeData{Username: "ada", Link: "http://x/app"})
 	if strings.Contains(text, "path") || !strings.Contains(text, "Your account is ready.") {
 		t.Fatalf("text: %q", text)
+	}
+}
+
+func TestWelcomePathPick(t *testing.T) {
+	paths := []repo.ListCatalogPathsRow{
+		{Slug: "cloud", Title: "Cloud", Status: "planned"},
+		{Slug: "sysops", Title: "Systems", Status: "available"},
+		{Slug: "backend", Title: "Backend", Status: "available"},
+	}
+	pathRoles := []repo.ListCatalogPathRolesRow{
+		{Path: "sysops", Role: "support", Position: 2},
+		{Path: "sysops", Role: "foundations", Position: 1},
+		{Path: "backend", Role: "apis", Position: 1},
+	}
+	roles := []repo.ListCatalogRolesRow{{Slug: "support", Title: "Support"}, {Slug: "foundations", Title: "Foundations"}, {Slug: "apis", Title: "APIs"}}
+	for _, tt := range []struct{ name, chosen, wantPath, wantRole string }{
+		{"no choice takes the first available", "", "Systems", "Foundations"},
+		{"the chosen path wins", "backend", "Backend", "APIs"},
+		{"a planned choice is ignored", "cloud", "Systems", "Foundations"},
+		{"an unknown choice is ignored", "gone", "Systems", "Foundations"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p, r := welcomePath(paths, tt.chosen, pathRoles, roles)
+			if p != tt.wantPath || r != tt.wantRole {
+				t.Fatalf("got %q, %q", p, r)
+			}
+		})
+	}
+	if p, r := welcomePath(nil, "", nil, nil); p != "" || r != "" {
+		t.Fatalf("empty catalog: %q, %q", p, r)
+	}
+	if p, r := welcomePath(paths, "", nil, nil); p != "Systems" || r != "" {
+		t.Fatalf("path without roles: %q, %q", p, r)
+	}
+}
+
+func TestWelcomeBodyFollowsTheDoc(t *testing.T) {
+	d := welcomeData{Username: "ada", GithubLogin: "Ada-GH", PathTitle: "Systems", RoleTitle: "Foundations",
+		Link: "http://x/app", InstallCmd: welcomeInstallCmd("http://x")}
+	html, err := renderWelcomeHTML(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{"text": welcomeText(d), "html": html} {
+		for _, want := range []string{"Systems path", "first role is Foundations", "curl -fsSL http://x/install | sh", "dojo login", "dojo doctor",
+			"Labs run on your computer, and the work stays in your own Ada-GH/dojo repo.", "If you did not sign up, ignore this message."} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s misses %q: %q", name, want, body)
+			}
+		}
+		if strings.Contains(strings.ToLower(body), "streak") || strings.Contains(body, "<img") {
+			t.Errorf("%s has tracking or streak language", name)
+		}
 	}
 }
 

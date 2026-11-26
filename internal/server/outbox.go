@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/kibanbuild/dojo/internal/mail"
@@ -40,6 +41,9 @@ type OutboxQueue interface {
 type OutboxReader interface {
 	GetLearnerByID(ctx context.Context, id pgtype.UUID) (repo.Learner, error)
 	ListCatalogPaths(ctx context.Context) ([]repo.ListCatalogPathsRow, error)
+	ListCatalogPathRoles(ctx context.Context) ([]repo.ListCatalogPathRolesRow, error)
+	ListCatalogRoles(ctx context.Context) ([]repo.ListCatalogRolesRow, error)
+	GetLearnerChosenPathSlug(ctx context.Context, id pgtype.UUID) (string, error)
 }
 
 // Outbox delivers queued email over a mail.Sender. Only kinds with a template are sent; the rest wait
@@ -152,18 +156,19 @@ func (o *Outbox) send(ctx context.Context, e repo.Email) error {
 	if err != nil {
 		return fmt.Errorf("%w: load learner: %w", errTemplate, err)
 	}
-	// Until O0 lands, the learner's path is the first available one, as GET /v1/path reads it.
-	paths, err := o.Reader.ListCatalogPaths(ctx)
-	if err != nil {
-		return fmt.Errorf("%w: load paths: %w", errTemplate, err)
+	// The learner's chosen path, or the first available one as GET /v1/path reads it, and its first role.
+	paths, err1 := o.Reader.ListCatalogPaths(ctx)
+	pathRoles, err2 := o.Reader.ListCatalogPathRoles(ctx)
+	roles, err3 := o.Reader.ListCatalogRoles(ctx)
+	chosen, err4 := o.Reader.GetLearnerChosenPathSlug(ctx, e.LearnerID)
+	if errors.Is(err4, pgx.ErrNoRows) {
+		chosen, err4 = "", nil
 	}
-	d := welcomeData{Username: l.Username, Link: o.Origin + "/app"}
-	for _, p := range paths {
-		if p.Status == "available" {
-			d.PathTitle = p.Title
-			break
-		}
+	if err := errors.Join(err1, err2, err3, err4); err != nil {
+		return fmt.Errorf("%w: load catalog: %w", errTemplate, err)
 	}
+	d := welcomeData{Username: l.Username, GithubLogin: l.GithubLogin, Link: o.Origin + "/app", InstallCmd: welcomeInstallCmd(o.Origin)}
+	d.PathTitle, d.RoleTitle = welcomePath(paths, chosen, pathRoles, roles)
 	html, err := renderWelcomeHTML(d)
 	if err != nil {
 		return fmt.Errorf("%w: render: %w", errTemplate, err)

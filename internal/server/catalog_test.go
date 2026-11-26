@@ -27,6 +27,7 @@ type fakeCatalog struct {
 	recent   []repo.ListLearnerRecentPassesRow
 	gotTZ    string
 	chosen   string // the learner's chosen path slug
+	firstRun *repo.GetLearnerFirstRunRow
 	err      error
 }
 
@@ -62,6 +63,16 @@ func (f *fakeCatalog) ListCatalogItems(context.Context) ([]repo.ListCatalogItems
 
 func (f *fakeCatalog) ListLearnerTicketStates(context.Context, pgtype.UUID) ([]repo.ListLearnerTicketStatesRow, error) {
 	return f.progress, f.err
+}
+
+func (f *fakeCatalog) GetLearnerFirstRun(context.Context, pgtype.UUID) (repo.GetLearnerFirstRunRow, error) {
+	if f.err != nil {
+		return repo.GetLearnerFirstRunRow{}, f.err
+	}
+	if f.firstRun == nil {
+		return repo.GetLearnerFirstRunRow{}, pgx.ErrNoRows
+	}
+	return *f.firstRun, nil
 }
 
 func populatedCatalog() *fakeCatalog {

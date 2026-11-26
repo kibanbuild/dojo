@@ -114,7 +114,7 @@ func TestPatchMeRejectsInvalidBodies(t *testing.T) {
 		{`{"username":"has space"}`, "invalid_username"},
 		{`{"language":"fr"}`, "invalid_language"},
 		{`{}`, "bad_request"},
-		{`{"email":"x@y.z"}`, "bad_request"},
+		{`{"nickname":"x"}`, "bad_request"},
 	} {
 		if code, body := ada.patch(tt.body, true); code != http.StatusBadRequest || body != "{\"error\":\""+tt.want+"\"}\n" {
 			t.Fatalf("%s: %d %q", tt.body, code, body)

@@ -59,6 +59,11 @@ var grantCases = []struct {
 	{"dojo_admin", "INSERT INTO orgs (slug, name) VALUES ('x', 'X')", false},
 
 	// learners and sessions. WHERE false: privileges are checked, no row is touched.
+	{"dojo_api", "UPDATE learners SET email_source = 'learner', first_run_seen_at = now(), updated_at = now() WHERE false", true},
+	{"dojo_api", "INSERT INTO learners (org_id, github_id, github_login, username, email, email_source, age_confirmed_at, terms_accepted_at, terms_version) SELECT id, 1, 'a', 'abc', 'a@b.c', 'github', now(), now(), 'x' FROM orgs WHERE false", true},
+	{"dojo_api", "INSERT INTO learners (org_id, github_id, github_login, username, first_run_seen_at, age_confirmed_at, terms_accepted_at, terms_version) SELECT id, 1, 'a', 'abc', now(), now(), now(), 'x' FROM orgs WHERE false", false},
+	{"dojo_admin", "SELECT email_source, first_run_seen_at FROM learners", true},
+	{"dojo_admin", "UPDATE learners SET first_run_seen_at = now() WHERE false", false},
 	{"dojo_api", "SELECT token_hash FROM sessions", true},
 	{"dojo_api", "INSERT INTO learners (org_id, github_id, github_login, username, language, age_confirmed_at, terms_accepted_at, terms_version, usage_stats) SELECT id, 1, 'a', 'abc', 'en', now(), now(), '2026-11-20', true FROM orgs WHERE false", true},
 	{"dojo_api", "UPDATE learners SET language = 'es', usage_stats = false, analytics_consent = true, email = 'a@b.c', username = 'abcd', github_login = 'x' WHERE false", true},

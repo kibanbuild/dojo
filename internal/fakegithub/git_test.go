@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -54,6 +55,9 @@ type gitFixture struct {
 
 func newGitFixture(t *testing.T, signing ...string) *gitFixture {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake-github's git reads run only in its Linux container")
+	}
 	for _, bin := range []string{"git", "ssh-keygen"} {
 		if _, err := exec.LookPath(bin); err != nil {
 			t.Skipf("%s is not installed", bin)

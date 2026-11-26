@@ -26,6 +26,50 @@ func ProbeSSH(m *Machine, chosen string) {
 	}
 	m.SSHKeyPath = priv
 	m.SigningKeyIsSSHKey = signingKeyIs(m.GitSigningKey, priv, pub)
+	m.SigningPub = signingPub(m.GitSigningKey, string(pub))
+}
+
+// signingPub is the public key line git signs with: the literal key, the .pub file user.signingkey
+// names (or sits next to), or the dojo key's own when git names none.
+func signingPub(value, dojoPub string) string {
+	value = strings.TrimPrefix(strings.TrimSpace(value), "key::")
+	if value == "" {
+		return dojoPub
+	}
+	if isPubLine(value) {
+		return value
+	}
+	if value == "~" || strings.HasPrefix(value, "~/") || strings.HasPrefix(value, `~\`) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		value = filepath.Join(home, value[1:])
+	}
+	for _, p := range []string{value, value + ".pub"} {
+		if line, ok := readPub(p); ok {
+			return line
+		}
+	}
+	return ""
+}
+
+// readPub reads a public key line from a regular file under 8 KiB; a FIFO, a device, a big file or
+// anything that is not a key is not read.
+func readPub(path string) (string, bool) {
+	fi, err := os.Stat(path)
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() >= 8192 {
+		return "", false
+	}
+	b, err := os.ReadFile(path) //nolint:gosec // a key path git or ssh names; regular and size-capped above
+	if err != nil || !isPubLine(string(b)) {
+		return "", false
+	}
+	return strings.TrimSpace(string(b)), true
+}
+
+func isPubLine(s string) bool {
+	return keyFields(s) != "" && (strings.HasPrefix(s, "ssh-") || strings.HasPrefix(s, "ecdsa-") || strings.HasPrefix(s, "sk-"))
 }
 
 // signingKeyIs reports whether git's user.signingkey names the key: a literal

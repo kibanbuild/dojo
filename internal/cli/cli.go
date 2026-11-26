@@ -73,6 +73,8 @@ type App struct {
 	Now         func() time.Time
 	// Probe reads the host's facts for dojo doctor.
 	Probe func(context.Context) doctor.Machine
+	// ProbeGitHub reads the clone and ssh facts key_auth needs; nil means the real probe.
+	ProbeGitHub func(context.Context, *doctor.Machine)
 	// Login says where login and logout talk to; HTTP and Sleep are replaceable for tests.
 	Login LoginConfig
 	HTTP  *http.Client
@@ -543,13 +545,19 @@ func (a *App) doctor(ctx context.Context) error {
 		return ctx.Err()
 	}
 	results := doctor.Evaluate(m, a.BackendName, err)
-	marks := map[doctor.Status]string{doctor.OK: "✓", doctor.Warn: "!", doctor.Fail: "✗"}
+	gh, skipped := a.githubChecks(ctx, m)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	results = append(results, gh...)
+	marks := map[doctor.Status]string{doctor.OK: "✓", doctor.Warn: "!", doctor.Fail: "✗", doctor.Unknown: "?"}
 	for _, r := range results {
 		fmt.Fprintf(a.Out, "  %s %s\n", marks[r.Status], r.Text)
 		if r.Fix != "" && r.Status != doctor.OK {
 			fmt.Fprintf(a.Out, "      -> %s\n", strings.ReplaceAll(r.Fix, "\n", "\n         "))
 		}
 	}
+	printSkipped(a, skipped)
 	a.recordDoctor(results)
 	if !doctor.Ready(results) {
 		fmt.Fprintln(a.Out, "\nNot ready yet. Fix the ✗ items and run dojo doctor again.")

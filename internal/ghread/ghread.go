@@ -216,7 +216,9 @@ func (c *Client) rateLimited(resp *http.Response) error {
 	}
 	mins := int((wait + time.Minute - 1) / time.Minute)
 	msg := "GitHub is limiting requests, try again later"
-	if mins > 0 {
+	if mins == 1 {
+		msg = "GitHub is limiting requests, try again in 1 minute"
+	} else if mins > 1 {
 		msg = fmt.Sprintf("GitHub is limiting requests, try again in %d minutes", mins)
 	}
 	return &UnknownError{Reason: msg, RetryAfter: wait}

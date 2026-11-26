@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -310,7 +311,7 @@ func TestParseWindowsFactsKeepsPositions(t *testing.T) {
 	}
 	m = Machine{}
 	parseWindowsFacts("", &m)
-	if m != (Machine{}) {
+	if !reflect.DeepEqual(m, Machine{}) {
 		t.Errorf("empty output: %+v", m)
 	}
 }

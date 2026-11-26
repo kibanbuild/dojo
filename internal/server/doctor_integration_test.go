@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -214,14 +215,87 @@ func (stubBackend) Available() error { return nil }
 // runDoctor runs `dojo doctor` on a good, fake machine whose VM manager is ready.
 func runDoctor(t *testing.T) (string, error) {
 	t.Helper()
+	return runDoctorWith(t, func(*doctor.Machine) {})
+}
+
+// runDoctorWith is runDoctor with the machine facts (git email, keys, clone) the test wants. The
+// GitHub reads go to the compose fake, never to github.com.
+func runDoctorWith(t *testing.T, facts func(*doctor.Machine)) (string, error) {
+	t.Helper()
 	return runCLIWith(t, "", func(a *cli.App) {
 		a.BackendName = "stub"
 		a.NewBackend = func(string) (lab.Backend, error) { return stubBackend{}, nil }
-		a.Probe = func(context.Context) doctor.Machine {
-			return doctor.Machine{OS: "linux", MemoryBytes: 16 << 30, FreeDiskBytes: 100 << 30, CPUs: 8, Virtualization: true,
-				VirtualizationKnown: true, HasGit: true, GitName: "Ada", GitEmail: "ada@example.test", HasVSCode: true}
+		a.Getenv = func(k string) string {
+			if k == "DOJO_CLI_GITHUB_API_URL" {
+				return fakeURL(t)
+			}
+			return os.Getenv(k)
 		}
+		a.Probe = func(context.Context) doctor.Machine {
+			m := doctor.Machine{OS: "linux", MemoryBytes: 16 << 30, FreeDiskBytes: 100 << 30, CPUs: 8, Virtualization: true,
+				VirtualizationKnown: true, HasGit: true, GitName: "Ada", GitEmail: "ada@example.test", HasVSCode: true}
+			facts(&m)
+			return m
+		}
+		a.ProbeGitHub = func(context.Context, *doctor.Machine) {}
 	}, "doctor")
+}
+
+const itKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA ada@laptop"
+
+func fakeControl(t *testing.T, method, path, body string) {
+	t.Helper()
+	req, _ := http.NewRequest(method, fakeURL(t)+path, strings.NewReader(body))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("%s %s: %d", method, path, resp.StatusCode)
+	}
+}
+
+const githubRowsSQL = "SELECT string_agg(check_id || '=' || status, ' ' ORDER BY check_id) FROM doctor_results r JOIN learners l ON l.id = r.learner_id " +
+	"WHERE l.github_id = 1001 AND check_id IN ('git_email_github','key_signing','key_auth','repo','ruleset','agents_md')"
+
+func TestDoctorGitHubChecksAgainstTheFake(t *testing.T) {
+	_, _, _ = streamFixture(t)
+	t.Setenv("DOJO_HOME", filepath.Join(t.TempDir(), "home"))
+	t.Setenv("DOJO_SSH_DIR", filepath.Join(t.TempDir(), "ssh"))
+	if out, err := runCLI(t, "ada", "login"); err != nil {
+		t.Fatalf("login: %v\n%s", err, out)
+	}
+	fakeControl(t, "POST", "/_fake/reset", "")
+	t.Cleanup(func() { fakeControl(t, "POST", "/_fake/reset", "") })
+	ssh := func(m *doctor.Machine) { m.SigningPub = itKey }
+	viaSSH := func(m *doctor.Machine) { ssh(m); m.CloneOverSSH, m.SSHOfferedKeys = true, []string{itKey} }
+
+	// Nothing set up: every step is a fail, the advisory email a warn.
+	out, err := runDoctorWith(t, viaSSH)
+	if err != nil {
+		t.Fatalf("doctor: %v\n%s", err, out)
+	}
+	if got := asOwner(t, githubRowsSQL); got != "agents_md=fail git_email_github=warn key_auth=fail key_signing=fail repo=fail ruleset=fail" {
+		t.Fatalf("nothing set up: %q\n%s", got, out)
+	}
+
+	// Everything set up for ada (id 1001).
+	fakeControl(t, "PUT", "/_fake/users/ada/signing_keys", `[{"id":1,"key":"`+itKey+`","title":"t"}]`)
+	fakeControl(t, "PUT", "/_fake/users/ada/keys", `[{"id":2,"key":"`+itKey+`"}]`)
+	fakeControl(t, "PUT", "/_fake/users/ada/repos/dojo",
+		`{"rules":{"main":[{"type":"required_signatures","ruleset_id":1},{"type":"non_fast_forward","ruleset_id":1},{"type":"deletion","ruleset_id":1}]},"files":{"AGENTS.md":"# rules"}}`)
+	out, err = runDoctorWith(t, func(m *doctor.Machine) { viaSSH(m); m.GitEmail = "1001+ada@users.noreply.github.com" })
+	if err != nil {
+		t.Fatalf("doctor: %v\n%s", err, out)
+	}
+	if got := asOwner(t, githubRowsSQL); got != "agents_md=ok git_email_github=ok key_auth=ok key_signing=ok repo=ok ruleset=ok" {
+		t.Fatalf("everything set up: %q\n%s", got, out)
+	}
+	_, ready, err := expiryStore(t).DoctorState(context.Background(), learnerUUID(t))
+	if err != nil || ready.O4 {
+		t.Fatalf("ssh_key and git_signing fail here, so O4 is not ready: %+v %v", ready, err)
+	}
 }
 
 func TestDoctorCLIToEventToRowToSSE(t *testing.T) {

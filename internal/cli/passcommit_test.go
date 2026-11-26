@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -42,6 +43,9 @@ func (f *passFix) gitconfig(t *testing.T, signingKey string) {
 
 func newPassFix(t *testing.T) *passFix {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture builds file:// remotes and a gitconfig from native paths")
+	}
 	for _, bin := range []string{"git", "ssh-keygen"} {
 		if _, err := exec.LookPath(bin); err != nil {
 			t.Skip(bin, "not installed")

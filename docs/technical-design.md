@@ -1436,6 +1436,7 @@ PRs: PR 2 returns `next_step` (`o0`, `o2`, `o5` or `done` only), `env`, `public_
 ```json
 {"next_step": "o3", "env": "local", "public_origin": "http://localhost:8080",
  "path": {"slug": "systems-devops", "chosen": true},
+ "waitlist": ["backend", "security"],
  "hosted_default": false, "cli_connected": true,
  "checks": [{"id": "memory", "group": "machine", "status": "ok", "text": "16 GB RAM", "fix": "",
              "source": "cli", "checked_at": "2026-11-26T09:00:00Z"}],
@@ -1453,7 +1454,11 @@ PRs: PR 2 returns `next_step` (`o0`, `o2`, `o5` or `done` only), `env`, `public_
 - `checks` is the latest result per check id (below); `agents_md` is `mentor.AgentsMD()` from
   `internal/mentor`, so the O4 copy block and the file `dojo start` writes are one text.
   `first_ticket` is the `next` of `GET /v1/today` for this learner (the first ticket in path
-  order), so O5 never hardcodes an id. `env` is `DOJO_ENV` and `public_origin` is `PUBLIC_ORIGIN`.
+  order), so O5 never hardcodes an id. `waitlist` is the sorted slugs of the planned paths the
+  learner has a `path_waitlist` row for, always an array (`[]`, never null); a path that became
+  available drops out of the list and keeps its row. O0 shows "You're on the list" from it and
+  decides the email prompt (a row and no email).
+  `env` is `DOJO_ENV` and `public_origin` is `PUBLIC_ORIGIN`.
 
 **O2: the `login` event.** `POST /v1/auth/cli` writes the token and, in the same transaction, a
 `pg_notify` on the learner's channel (section 3.8) with an `event` key. A stream message with no

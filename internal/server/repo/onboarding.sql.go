@@ -128,6 +128,36 @@ func (q *Queries) InsertPathWaitlist(ctx context.Context, arg InsertPathWaitlist
 	return err
 }
 
+const listLearnerWaitlistSlugs = `-- name: ListLearnerWaitlistSlugs :many
+SELECT p.slug
+FROM path_waitlist w
+JOIN paths p ON p.id = w.path_id
+WHERE w.learner_id = $1 AND p.status = 'planned'
+ORDER BY p.slug
+`
+
+// Slugs of the planned paths the learner waits for; a path that became available drops out of the
+// list and keeps its row.
+func (q *Queries) ListLearnerWaitlistSlugs(ctx context.Context, learnerID pgtype.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, listLearnerWaitlistSlugs, learnerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, err
+		}
+		items = append(items, slug)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setLearnerChosenPath = `-- name: SetLearnerChosenPath :exec
 UPDATE learners SET chosen_path_id = $2, updated_at = now() WHERE id = $1
 `

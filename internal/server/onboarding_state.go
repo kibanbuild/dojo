@@ -16,6 +16,15 @@ const onboardingPath = "/v1/onboarding"
 // OnboardingFacts reads the two flags next_step needs beyond the catalog and the doctor rows.
 type OnboardingFacts interface {
 	GetOnboardingFacts(ctx context.Context, id pgtype.UUID) (repo.GetOnboardingFactsRow, error)
+	ListLearnerWaitlistSlugs(ctx context.Context, learnerID pgtype.UUID) ([]string, error)
+}
+
+// waitlistOut is never nil, so the JSON carries [] and not null.
+func waitlistOut(slugs []string) []string {
+	if slugs == nil {
+		return []string{}
+	}
+	return slugs
 }
 
 // DoctorReader reads the latest doctor result per check and the readiness of O3 and O4.
@@ -74,6 +83,7 @@ type onboardingResponse struct {
 	Env           string            `json:"env"`
 	PublicOrigin  string            `json:"public_origin"`
 	Path          onboardingPathOut `json:"path"`
+	Waitlist      []string          `json:"waitlist"`
 	HostedDefault bool              `json:"hosted_default"`
 	CLIConnected  bool              `json:"cli_connected"`
 	Checks        []onboardingCheck `json:"checks"`
@@ -100,6 +110,11 @@ func (a Auth) onboarding(w http.ResponseWriter, r *http.Request) {
 		readFailed(w, r, err)
 		return
 	}
+	waitlist, err := o.Facts.ListLearnerWaitlistSlugs(r.Context(), p.learner)
+	if err != nil {
+		readFailed(w, r, err)
+		return
+	}
 	checks, ready, err := o.Doctor.DoctorState(r.Context(), p.learner)
 	if err != nil {
 		readFailed(w, r, err)
@@ -108,6 +123,7 @@ func (a Auth) onboarding(w http.ResponseWriter, r *http.Request) {
 	out := onboardingResponse{
 		NextStep: nextStep(onboardingInputs{finished: facts.Finished, chosen: path.Chosen, cliConnected: facts.CliConnected, hostedDefault: facts.HostedDefault, ready: ready}),
 		Env:      o.Env, PublicOrigin: o.PublicOrigin, Path: onboardingPathOut{path.Path, path.Chosen},
+		Waitlist:      waitlistOut(waitlist),
 		HostedDefault: facts.HostedDefault, CLIConnected: facts.CliConnected, Checks: make([]onboardingCheck, 0, len(checks)), AgentsMD: mentor.AgentsMD(),
 	}
 	for _, c := range checks {

@@ -35,6 +35,15 @@ FROM paths p
 WHERE p.slug = ANY(@waitlist::text[]) AND p.status = 'planned'
 ON CONFLICT DO NOTHING;
 
+-- Slugs of the planned paths the learner waits for; a path that became available drops out of the
+-- list and keeps its row.
+-- name: ListLearnerWaitlistSlugs :many
+SELECT p.slug
+FROM path_waitlist w
+JOIN paths p ON p.id = w.path_id
+WHERE w.learner_id = $1 AND p.status = 'planned'
+ORDER BY p.slug;
+
 -- What GET /v1/onboarding needs beyond the catalog and doctor rows (design 3.9).
 -- name: GetOnboardingFacts :one
 SELECT

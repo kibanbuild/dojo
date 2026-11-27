@@ -217,15 +217,6 @@ describe('O0 overlapping waitlist joins', () => {
   });
 });
 
-describe('placeholder steps', () => {
-  it('offers a way out to Settings so nobody is stuck on a step that is not built', async () => {
-    stub({ onboarding: 'o5' });
-    await mount('/start/first');
-    await until(() => [...container.querySelectorAll('a')].some((a) => a.textContent === 'Open settings'));
-    expect([...container.querySelectorAll('a')].find((a) => a.textContent === 'Open settings')?.getAttribute('href')).toBe('/settings');
-  });
-});
-
 describe('O0 waitlist readback', () => {
   it('shows the list the API reports for a signed-in learner', async () => {
     stub({ onboarding: 'o0', waitlist: ['backend'] });

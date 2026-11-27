@@ -14,6 +14,8 @@ export interface DoctorCheck {
   status: CheckStatus;
   text: string;
   fix: string;
+  /** `cli` for a `dojo doctor` result, `learner` for a step the learner confirmed on the page. */
+  source?: string;
 }
 
 export interface Onboarding {
@@ -23,6 +25,8 @@ export interface Onboarding {
   public_origin?: string;
   hosted_default?: boolean;
   checks?: DoctorCheck[];
+  /** The AGENTS.md text of O4's copy block (section 3.9), the same file `dojo start` writes. */
+  agents_md?: string;
   path: { slug: string | null; chosen: boolean };
   cli_connected: boolean;
   /** Sorted slugs of the planned paths the learner asked to hear about; a missing field reads as empty. */

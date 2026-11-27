@@ -1,11 +1,10 @@
 import { Link } from 'react-router';
 import { OnboardingFrame } from '../components/OnboardingFrame';
 
-export type PlaceholderStep = 'o4' | 'o5';
+export type PlaceholderStep = 'o5';
 
 // Frame position (O1 sign in is step 2) and heading of each step that is not built yet.
 const STEPS: Record<PlaceholderStep, { step: number; title: string }> = {
-  o4: { step: 5, title: 'Set up your SSH key' },
   o5: { step: 6, title: 'Your first ticket' },
 };
 

@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kibanyadev/dojo/internal/admin"
+	"github.com/kibanyadev/dojo/internal/dbpool"
 	"github.com/kibanyadev/dojo/internal/github"
 )
 
@@ -51,7 +52,7 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := pgxpool.New(ctx, dbURL)
+	pool, err := dbpool.New(ctx, dbURL)
 	if err != nil {
 		return fmt.Errorf("open pool: %w", err)
 	}

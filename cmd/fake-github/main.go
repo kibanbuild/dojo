@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/fakegithub"
+	"github.com/kibanyadev/dojo/internal/fakegithub"
 )
 
 func main() {

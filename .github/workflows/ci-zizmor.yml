@@ -19,7 +19,7 @@ permissions: {}
 
 jobs:
   zizmor:
-    if: github.repository == 'kibanbuild/dojo' || github.repository == 'kibanyadev/dojo'
+    if: github.repository == 'kibanyadev/dojo'
     name: GitHub Actions Security Audit
     runs-on: ubuntu-latest
     timeout-minutes: 15

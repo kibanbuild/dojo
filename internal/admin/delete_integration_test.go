@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/admin"
+	"github.com/kibanyadev/dojo/internal/admin"
 )
 
 func cleanDeleteFixtures(t *testing.T) {

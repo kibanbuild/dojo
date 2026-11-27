@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/kibanbuild/dojo/internal/server/repo"
+	"github.com/kibanyadev/dojo/internal/server/repo"
 )
 
 func (f *fakeSessions) UpdateLearnerProfile(_ context.Context, a repo.UpdateLearnerProfileParams) (repo.Learner, error) {

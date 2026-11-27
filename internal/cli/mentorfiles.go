@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kibanbuild/dojo/internal/mentor"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/mentor"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 // seedMentorFiles writes AGENTS.md and CLAUDE.md into the local practice clone when it exists and

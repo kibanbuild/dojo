@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/mentor"
+	"github.com/kibanyadev/dojo/internal/mentor"
 )
 
 // The script really runs under bash, with getent and chown faked, and leaves the two files.

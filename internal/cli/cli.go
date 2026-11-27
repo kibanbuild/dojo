@@ -16,12 +16,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/catalog"
-	"github.com/kibanbuild/dojo/internal/doctor"
-	"github.com/kibanbuild/dojo/internal/lab"
-	"github.com/kibanbuild/dojo/internal/mentor"
-	"github.com/kibanbuild/dojo/internal/sshconfig"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/catalog"
+	"github.com/kibanyadev/dojo/internal/doctor"
+	"github.com/kibanyadev/dojo/internal/lab"
+	"github.com/kibanyadev/dojo/internal/mentor"
+	"github.com/kibanyadev/dojo/internal/sshconfig"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 // Usage is printed by dojo help.

@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/server"
+	"github.com/kibanyadev/dojo/internal/server"
 )
 
 var browserSeq atomic.Int32

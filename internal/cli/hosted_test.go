@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 const hostedHint = "Turn off the hosted default in Settings to use a local lab."

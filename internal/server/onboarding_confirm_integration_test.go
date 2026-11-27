@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/server"
+	"github.com/kibanyadev/dojo/internal/server"
 )
 
 func signedInAda(t *testing.T) *browser {

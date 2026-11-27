@@ -14,9 +14,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/kibanbuild/dojo/internal/doctor"
-	"github.com/kibanbuild/dojo/internal/lab"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/doctor"
+	"github.com/kibanyadev/dojo/internal/lab"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 const (

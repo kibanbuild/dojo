@@ -16,8 +16,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/kibanbuild/dojo/internal/catalog"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/catalog"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 var shaRE = regexp.MustCompile(`^[0-9a-f]{64}$`)

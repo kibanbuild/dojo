@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/mentor"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/mentor"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 // gitIn runs git in dir with the hook-exported GIT_* variables stripped.

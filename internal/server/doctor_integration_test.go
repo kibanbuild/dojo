@@ -15,10 +15,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/kibanbuild/dojo/internal/cli"
-	"github.com/kibanbuild/dojo/internal/doctor"
-	"github.com/kibanbuild/dojo/internal/lab"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/cli"
+	"github.com/kibanyadev/dojo/internal/doctor"
+	"github.com/kibanyadev/dojo/internal/lab"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 func evDoctor(id, at string, checks ...map[string]string) map[string]any {

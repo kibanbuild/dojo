@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/server"
+	"github.com/kibanyadev/dojo/internal/server"
 )
 
 // send is a JSON write as the browser: its cookies, plus the CSRF header when csrf is set.

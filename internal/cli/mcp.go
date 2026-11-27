@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/catalog"
-	"github.com/kibanbuild/dojo/internal/mcp"
-	"github.com/kibanbuild/dojo/internal/mentor"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/catalog"
+	"github.com/kibanyadev/dojo/internal/mcp"
+	"github.com/kibanyadev/dojo/internal/mentor"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 const noTicket = "No ticket is in progress. Ask the learner to run `dojo start <id>`."

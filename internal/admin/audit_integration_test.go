@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kibanbuild/dojo/internal/admin"
+	"github.com/kibanyadev/dojo/internal/admin"
 )
 
 // adminPool connects to the stack's Postgres as dojo_admin, the role the service runs as.

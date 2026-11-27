@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/storage"
+	"github.com/kibanyadev/dojo/internal/storage"
 )
 
 // putBundle stores body in the compose object store and points the seeded ticket support-l1/c at it.

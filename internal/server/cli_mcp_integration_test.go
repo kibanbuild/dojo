@@ -12,8 +12,8 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/cli"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/cli"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 // dojo mcp reads the hints the learner opened on the web, through the API with the CLI token.

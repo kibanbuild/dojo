@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/admin"
-	"github.com/kibanbuild/dojo/internal/server"
+	"github.com/kibanyadev/dojo/internal/admin"
+	"github.com/kibanyadev/dojo/internal/server"
 )
 
 var (

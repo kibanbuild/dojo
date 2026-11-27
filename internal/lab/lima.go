@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kibanbuild/dojo/internal/sshconfig"
+	"github.com/kibanyadev/dojo/internal/sshconfig"
 )
 
 // Lima runs the lab with Lima (https://lima-vm.io) on macOS and Linux.

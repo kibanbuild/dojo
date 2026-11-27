@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kibanbuild/dojo/internal/lab"
+	"github.com/kibanyadev/dojo/internal/lab"
 )
 
 // Status of one check.

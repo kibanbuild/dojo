@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/catalog"
-	"github.com/kibanbuild/dojo/internal/lab"
+	"github.com/kibanyadev/dojo/internal/catalog"
+	"github.com/kibanyadev/dojo/internal/lab"
 )
 
 // katasDir is DOJO_KATAS, or the repo's katas/ directory. Solutions and wrong-fix/*.sh are

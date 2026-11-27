@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/kibanbuild/dojo/internal/ghread"
+	"github.com/kibanyadev/dojo/internal/ghread"
 )
 
 // GitHubReader is the part of ghread.Client the GitHub checks use.

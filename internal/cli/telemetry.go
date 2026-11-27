@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 // telemetryNotice is printed once, on stderr, by the first command that could send usage stats.

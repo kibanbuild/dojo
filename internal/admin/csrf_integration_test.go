@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/admin"
+	"github.com/kibanyadev/dojo/internal/admin"
 )
 
 func (b *operatorBrowser) postForm(path string, form url.Values, hdr map[string]string) *http.Response {

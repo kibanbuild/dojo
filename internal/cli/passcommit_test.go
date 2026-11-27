@@ -13,7 +13,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 type passAPI struct {

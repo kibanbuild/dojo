@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/doctor"
-	"github.com/kibanbuild/dojo/internal/ghread"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/doctor"
+	"github.com/kibanyadev/dojo/internal/ghread"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 const meTimeout = 5 * time.Second

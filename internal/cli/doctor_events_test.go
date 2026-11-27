@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/doctor"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/doctor"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 func doctorEvents(evs []state.ProgressEvent) []state.ProgressEvent {

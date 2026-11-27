@@ -20,8 +20,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/kibanbuild/dojo/internal/catalog"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/catalog"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 func testBundle(t *testing.T, tree fs.FS, id string) *catalog.Bundle {

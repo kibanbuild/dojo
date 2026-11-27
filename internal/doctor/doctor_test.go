@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/lab"
-	"github.com/kibanbuild/dojo/internal/sshconfig"
+	"github.com/kibanyadev/dojo/internal/lab"
+	"github.com/kibanyadev/dojo/internal/sshconfig"
 )
 
 func with(m Machine, f func(*Machine)) Machine { f(&m); return m }

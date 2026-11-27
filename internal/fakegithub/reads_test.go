@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/fakegithub"
+	"github.com/kibanyadev/dojo/internal/fakegithub"
 )
 
 func readsServer(t *testing.T, limit int, now func() time.Time) *httptest.Server {

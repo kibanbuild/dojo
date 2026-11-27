@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/ghread"
+	"github.com/kibanyadev/dojo/internal/ghread"
 )
 
 const (

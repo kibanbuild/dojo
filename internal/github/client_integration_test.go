@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/github"
+	"github.com/kibanyadev/dojo/internal/github"
 )
 
 // signIn runs the code path of the callback against the compose fake: authorize with login=, then exchange.

@@ -235,7 +235,7 @@ depend on its being public:
 - The API tells the CLI the minimum version it supports (`min_cli_version`); `dojo doctor` and
   `dojo exam check` report an outdated CLI.
 - Ticket bundles (`ticket.yaml`, `setup.sh`, `check.sh`, an optional `files/` directory, no
-  solutions) are built from the private catalog repo (`kibanbuild/dojo-katas`) into S3 and fetched
+  solutions) are built from the private catalog repo (`kibanyadev/dojo-katas`) into S3 and fetched
   by `dojo start` through the API with the CLI token, with a `catalog_version` (format in section
   3.8). A ticket can be fixed without a CLI release. Solutions, wrong-fix tests, the exam pool and
   exam checks stay in the private repo and on the runner, never in a bundle. The hint guard
@@ -992,7 +992,7 @@ pass, a plan, the pass gate. It gets its own binary, database role and network p
     audit. Before A3 lands (M5b) the flags keep their migration seed values; there are no learners
     before launch.
 - **Not built:** refunds (the Stripe dashboard does them), analytics (PostHog), content edits
-  (they stay in git, in `kibanbuild/dojo-katas`), email (Mailpit locally, the SES console in
+  (they stay in git, in `kibanyadev/dojo-katas`), email (Mailpit locally, the SES console in
   AWS). Restoring an account from backup is a written runbook, not a screen.
 - **First operator.** `dojo-admin bootstrap <github-login>` runs once as a one-off task with the
   migration role and writes the first `operators` row and its audit row. Later operators are added
@@ -1829,7 +1829,7 @@ Section 3.3 carries the column lists; the grants test (M1) covers each new table
 
 ## 5. Delivery notes
 
-Tickets and exam content are a parallel track to this build (authoring in `kibanbuild/dojo-katas`)
+Tickets and exam content are a parallel track to this build (authoring in `kibanyadev/dojo-katas`)
 and the critical path to the 2027-03-31 done-line: Foundations, about 12 Support L1 tickets, two
 quizzes, writing tasks and one exam definition with its checks. It is tracked in `docs/plan.md`,
 not designed here.

@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/fakegithub"
+	"github.com/kibanyadev/dojo/internal/fakegithub"
 )
 
 func TestEnableDevice(t *testing.T) {

@@ -19,7 +19,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 // Version is the CLI build version; releases set it with -ldflags "-X .../internal/cli.Version=v1.2.3".

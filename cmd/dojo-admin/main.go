@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/kibanbuild/dojo/internal/admin"
-	"github.com/kibanbuild/dojo/internal/github"
+	"github.com/kibanyadev/dojo/internal/admin"
+	"github.com/kibanyadev/dojo/internal/github"
 )
 
 func main() {

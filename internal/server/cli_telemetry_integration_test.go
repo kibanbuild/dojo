@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/cli"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/cli"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 // telemetryHome points DOJO_HOME at a fresh directory and tags the CLI build with a unique version,

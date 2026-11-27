@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/storage"
+	"github.com/kibanyadev/dojo/internal/storage"
 )
 
 const (

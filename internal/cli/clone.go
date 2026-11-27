@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 const gitTimeout = 20 * time.Second

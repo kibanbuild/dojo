@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/github"
+	"github.com/kibanyadev/dojo/internal/github"
 )
 
 // memStore is a Store in memory. Operators are keyed by GitHub id.

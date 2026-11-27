@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/fakegithub"
+	"github.com/kibanyadev/dojo/internal/fakegithub"
 )
 
 // gitIn runs git with no GIT_* variable and no global configuration, so the test never touches another repository.

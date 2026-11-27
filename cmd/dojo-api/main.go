@@ -13,11 +13,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/github"
-	"github.com/kibanbuild/dojo/internal/mail"
-	"github.com/kibanbuild/dojo/internal/server"
-	"github.com/kibanbuild/dojo/internal/server/repo"
-	"github.com/kibanbuild/dojo/internal/storage"
+	"github.com/kibanyadev/dojo/internal/github"
+	"github.com/kibanyadev/dojo/internal/mail"
+	"github.com/kibanyadev/dojo/internal/server"
+	"github.com/kibanyadev/dojo/internal/server/repo"
+	"github.com/kibanyadev/dojo/internal/storage"
 )
 
 func main() {

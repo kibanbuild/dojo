@@ -16,7 +16,7 @@ permissions: {}
 
 jobs:
   go-tests:
-    if: github.repository == 'kibanbuild/dojo' || github.repository == 'kibanyadev/dojo'
+    if: github.repository == 'kibanyadev/dojo'
     name: Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15

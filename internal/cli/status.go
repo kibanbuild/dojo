@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 // status reports local facts only: the current ticket, the lab, the login and the event queue.

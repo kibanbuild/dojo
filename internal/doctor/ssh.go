@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kibanbuild/dojo/internal/sshconfig"
+	"github.com/kibanyadev/dojo/internal/sshconfig"
 )
 
 // ProbeSSH finds the SSH key dojo would use (chosen, or the default in the SSH

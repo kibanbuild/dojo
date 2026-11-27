@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/github"
+	"github.com/kibanyadev/dojo/internal/github"
 )
 
 const (

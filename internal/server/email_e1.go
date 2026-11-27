@@ -5,7 +5,7 @@ import (
 	"html/template"
 	"strings"
 
-	"github.com/kibanbuild/dojo/internal/server/repo"
+	"github.com/kibanyadev/dojo/internal/server/repo"
 )
 
 // welcomeData is what E1 says: who it is for, the path they are on and its first role (empty when the

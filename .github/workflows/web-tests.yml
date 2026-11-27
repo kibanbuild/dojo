@@ -16,7 +16,7 @@ permissions: {}
 
 jobs:
   web-tests:
-    if: github.repository == 'kibanbuild/dojo' || github.repository == 'kibanyadev/dojo'
+    if: github.repository == 'kibanyadev/dojo'
     name: Web Build
     runs-on: ubuntu-latest
     timeout-minutes: 15

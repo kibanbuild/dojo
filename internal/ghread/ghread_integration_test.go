@@ -10,7 +10,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/ghread"
+	"github.com/kibanyadev/dojo/internal/ghread"
 )
 
 func fake(t *testing.T) string {

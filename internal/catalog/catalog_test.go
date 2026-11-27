@@ -7,7 +7,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/kibanbuild/dojo/internal/catalog"
+	"github.com/kibanyadev/dojo/internal/catalog"
 )
 
 const validTicket = `id: support-l1/perms-01

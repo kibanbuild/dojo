@@ -14,8 +14,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/kibanbuild/dojo/internal/mail"
-	"github.com/kibanbuild/dojo/internal/server/repo"
+	"github.com/kibanyadev/dojo/internal/mail"
+	"github.com/kibanyadev/dojo/internal/server/repo"
 )
 
 func TestReportValidation(t *testing.T) {

@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/cli"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/cli"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 // syncBuf is a buffer the test reads while the CLI writes.

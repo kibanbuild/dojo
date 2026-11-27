@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/kibanbuild/dojo/internal/server/repo"
+	"github.com/kibanyadev/dojo/internal/server/repo"
 )
 
 func (f *fakeCatalog) ListLearnerActivityDays(_ context.Context, a repo.ListLearnerActivityDaysParams) ([]repo.ListLearnerActivityDaysRow, error) {

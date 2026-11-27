@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const module = "github.com/kibanbuild/dojo"
+const module = "github.com/kibanyadev/dojo"
 
 func deps(t *testing.T, pkg string) map[string]bool {
 	t.Helper()

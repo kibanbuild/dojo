@@ -1,5 +1,8 @@
 import { Navigate } from 'react-router';
 import { SuspendedError, useMe } from './lib/me';
+import { onboardingRedirect, useOnboarding } from './lib/onboarding';
+import { Start } from './pages/Start';
+import { StartStep, type PlaceholderStep } from './pages/StartStep';
 import { Today } from './pages/Today';
 import { Settings } from './pages/Settings';
 import { Machines } from './pages/Machines';
@@ -32,22 +35,49 @@ function MeFailed({ error, retry }: { error: Error; retry: () => void }) {
   return <LoadFailed retry={retry} />;
 }
 
-// /app: signed out (401) goes to O1 at /app/signin; signed in goes to Today (L1 is home).
+// A signed-in learner who has not finished onboarding belongs on the step it names, never on an empty Today.
+function useOnboardingRedirect(signedIn: boolean) {
+  const onboarding = useOnboarding(signedIn);
+  return { pending: signedIn && onboarding.isPending, to: onboardingRedirect(onboarding.data ?? null) };
+}
+
+// /app: signed out (401) goes to O1 at /app/signin; signed in goes to Today (L1 is home) or the first unfinished step.
 export function App() {
   const me = useMe();
-  if (me.isPending) return <Loading />;
+  const onboarding = useOnboardingRedirect(!!me.data);
+  if (me.isPending || onboarding.pending) return <Loading />;
   if (me.isError) return <MeFailed error={me.error} retry={() => void me.refetch()} />;
   if (me.data === null) return <Navigate to="/signin" replace />;
-  return <Navigate to="/today" replace />;
+  return <Navigate to={onboarding.to ?? '/today'} replace />;
 }
 
 // /app/today: same guard as /app.
 export function TodayRoute() {
   const me = useMe();
+  const onboarding = useOnboardingRedirect(!!me.data);
+  // Today draws its own loading state, so a slow onboarding read never holds it back; the redirect follows when it lands.
   if (me.isPending) return <Loading />;
   if (me.isError) return <MeFailed error={me.error} retry={() => void me.refetch()} />;
   if (me.data === null) return <Navigate to="/signin" replace />;
+  if (onboarding.to) return <Navigate to={onboarding.to} replace />;
   return <Today me={me.data} />;
+}
+
+// /app/start (O0): reachable signed out, so a failed or missing session is just "not signed in".
+export function StartRoute() {
+  const me = useMe();
+  if (me.isPending) return <Loading />;
+  if (me.isError && me.error instanceof SuspendedError) return <Navigate to="/signin?error=suspended" replace />;
+  return <Start me={me.data ?? null} />;
+}
+
+// /app/start/install, doctor, key, first (O2 to O5): signed in only.
+export function StartStepRoute({ id }: { id: PlaceholderStep }) {
+  const me = useMe();
+  if (me.isPending) return <Loading />;
+  if (me.isError) return <MeFailed error={me.error} retry={() => void me.refetch()} />;
+  if (me.data === null) return <Navigate to="/signin" replace />;
+  return <StartStep id={id} />;
 }
 
 // /app/settings: same guard as /app.

@@ -1,17 +1,16 @@
 import { Link } from 'react-router';
 import { OnboardingFrame } from '../components/OnboardingFrame';
 
-export type PlaceholderStep = 'o2' | 'o3' | 'o4' | 'o5';
+export type PlaceholderStep = 'o3' | 'o4' | 'o5';
 
 // Frame position (O1 sign in is step 2) and heading of each step that is not built yet.
 const STEPS: Record<PlaceholderStep, { step: number; title: string }> = {
-  o2: { step: 3, title: 'Install Dojo' },
   o3: { step: 4, title: 'Check your computer' },
   o4: { step: 5, title: 'Set up your SSH key' },
   o5: { step: 6, title: 'Your first ticket' },
 };
 
-/** O2 to O5 until their pages land: the frame and the step, so the router already has somewhere to send a learner. */
+/** O3 to O5 until their pages land: the frame and the step, so the router already has somewhere to send a learner. */
 export function StartStep({ id }: { id: PlaceholderStep }) {
   const { step, title } = STEPS[id];
   return (

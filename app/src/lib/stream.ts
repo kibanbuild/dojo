@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
+import type { CheckStatus } from './onboarding';
 import { ACTIVITY_KEY, PATH_KEY, readBlockedUntil, ticketKey, TICKET_KEY_PREFIX, TODAY_KEY, type Ticket, type TicketState } from './read';
 
 export const STREAM_URL = '/v1/stream';
@@ -19,12 +20,27 @@ export interface ProgressEvent {
   last_check_at: string | null;
 }
 
+/** The `login` event (O2): a CLI signed in. The token itself never travels. */
+export interface LoginEvent {
+  device_name: string;
+  os: string;
+  cli_version: string;
+  at: string;
+}
+
+/** The `doctor` event (O3): the ids a projection changed, without text or fix. */
+export interface DoctorEvent {
+  checks: { id: string; status: CheckStatus }[];
+}
+
 export interface StreamHandlers {
   /** `ready` (every open, first included) and `resync`: refetch everything shown. */
   onSync: () => void;
   onProgress: (event: ProgressEvent) => void;
   /** Stream not holding: the 10 s polling fallback ticks. */
   onPoll: () => void;
+  onLogin?: (event: LoginEvent) => void;
+  onDoctor?: (event: DoctorEvent) => void;
 }
 
 /** Opens GET /v1/stream; returns a close function. Reconnect, idle and polling rules: technical-design 3.8. */
@@ -82,6 +98,19 @@ export function openStream(h: StreamHandlers, url: string = STREAM_URL): () => v
         // A malformed message is ignored; the next ready or poll corrects the page.
       }
     });
+    const listen = <T,>(name: string, handle: ((event: T) => void) | undefined) => {
+      if (!handle) return;
+      es.addEventListener(name, (e) => {
+        touch();
+        try {
+          handle(JSON.parse((e as MessageEvent<string>).data) as T);
+        } catch {
+          // Ignored like a malformed progress message.
+        }
+      });
+    };
+    listen('login', h.onLogin);
+    listen('doctor', h.onDoctor);
     es.onerror = () => {
       startPoll();
       // CLOSED means a refused connect (429, 401): EventSource will not retry, so the page does after 30 s.

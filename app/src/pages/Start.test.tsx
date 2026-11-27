@@ -219,8 +219,8 @@ describe('O0 overlapping waitlist joins', () => {
 
 describe('placeholder steps', () => {
   it('offers a way out to Settings so nobody is stuck on a step that is not built', async () => {
-    stub({ onboarding: 'o2' });
-    await mount('/start/install');
+    stub({ onboarding: 'o4' });
+    await mount('/start/key');
     await until(() => [...container.querySelectorAll('a')].some((a) => a.textContent === 'Open settings'));
     expect([...container.querySelectorAll('a')].find((a) => a.textContent === 'Open settings')?.getAttribute('href')).toBe('/settings');
   });

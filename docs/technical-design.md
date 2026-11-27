@@ -1175,7 +1175,9 @@ collide. Registry of classes in use: 1 learner progress, `(1, hashtext(learner_i
 sweeper, `(2, 0)`; 3 catalog load, `(3, 0)`; 5 email outbox row claim (the sender's, set by the email
 PR); 4 is left free. The exam sweeper (M6a) and anything later takes the next free class and adds
 it here. Work that several tasks can share, like the commit verifier (section 3.9), claims rows with
-a lease instead of taking a class.
+a lease instead of taking a class. Row locks follow one order: any path that touches a learner and
+its `email_outbox` rows locks the learner row first (`delete_learner`, the sign-in inserts and
+`mark_email_sent` since migration 00024), so account deletion and the sender cannot deadlock.
 
 - `state`: no row is not started. `started`, `passed`, and `revisit`, a passed ticket that was
   started again. `revisit` counts as passed everywhere (the path, the Foundations rule, exam

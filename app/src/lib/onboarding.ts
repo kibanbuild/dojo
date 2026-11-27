@@ -1,6 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from './api';
+import type { TicketState } from './read';
 import { errorCode } from './settings';
+
+export type CommitState = 'pending' | 'verified' | 'unverified';
 
 export type StepId = 'o0' | 'o2' | 'o3' | 'o4' | 'o5';
 export type NextStep = StepId | 'done';
@@ -31,7 +34,8 @@ export interface Onboarding {
   cli_connected: boolean;
   /** Sorted slugs of the planned paths the learner asked to hear about; a missing field reads as empty. */
   waitlist?: string[];
-  first_ticket: { id: string; title: string } | null;
+  /** The path's first ticket, stable once chosen; `state` is the learner's (null: not started), `commit_state` that of a pass's signed commit. */
+  first_ticket: { id: string; title: string; state?: TicketState | null; commit_state?: CommitState | null } | null;
 }
 
 export const ONBOARDING_KEY = ['onboarding'] as const;

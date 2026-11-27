@@ -145,6 +145,14 @@ describe('Ticket not started', () => {
     expect(container.querySelector(`button[aria-label="Copy command: dojo start ${ID}"]`)).not.toBeNull();
   });
 
+  it('opens the report form for this ticket from the report link', async () => {
+    await act(async () => button('Report a broken ticket')!.click());
+    const dialog = container.querySelector('[role=dialog]')!;
+    expect(dialog.textContent).toContain('Report a broken ticket');
+    expect(document.activeElement?.tagName).toBe('TEXTAREA');
+    expect(dialog.textContent).toContain('Include the output of my last check');
+  });
+
   it('renders the brief with code blocks and never raw HTML', () => {
     expect(container.querySelector('pre')?.textContent).toBe('ls -ld /srv/shared');
     expect(container.querySelector('script')).toBeNull();

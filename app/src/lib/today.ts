@@ -30,13 +30,6 @@ export function ago(iso: string | null, now = Date.now()): string {
   return `${Math.round(h / 24)} days ago`;
 }
 
-const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-
-export const sameDay = (iso: string | null, now = new Date()): boolean => {
-  const t = iso ? Date.parse(iso) : NaN;
-  return !Number.isNaN(t) && dayKey(new Date(t)) === dayKey(now);
-};
-
 export const shortCommit = (sha: string) => sha.slice(0, 7);
 
 export const initial = (name: string) => (name.trim()[0] ?? '?').toUpperCase();

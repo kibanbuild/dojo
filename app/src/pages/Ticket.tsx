@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore, type KeyboardEvent, type Rea
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { AppFrame } from '../components/AppFrame';
+import { ReportDialog } from '../components/ReportDialog';
 import { Inline, Markdown } from '../lib/markdown';
 import { ME_KEY, type Me } from '../lib/me';
 import { openHint, READ_MESSAGES, ReadError, ticketKey, useTicket, type Hint, type ReadFailure, type Ticket, type TicketProgress } from '../lib/read';
@@ -427,6 +428,8 @@ function TicketTitle({ text }: { text: string }) {
 
 function Detail({ ticket }: { ticket: Ticket }) {
   const [tab, setTab] = useState<Tab>('ticket');
+  const [reporting, setReporting] = useState(false);
+  const queryClient = useQueryClient();
   const view = viewOf(ticket.progress);
   const p = ticket.progress;
   const b = BADGE[view];
@@ -476,6 +479,17 @@ function Detail({ ticket }: { ticket: Ticket }) {
           </Panel>
         </div>
       </div>
+      <button type="button" onClick={() => setReporting(true)} className={`${ghostBtn} self-start`}>
+        Report a broken ticket
+      </button>
+      {reporting && (
+        <ReportDialog
+          kind="broken_ticket"
+          itemId={ticket.id}
+          onClose={() => setReporting(false)}
+          onSignedOut={() => queryClient.setQueryData(ME_KEY, null)}
+        />
+      )}
     </div>
   );
 }

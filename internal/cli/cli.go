@@ -25,7 +25,7 @@ import (
 )
 
 // Usage is printed by dojo help.
-const Usage = `dojo: practise real IT work on a local lab machine.
+const Usage = `dojo: practice real IT work on a local lab machine.
 
 Usage:
   dojo doctor             check that this computer can run the labs

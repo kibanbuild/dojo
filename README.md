@@ -1,6 +1,6 @@
 # Kiban Dojo
 
-Practise real IT work on a lab machine that runs on your own computer. Each ticket is a broken
+Practice real IT work on a lab machine that runs on your own computer. Each ticket is a broken
 system and a task: you fix it from your own terminal, the way the job works.
 
 Work in progress: the first pieces are landing one pull request at a time.

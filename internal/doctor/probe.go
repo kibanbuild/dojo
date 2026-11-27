@@ -123,7 +123,7 @@ func parseCPUFlags(s string) bool {
 }
 
 // parseWindowsFacts reads the three lines the Windows probe script prints, in
-// order: total RAM, enabled virtualisation, free bytes on the home drive. An
+// order: total RAM, enabled virtualization, free bytes on the home drive. An
 // empty or malformed line leaves its fact unknown without shifting the others.
 func parseWindowsFacts(s string, m *Machine) {
 	lines := strings.Split(strings.ReplaceAll(s, "\r", ""), "\n")

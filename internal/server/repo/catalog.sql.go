@@ -303,14 +303,15 @@ func (q *Queries) ListLearnerRecentPasses(ctx context.Context, learnerID pgtype.
 }
 
 const listLearnerTicketStates = `-- name: ListLearnerTicketStates :many
-SELECT item_id, state, lab_state, last_seen_at FROM ticket_progress WHERE learner_id = $1
+SELECT item_id, state, lab_state, last_seen_at, commit_state FROM ticket_progress WHERE learner_id = $1
 `
 
 type ListLearnerTicketStatesRow struct {
-	ItemID     string
-	State      string
-	LabState   pgtype.Text
-	LastSeenAt pgtype.Timestamptz
+	ItemID      string
+	State       string
+	LabState    pgtype.Text
+	LastSeenAt  pgtype.Timestamptz
+	CommitState pgtype.Text
 }
 
 func (q *Queries) ListLearnerTicketStates(ctx context.Context, learnerID pgtype.UUID) ([]ListLearnerTicketStatesRow, error) {
@@ -327,6 +328,7 @@ func (q *Queries) ListLearnerTicketStates(ctx context.Context, learnerID pgtype.
 			&i.State,
 			&i.LabState,
 			&i.LastSeenAt,
+			&i.CommitState,
 		); err != nil {
 			return nil, err
 		}

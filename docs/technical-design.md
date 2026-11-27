@@ -1441,7 +1441,8 @@ PRs: PR 2 returns `next_step` (`o0`, `o2`, `o5` or `done` only), `env`, `public_
  "checks": [{"id": "memory", "group": "machine", "status": "ok", "text": "16 GB RAM", "fix": "",
              "source": "cli", "checked_at": "2026-11-26T09:00:00Z"}],
  "agents_md": "# Mentor rules\n...",
- "first_ticket": {"id": "foundations/terminal-01", "title": "Find the log"}}
+ "first_ticket": {"id": "foundations/terminal-01", "title": "Find the log",
+                  "state": "passed", "commit_state": "pending"}}
 ```
 
 - `next_step` is derived on every read, never stored, in this order. `done` first: the learner has a
@@ -1453,8 +1454,11 @@ PRs: PR 2 returns `next_step` (`o0`, `o2`, `o5` or `done` only), `env`, `public_
   row, so with no `doctor_results` rows neither is ready. Pages before O2 are signed-in only, O0 aside.
 - `checks` is the latest result per check id (below); `agents_md` is `mentor.AgentsMD()` from
   `internal/mentor`, so the O4 copy block and the file `dojo start` writes are one text.
-  `first_ticket` is the `next` of `GET /v1/today` for this learner (the first ticket in path
-  order), so O5 never hardcodes an id. `waitlist` is the sorted slugs of the planned paths the
+  `first_ticket` is the first ticket in path order of the learner's path, independent of progress,
+  so it never changes for that path and O5 never hardcodes an id. `state` is the learner's progress
+  state on it (`started`, `passed`, `revisit`; null with no progress row, as in `GET /v1/path`) and
+  `commit_state` its passed commit state (`pending`, `verified`, `unverified`; null otherwise).
+  It is null only when the path has no tickets. `waitlist` is the sorted slugs of the planned paths the
   learner has a `path_waitlist` row for, always an array (`[]`, never null); a path that became
   available drops out of the list and keeps its row. O0 shows "You're on the list" from it and
   decides the email prompt (a row and no email).

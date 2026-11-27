@@ -115,6 +115,8 @@ type pathItem struct {
 	Order    int32   `json:"order"`
 	State    *string `json:"state"`
 	LabState *string `json:"lab_state"`
+	// CommitState is the passed commit's verification state; internal, not part of GET /v1/path.
+	CommitState *string `json:"-"`
 }
 
 type pathRole struct {
@@ -217,6 +219,9 @@ func buildPath(paths []repo.ListCatalogPathsRow, roles []repo.ListCatalogRolesRo
 				it.State = &st.State
 				if st.LabState.Valid {
 					it.LabState = &st.LabState.String
+				}
+				if st.CommitState.Valid {
+					it.CommitState = &st.CommitState.String
 				}
 				if st.State == "passed" || st.State == "revisit" {
 					pr.TicketsPassed++

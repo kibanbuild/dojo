@@ -25,8 +25,12 @@ type onboardingBody struct {
 		ID, Group, Status, Text, Source string
 		CheckedAt                       string `json:"checked_at"`
 	} `json:"checks"`
-	AgentsMD    string                      `json:"agents_md"`
-	FirstTicket *struct{ ID, Title string } `json:"first_ticket"`
+	AgentsMD    string `json:"agents_md"`
+	FirstTicket *struct {
+		ID, Title   string
+		State       *string `json:"state"`
+		CommitState *string `json:"commit_state"`
+	} `json:"first_ticket"`
 }
 
 func readOnboarding(t *testing.T, code int, body string) onboardingBody {
@@ -146,11 +150,31 @@ func TestOnboardingEveryStepIsReachable(t *testing.T) {
 	}
 
 	// Started tickets do not finish onboarding; a passed one does, and it sticks.
+	// first_ticket never moves: it follows the learner's progress on the path's first ticket.
+	first := func(state, commit string) {
+		t.Helper()
+		o := step()
+		ft := o.FirstTicket
+		got := func(p *string) string {
+			if p == nil {
+				return "null"
+			}
+			return *p
+		}
+		if ft == nil || ft.ID != "foundations/a" || got(ft.State) != state || got(ft.CommitState) != commit {
+			t.Fatalf("first_ticket want %s/%s: %+v", state, commit, ft)
+		}
+	}
+	first("null", "null")
 	setProgress(t, "foundations/a", "started", "running")
-	if o = step(); o.NextStep != "o5" || o.FirstTicket == nil || o.FirstTicket.ID != "foundations/b" {
+	first("started", "null")
+	if o = step(); o.NextStep != "o5" {
 		t.Fatalf("started: %+v", o)
 	}
-	setProgress(t, "foundations/b", "passed", "")
+	asOwner(t, "UPDATE ticket_progress SET state = 'passed', first_passed_at = now(), passed_commit = repeat('a', 40), commit_state = 'pending', commit_at = now() WHERE item_id = 'foundations/a'")
+	first("passed", "pending")
+	asOwner(t, "UPDATE ticket_progress SET commit_state = 'verified' WHERE item_id = 'foundations/a'")
+	first("passed", "verified")
 	if o = step(); o.NextStep != "done" {
 		t.Fatalf("done: %+v", o)
 	}

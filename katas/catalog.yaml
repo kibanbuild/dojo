@@ -9,6 +9,7 @@ paths:
 roles:
   - slug: example
     title: Example
+    summary: One ticket that shows the format
     kind: role
     has_exam: false
 

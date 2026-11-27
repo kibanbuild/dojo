@@ -16,7 +16,7 @@ permissions: {}
 
 jobs:
   api-tests:
-    if: github.repository == 'kibanbuild/dojo'
+    if: github.repository == 'kibanyadev/dojo'
     name: API Integration
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -42,6 +42,7 @@ jobs:
             production.cloudfront.docker.com:443
             docker-images-prod.s3.dualstack.us-east-1.amazonaws.com:443
             registry.npmjs.org:443
+            dl-cdn.alpinelinux.org:443
 
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -62,7 +63,7 @@ jobs:
           fi
           # A failed diff must fail the step, not skip the tests.
           files=$(git diff --name-only "$BASE_SHA"...HEAD)
-          if printf '%s\n' "$files" | grep -E '^(cmd/dojo-api/|cmd/dojo-admin/|internal/server/|internal/admin/|db/|sqlc\.yaml$|Dockerfile$|\.dockerignore$|compose\.yaml$|compose\.it\.yaml$|caddy/|web/|app/|\.env\.example$|go\.mod$|go\.sum$|Makefile$|\.github/workflows/api-tests\.yml$)' > /dev/null; then
+          if printf '%s\n' "$files" | grep -E '^(cmd/dojo-api/|cmd/dojo-admin/|internal/server/|internal/mail/|internal/admin/|db/|sqlc\.yaml$|Dockerfile$|\.dockerignore$|compose\.yaml$|compose\.it\.yaml$|caddy/|web/|app/|\.env\.example$|go\.mod$|go\.sum$|Makefile$|\.github/workflows/api-tests\.yml$)' > /dev/null; then
             echo "api=true" >> "$GITHUB_OUTPUT"
           else
             echo "api=false" >> "$GITHUB_OUTPUT"

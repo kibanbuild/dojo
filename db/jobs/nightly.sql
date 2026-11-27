@@ -6,3 +6,5 @@ SELECT prune_admin_audit() AS admin_audit_deleted \gset
 \echo prune: admin_audit deleted :admin_audit_deleted
 SELECT prune_events() AS events_deleted \gset
 \echo prune: events deleted :events_deleted
+SELECT prune_pending_commits() AS pending_commits_deleted \gset
+\echo prune: pending_commits deleted :pending_commits_deleted

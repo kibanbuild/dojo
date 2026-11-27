@@ -11,8 +11,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/kibanbuild/dojo/internal/catalog"
-	"github.com/kibanbuild/dojo/internal/storage"
+	"github.com/kibanyadev/dojo/internal/catalog"
+	"github.com/kibanyadev/dojo/internal/storage"
 )
 
 // ErrWouldDropProgress means the load would remove catalog items learners have progress on.

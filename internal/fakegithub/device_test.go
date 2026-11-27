@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/fakegithub"
+	"github.com/kibanyadev/dojo/internal/fakegithub"
 )
 
 const grantType = "urn:ietf:params:oauth:grant-type:device_code"

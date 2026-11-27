@@ -21,7 +21,7 @@ env:
 
 jobs:
   go-e2e:
-    if: github.repository == 'kibanbuild/dojo'
+    if: github.repository == 'kibanyadev/dojo'
     name: E2E (lima)
     runs-on: ubuntu-latest
     timeout-minutes: 40

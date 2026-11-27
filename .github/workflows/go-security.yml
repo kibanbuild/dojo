@@ -18,7 +18,7 @@ permissions: {}
 
 jobs:
   go-security:
-    if: github.repository == 'kibanbuild/dojo'
+    if: github.repository == 'kibanyadev/dojo'
     name: Vulnerability Scan
     runs-on: ubuntu-latest
     timeout-minutes: 15

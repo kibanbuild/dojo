@@ -17,7 +17,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/catalog"
+	"github.com/kibanyadev/dojo/internal/catalog"
 )
 
 const fixtureID = "support-l1/perms-01"

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 func TestStatusWithNothingRunningSaysSo(t *testing.T) {

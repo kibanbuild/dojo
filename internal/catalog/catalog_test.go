@@ -7,7 +7,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/kibanbuild/dojo/internal/catalog"
+	"github.com/kibanyadev/dojo/internal/catalog"
 )
 
 const validTicket = `id: support-l1/perms-01
@@ -23,8 +23,8 @@ hints: [one, two]
 const validCatalog = `paths:
   - {slug: systems, title: Systems, position: 1, status: available}
 roles:
-  - {slug: foundations, title: Foundations, kind: foundations, has_exam: false}
-  - {slug: support-l1, title: Support L1, kind: role, has_exam: true}
+  - {slug: foundations, title: Foundations, summary: The basics, kind: foundations, has_exam: false}
+  - {slug: support-l1, title: Support L1, summary: Tickets and permissions, kind: role, has_exam: true}
 path_roles:
   - {path: systems, role: foundations, position: 1}
   - {path: systems, role: support-l1, position: 2}
@@ -189,6 +189,10 @@ func TestParseCatalogErrors(t *testing.T) {
 		{"role kind", replace(validCatalog, "kind: role", "kind: belt"), "roles[1].kind"},
 		{"role duplicate", replace(validCatalog, "slug: support-l1,", "slug: foundations,"), "roles[1].slug"},
 		{"role title", replace(validCatalog, "title: Support L1", `title: ""`), "roles[1].title"},
+		{"role summary missing", replace(validCatalog, " summary: Tickets and permissions,", ""), "roles[1].summary"},
+		{"role summary blank", replace(validCatalog, "summary: Tickets and permissions", `summary: ""`), "roles[1].summary"},
+		{"role summary too long", replace(validCatalog, "summary: Tickets and permissions", "summary: "+strings.Repeat("a", 121)), "roles[1].summary"},
+		{"role summary names the role", replace(validCatalog, " summary: Tickets and permissions,", ""), `"support-l1"`},
 		{"path_role unknown path", replace(validCatalog, "path: systems, role: foundations", "path: nope, role: foundations"), "path_roles[0].path"},
 		{"path_role unknown role", replace(validCatalog, "role: support-l1, position", "role: nope, position"), "path_roles[1].role"},
 		{"path_role duplicate", replace(validCatalog, "role: support-l1, position: 2", "role: foundations, position: 2"), "path_roles[1]"},
@@ -211,6 +215,13 @@ func TestParseCatalogErrors(t *testing.T) {
 	}
 }
 
+func TestParseCatalogSummaryLimit(t *testing.T) {
+	ok := replace(validCatalog, "summary: Tickets and permissions", "summary: "+strings.Repeat("a", 120))
+	if _, err := catalog.ParseCatalog("catalog.yaml", []byte(ok)); err != nil {
+		t.Errorf("120 characters rejected: %v", err)
+	}
+}
+
 func TestLoadCrossChecks(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -219,7 +230,7 @@ func TestLoadCrossChecks(t *testing.T) {
 	}{
 		{"role not in catalog.yaml", func(m fstest.MapFS) {
 			m["catalog.yaml"] = &fstest.MapFile{Data: []byte(replace(validCatalog,
-				"  - {slug: support-l1, title: Support L1, kind: role, has_exam: true}\n", "",
+				"  - {slug: support-l1, title: Support L1, summary: Tickets and permissions, kind: role, has_exam: true}\n", "",
 				"  - {path: systems, role: support-l1, position: 2}\n", ""))}
 		}, "support-l1/perms-01/ticket.yaml: role"},
 		{"order repeated in a role", func(m fstest.MapFS) {
@@ -282,6 +293,11 @@ func TestFixtureCatalogIsValid(t *testing.T) {
 	for _, r := range c.Roles {
 		found = found || (r.Slug == "foundations" && r.Kind == "foundations" && !r.HasExam)
 		exam = exam || (r.Slug == "support-l1" && r.HasExam)
+	}
+	for _, r := range c.Roles {
+		if r.Slug == "support-l1" && r.Summary != "Tickets, users, permissions, a calm reply" {
+			t.Errorf("support-l1 summary = %q", r.Summary)
+		}
 	}
 	if !found || !exam {
 		t.Errorf("roles = %+v", c.Roles)

@@ -205,7 +205,7 @@ func TestLookupPagesCarryTheSecureHeaders(t *testing.T) {
 	b := signedInBrowser(t)
 	for _, p := range []string{"/learners", "/learners/" + id1} {
 		resp, _ := b.admin(http.MethodGet, p)
-		if resp.Header.Get("Cache-Control") != "no-store" || !strings.Contains(resp.Header.Get("Content-Security-Policy"), "default-src 'none'") {
+		if resp.Header.Get("Cache-Control") != "no-store" || !strings.Contains(resp.Header.Get("Content-Security-Policy"), "default-src 'none'; style-src 'self'") {
 			t.Errorf("%s headers: %v", p, resp.Header)
 		}
 	}

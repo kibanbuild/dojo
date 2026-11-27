@@ -1,4 +1,4 @@
-module github.com/kibanbuild/dojo
+module github.com/kibanyadev/dojo
 
 go 1.27.4
 

@@ -16,7 +16,7 @@ permissions: {}
 
 jobs:
   go-code-quality:
-    if: github.repository == 'kibanbuild/dojo'
+    if: github.repository == 'kibanyadev/dojo'
     name: Lint and Vet
     runs-on: ubuntu-latest
     timeout-minutes: 15

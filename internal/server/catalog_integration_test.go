@@ -29,10 +29,10 @@ func seedCatalog(t *testing.T) {
 INSERT INTO paths (org_id, slug, title, status, position) VALUES
   (`+org+`, 'systems-devops', 'Systems and DevOps', 'available', 1),
   (`+org+`, 'security', 'Security', 'planned', 2);
-INSERT INTO roles (org_id, slug, title, kind, has_exam) VALUES
-  (`+org+`, 'foundations', 'Foundations', 'foundations', false),
-  (`+org+`, 'support-l1', 'Support L1', 'role', true),
-  (`+org+`, 'systems-l2', 'Systems L2', 'role', true);
+INSERT INTO roles (org_id, slug, title, summary, kind, has_exam) VALUES
+  (`+org+`, 'foundations', 'Foundations', '', 'foundations', false),
+  (`+org+`, 'support-l1', 'Support L1', 'Tickets, users, permissions, a calm reply', 'role', true),
+  (`+org+`, 'systems-l2', 'Systems L2', '', 'role', true);
 INSERT INTO path_roles (org_id, path_id, role_id, position)
   SELECT `+org+`, p.id, r.id, v.pos FROM (VALUES
     ('systems-devops', 'foundations', 1), ('systems-devops', 'support-l1', 2),
@@ -103,6 +103,7 @@ func TestCatalogPopulatedIntegration(t *testing.T) {
 	var got struct {
 		Version  string `json:"catalog_version"`
 		Paths    []struct{ Slug string }
+		Roles    []struct{ Slug, Summary string }
 		PathRole []map[string]any `json:"path_roles"`
 		Items    []struct {
 			ID, Role, Kind, Title string
@@ -116,6 +117,9 @@ func TestCatalogPopulatedIntegration(t *testing.T) {
 	}
 	if got.Version != "a1b2c3d4e5f6" || len(got.Paths) != 2 || got.Paths[0].Slug != "systems-devops" || len(got.PathRole) != 4 || len(got.Items) != 4 {
 		t.Fatalf("shape: %s", body)
+	}
+	if len(got.Roles) != 3 || got.Roles[1].Slug != "support-l1" || got.Roles[1].Summary != "Tickets, users, permissions, a calm reply" || got.Roles[0].Summary != "" {
+		t.Fatalf("role summaries: %+v", got.Roles)
 	}
 	if i := got.Items[0]; i.ID != "foundations/a" || i.Order != 1 || i.EstMinutes != 10 || len(i.Tags) != 1 || i.Tags[0] != "terminal" {
 		t.Fatalf("first item: %+v", i)
@@ -135,7 +139,7 @@ func TestPathProgressAndFoundationsRuleIntegration(t *testing.T) {
 	bobTok := cliToken(t, newCLIClient(t), "bob")
 
 	type role struct {
-		Slug           string
+		Slug, Summary  string
 		Locked, Passed bool
 		TicketsPassed  int `json:"tickets_passed"`
 		TicketsTotal   int `json:"tickets_total"`
@@ -159,6 +163,9 @@ func TestPathProgressAndFoundationsRuleIntegration(t *testing.T) {
 	}
 
 	p, chosen, roles := path(tok)
+	if _, _, rs := path(tok); rs[1].Summary != "Tickets, users, permissions, a calm reply" || rs[0].Summary != "" {
+		t.Fatalf("path role summaries: %+v", rs)
+	}
 	if p != "systems-devops" || chosen || len(roles) != 3 || roles[0].Passed || roles[0].TicketsTotal != 2 || roles[0].Items[0].State != nil {
 		t.Fatalf("no progress: %s %v %+v", p, chosen, roles)
 	}

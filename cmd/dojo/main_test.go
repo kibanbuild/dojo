@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	cat "github.com/kibanbuild/dojo/internal/catalog"
+	cat "github.com/kibanyadev/dojo/internal/catalog"
 )
 
 func TestCatalogReadsDojoKatasOverride(t *testing.T) {

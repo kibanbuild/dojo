@@ -13,9 +13,9 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/doctor"
-	"github.com/kibanbuild/dojo/internal/lab"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/doctor"
+	"github.com/kibanyadev/dojo/internal/lab"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 // fakeLab records calls and answers check.sh with checkCode.
@@ -118,6 +118,8 @@ func newEnv(t *testing.T) *env {
 	t.Helper()
 	t.Setenv("DOJO_HOME", filepath.Join(t.TempDir(), "home"))
 	t.Setenv("DOJO_SSH_DIR", filepath.Join(t.TempDir(), "ssh"))
+	t.Setenv("HOME", t.TempDir()) // the practice clone lives at $HOME/dojo
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	f := &fakeLab{}
 	out := &bytes.Buffer{}
 	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
@@ -455,6 +457,18 @@ func TestDoctorReady(t *testing.T) {
 	}
 	if e.lab.calls != nil {
 		t.Errorf("doctor touched the lab: %v", e.lab.calls)
+	}
+}
+
+func TestDoctorKeyGroupFailureDoesNotBlock(t *testing.T) {
+	e := newEnv(t) // goodMachine, and the empty SSH dir: ssh_key and git_signing fail
+	if err := e.run(t, "doctor"); err != nil {
+		t.Fatalf("a failing key group on a good machine must exit 0: %v\n%s", err, e.out)
+	}
+	for _, want := range []string{"✗ no SSH key found", "✗ git is not set up to sign commits", "Ready. Next: dojo start"} {
+		if !strings.Contains(e.out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, e.out)
+		}
 	}
 }
 

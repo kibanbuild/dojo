@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/server"
+	"github.com/kibanyadev/dojo/internal/server"
 )
 
 // del sends DELETE as the browser: its cookie, plus the CSRF headers when csrf is set.

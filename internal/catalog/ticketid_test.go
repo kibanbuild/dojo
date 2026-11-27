@@ -3,7 +3,7 @@ package catalog_test
 import (
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/catalog"
+	"github.com/kibanyadev/dojo/internal/catalog"
 )
 
 func TestValidTicketID(t *testing.T) {

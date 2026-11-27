@@ -19,6 +19,38 @@ type fakeLearners struct {
 	more     bool
 	view     LearnerView
 	viewErr  error
+
+	status    LearnerStatus
+	statusErr error
+	setErr    error
+	sets      []setCall
+	delErr    error
+	deletes   []setCall
+}
+
+type setCall struct {
+	Op, ID, Reason string
+	Suspend        bool
+}
+
+func (f *fakeLearners) Status(context.Context, string) (LearnerStatus, error) {
+	return f.status, f.statusErr
+}
+
+func (f *fakeLearners) SetSuspended(_ context.Context, op Operator, id string, suspend bool, reason string) error {
+	if f.setErr != nil {
+		return f.setErr
+	}
+	f.sets = append(f.sets, setCall{op.Login, id, reason, suspend})
+	return nil
+}
+
+func (f *fakeLearners) Delete(_ context.Context, op Operator, id, reason string) error {
+	if f.delErr != nil {
+		return f.delErr
+	}
+	f.deletes = append(f.deletes, setCall{Op: op.Login, ID: id, Reason: reason})
+	return nil
 }
 
 func (f *fakeLearners) Search(_ context.Context, op Operator, field, query, reason string) ([]LearnerSummary, bool, error) {
@@ -200,7 +232,7 @@ func TestSearchPattern(t *testing.T) {
 func TestSecureHeadersCoverLearnerPages(t *testing.T) {
 	e := newEnv(t)
 	rec := e.do(http.MethodGet, "/learners/"+someID, signedIn(t, e))
-	if rec.Header().Get("Cache-Control") != "no-store" || !strings.Contains(rec.Header().Get("Content-Security-Policy"), "default-src 'none'") {
+	if rec.Header().Get("Cache-Control") != "no-store" || !strings.Contains(rec.Header().Get("Content-Security-Policy"), "default-src 'none'; style-src 'self'") {
 		t.Fatalf("headers: %v", rec.Header())
 	}
 }

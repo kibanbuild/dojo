@@ -11,12 +11,40 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const acceptTicketCommit = `-- name: AcceptTicketCommit :exec
+UPDATE ticket_progress
+SET updated_at = now(), passed_commit = $1, commit_state = 'pending', commit_tries = 0,
+    commit_at = $2, commit_next_at = $3
+WHERE learner_id = $4 AND item_id = $5
+`
+
+type AcceptTicketCommitParams struct {
+	PassedCommit pgtype.Text
+	CommitAt     pgtype.Timestamptz
+	CommitNextAt pgtype.Timestamptz
+	LearnerID    pgtype.UUID
+	ItemID       string
+}
+
+// ticket.commit (design 3.9): an accepted sha starts its verification clock. Only the projection writes
+// it, under the class-1 lock.
+func (q *Queries) AcceptTicketCommit(ctx context.Context, arg AcceptTicketCommitParams) error {
+	_, err := q.db.Exec(ctx, acceptTicketCommit,
+		arg.PassedCommit,
+		arg.CommitAt,
+		arg.CommitNextAt,
+		arg.LearnerID,
+		arg.ItemID,
+	)
+	return err
+}
+
 const expireLearnerLabs = `-- name: ExpireLearnerLabs :many
 UPDATE ticket_progress
 SET updated_at = now(), lab_state = 'expired', lab_state_at = last_seen_at + interval '7 days'
 WHERE learner_id = $1 AND item_id = ANY($2::text[])
   AND lab_state IN ('starting', 'running') AND last_seen_at < now() - interval '7 days'
-RETURNING org_id, learner_id, item_id, created_at, updated_at, state, lab, lab_state, lab_state_at, first_started_at, last_seen_at, check_count, last_check_at, last_check_ok, last_check_passed, last_check_total, last_check_output, first_passed_at, passed_seconds, passed_commit
+RETURNING org_id, learner_id, item_id, created_at, updated_at, state, lab, lab_state, lab_state_at, first_started_at, last_seen_at, check_count, last_check_at, last_check_ok, last_check_passed, last_check_total, last_check_output, first_passed_at, passed_seconds, passed_commit, commit_state, commit_tries, commit_next_at, commit_checked_at, commit_at
 `
 
 type ExpireLearnerLabsParams struct {
@@ -55,6 +83,11 @@ func (q *Queries) ExpireLearnerLabs(ctx context.Context, arg ExpireLearnerLabsPa
 			&i.FirstPassedAt,
 			&i.PassedSeconds,
 			&i.PassedCommit,
+			&i.CommitState,
+			&i.CommitTries,
+			&i.CommitNextAt,
+			&i.CommitCheckedAt,
+			&i.CommitAt,
 		); err != nil {
 			return nil, err
 		}
@@ -67,7 +100,7 @@ func (q *Queries) ExpireLearnerLabs(ctx context.Context, arg ExpireLearnerLabsPa
 }
 
 const getTicketProgress = `-- name: GetTicketProgress :one
-SELECT org_id, learner_id, item_id, created_at, updated_at, state, lab, lab_state, lab_state_at, first_started_at, last_seen_at, check_count, last_check_at, last_check_ok, last_check_passed, last_check_total, last_check_output, first_passed_at, passed_seconds, passed_commit FROM ticket_progress WHERE learner_id = $1 AND item_id = $2
+SELECT org_id, learner_id, item_id, created_at, updated_at, state, lab, lab_state, lab_state_at, first_started_at, last_seen_at, check_count, last_check_at, last_check_ok, last_check_passed, last_check_total, last_check_output, first_passed_at, passed_seconds, passed_commit, commit_state, commit_tries, commit_next_at, commit_checked_at, commit_at FROM ticket_progress WHERE learner_id = $1 AND item_id = $2
 `
 
 type GetTicketProgressParams struct {
@@ -99,6 +132,11 @@ func (q *Queries) GetTicketProgress(ctx context.Context, arg GetTicketProgressPa
 		&i.FirstPassedAt,
 		&i.PassedSeconds,
 		&i.PassedCommit,
+		&i.CommitState,
+		&i.CommitTries,
+		&i.CommitNextAt,
+		&i.CommitCheckedAt,
+		&i.CommitAt,
 	)
 	return i, err
 }
@@ -134,6 +172,32 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (pgtyp
 	return id, err
 }
 
+const insertPendingCommit = `-- name: InsertPendingCommit :exec
+INSERT INTO pending_commits (org_id, learner_id, item_id, "commit", client_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (learner_id, item_id) DO NOTHING
+`
+
+type InsertPendingCommitParams struct {
+	OrgID     pgtype.UUID
+	LearnerID pgtype.UUID
+	ItemID    string
+	Commit    string
+	ClientAt  pgtype.Timestamptz
+}
+
+// A sha that arrived before its pass; a repeat changes nothing, so the first one wins.
+func (q *Queries) InsertPendingCommit(ctx context.Context, arg InsertPendingCommitParams) error {
+	_, err := q.db.Exec(ctx, insertPendingCommit,
+		arg.OrgID,
+		arg.LearnerID,
+		arg.ItemID,
+		arg.Commit,
+		arg.ClientAt,
+	)
+	return err
+}
+
 const insertTicketProgress = `-- name: InsertTicketProgress :one
 INSERT INTO ticket_progress (org_id, learner_id, item_id, state, lab, lab_state, lab_state_at, first_started_at,
                              last_seen_at, check_count, last_check_at, last_check_ok, last_check_passed,
@@ -141,7 +205,7 @@ INSERT INTO ticket_progress (org_id, learner_id, item_id, state, lab, lab_state,
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
         $9, $10, $11, $12, $13,
         $14, $15, $16, $17)
-RETURNING org_id, learner_id, item_id, created_at, updated_at, state, lab, lab_state, lab_state_at, first_started_at, last_seen_at, check_count, last_check_at, last_check_ok, last_check_passed, last_check_total, last_check_output, first_passed_at, passed_seconds, passed_commit
+RETURNING org_id, learner_id, item_id, created_at, updated_at, state, lab, lab_state, lab_state_at, first_started_at, last_seen_at, check_count, last_check_at, last_check_ok, last_check_passed, last_check_total, last_check_output, first_passed_at, passed_seconds, passed_commit, commit_state, commit_tries, commit_next_at, commit_checked_at, commit_at
 `
 
 type InsertTicketProgressParams struct {
@@ -206,6 +270,11 @@ func (q *Queries) InsertTicketProgress(ctx context.Context, arg InsertTicketProg
 		&i.FirstPassedAt,
 		&i.PassedSeconds,
 		&i.PassedCommit,
+		&i.CommitState,
+		&i.CommitTries,
+		&i.CommitNextAt,
+		&i.CommitCheckedAt,
+		&i.CommitAt,
 	)
 	return i, err
 }
@@ -289,6 +358,23 @@ SELECT pg_advisory_xact_lock(1, hashtext($1::uuid::text))
 func (q *Queries) LockLearnerProgress(ctx context.Context, learnerID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, lockLearnerProgress, learnerID)
 	return err
+}
+
+const takePendingCommit = `-- name: TakePendingCommit :one
+DELETE FROM pending_commits WHERE learner_id = $1 AND item_id = $2 RETURNING "commit"
+`
+
+type TakePendingCommitParams struct {
+	LearnerID pgtype.UUID
+	ItemID    string
+}
+
+// No row back means no sha was waiting.
+func (q *Queries) TakePendingCommit(ctx context.Context, arg TakePendingCommitParams) (string, error) {
+	row := q.db.QueryRow(ctx, takePendingCommit, arg.LearnerID, arg.ItemID)
+	var commit string
+	err := row.Scan(&commit)
+	return commit, err
 }
 
 const transactionNow = `-- name: TransactionNow :one

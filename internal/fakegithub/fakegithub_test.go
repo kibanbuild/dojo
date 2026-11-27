@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/fakegithub"
+	"github.com/kibanyadev/dojo/internal/fakegithub"
 )
 
 const (
@@ -366,7 +366,7 @@ func TestRevoke(t *testing.T) {
 
 // The fake must never ship inside dojo-api.
 func TestAPIBinaryDoesNotImportTheFake(t *testing.T) {
-	out, err := exec.Command("go", "list", "-deps", "github.com/kibanbuild/dojo/cmd/dojo-api").Output()
+	out, err := exec.Command("go", "list", "-deps", "github.com/kibanyadev/dojo/cmd/dojo-api").Output()
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}

@@ -27,6 +27,7 @@ type Readiness interface {
 func New(ready Readiness, d Deps) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", health(ready))
+	mux.HandleFunc("GET "+cssPath, stylesheet)
 	if d.GitHub != nil && d.Store != nil {
 		s := &signIn{Deps: d}
 		mux.HandleFunc("GET /signin", s.page)
@@ -38,14 +39,20 @@ func New(ready Readiness, d Deps) http.Handler {
 			l := &lookup{Learners: d.Learners}
 			mux.HandleFunc("GET /learners", s.authenticated(l.search))
 			mux.HandleFunc("GET /learners/{id}", s.authenticated(l.view))
+			mux.HandleFunc("GET /learners/{id}/suspend", s.authenticated(l.confirm(true)))
+			mux.HandleFunc("POST /learners/{id}/suspend", s.authenticated(l.act(true)))
+			mux.HandleFunc("GET /learners/{id}/unsuspend", s.authenticated(l.confirm(false)))
+			mux.HandleFunc("POST /learners/{id}/unsuspend", s.authenticated(l.act(false)))
+			mux.HandleFunc("GET /learners/{id}/delete", s.authenticated(l.confirmDelete))
+			mux.HandleFunc("POST /learners/{id}/delete", s.authenticated(l.actDelete))
 		}
 	}
 	return onlyHost(Host, secureHeaders(mux))
 }
 
 // secureHeaders marks every answer uncacheable and unframeable, with a CSP that allows no script,
-// style or subresource: the pages are plain HTML. form-action is left open on purpose, the start
-// form is answered with a redirect to GitHub.
+// script or subresource, and styles only from this origin. form-action is left open on purpose,
+// the start form is answered with a redirect to GitHub and Chrome applies form-action to redirects.
 func secureHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
@@ -53,7 +60,7 @@ func secureHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
-		h.Set("Content-Security-Policy", "default-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; base-uri 'none'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
 }

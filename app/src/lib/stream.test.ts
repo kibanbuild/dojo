@@ -156,8 +156,21 @@ describe('patchTicket', () => {
   };
 
   it('updates the progress fields it carries and keeps the rest', () => {
-    const next = patchTicket(ticket, evt);
+    const sameCheck = { ...ticket, progress: { ...ticket.progress!, last_check_at: evt.last_check_at } };
+    const next = patchTicket(sameCheck, evt);
     expect(next.progress).toMatchObject({ lab_state: 'running', check_count: 3, last_check_ok: true, last_check_output: 'out' });
+  });
+
+  it('drops the previous check\'s counts and output when the event is a new check', () => {
+    const next = patchTicket(ticket, { ...evt, state: 'passed' });
+    expect(next.progress).toMatchObject({
+      state: 'passed',
+      last_check_ok: true,
+      last_check_at: evt.last_check_at,
+      last_check_passed: null,
+      last_check_total: null,
+      last_check_output: null,
+    });
   });
 
   it('leaves another ticket, or one with no progress row, alone', () => {

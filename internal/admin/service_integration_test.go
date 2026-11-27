@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/admin"
+	"github.com/kibanyadev/dojo/internal/admin"
 )
 
 func adminURL(t *testing.T) string {

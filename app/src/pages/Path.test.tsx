@@ -6,7 +6,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '../routes';
 import { resetReadBlock } from '../lib/read';
-import { roleStatuses } from './Path';
+import { crossings, roleStatuses } from './Path';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -15,6 +15,7 @@ const me = { id: '1', username: 'irene', github_login: 'irene-gh', email: null, 
 const role = (slug: string, title: string, o: object = {}) => ({
   slug,
   title,
+  summary: '',
   locked: false,
   passed: false,
   tickets_passed: 0,
@@ -25,12 +26,22 @@ const role = (slug: string, title: string, o: object = {}) => ({
 
 const catalog = {
   catalog_version: 'v1',
-  paths: [{ slug: 'systems-devops', title: 'Systems and DevOps', status: 'available', position: 1 }],
-  roles: [
-    { slug: 'foundations', title: 'Foundations', kind: 'foundations', has_exam: false, advanced: false },
-    { slug: 'support-l1', title: 'Support L1', kind: 'role', has_exam: true, advanced: false },
+  paths: [
+    { slug: 'systems-devops', title: 'Systems and DevOps', status: 'available', position: 1 },
+    { slug: 'security', title: 'Security', status: 'planned', position: 2 },
   ],
-  path_roles: [],
+  roles: [
+    { slug: 'foundations', title: 'Foundations', summary: '', kind: 'foundations', has_exam: false, advanced: false },
+    { slug: 'support-l1', title: 'Support L1', summary: '', kind: 'role', has_exam: true, advanced: false },
+    { slug: 'soc-l1', title: 'SOC L1', summary: '', kind: 'role', has_exam: true, advanced: false },
+  ],
+  path_roles: [
+    { path: 'systems-devops', role: 'foundations', position: 1 },
+    { path: 'systems-devops', role: 'support-l1', position: 2 },
+    { path: 'security', role: 'foundations', position: 1 },
+    { path: 'security', role: 'support-l1', position: 2 },
+    { path: 'security', role: 'soc-l1', position: 3 },
+  ],
   items: [],
 };
 
@@ -40,6 +51,7 @@ const fullPath = {
   roles: [
     role('foundations', 'Foundations', { passed: true, tickets_passed: 2, tickets_total: 2 }),
     role('support-l1', 'Support L1', {
+      summary: 'Tickets, users, permissions, a calm reply',
       tickets_passed: 1,
       tickets_total: 2,
       items: [
@@ -102,6 +114,25 @@ describe('roleStatuses', () => {
   });
 });
 
+describe('crossings', () => {
+  it('finds shared roles, what they open and whether they are passed', () => {
+    const c = crossings(catalog as never, fullPath as never);
+    expect(c).toEqual([{ path: 'security', pathTitle: 'Security', shared: ['Foundations', 'Support L1'], opens: 'SOC L1', open: false, planned: true }]);
+    const done = { ...fullPath, roles: fullPath.roles.map((r) => ({ ...r, passed: true })) };
+    expect(crossings(catalog as never, done as never)[0]?.open).toBe(false);
+    const live = { ...catalog, paths: [catalog.paths[0], { ...catalog.paths[1], status: 'available' }], items: [{ id: 'soc-l1/a', role: 'soc-l1', order: 1, kind: 'ticket', title: 'A', est_minutes: 5, tags: [] }] };
+    expect(crossings(live as never, done as never)[0]?.open).toBe(true);
+    expect(crossings(live as never, fullPath as never)[0]?.open).toBe(false);
+    expect(crossings({ ...live, items: [] } as never, done as never)[0]?.open).toBe(false);
+    const noNext = { ...live, path_roles: live.path_roles.filter((x) => x.role !== 'soc-l1') };
+    expect(crossings(noNext as never, done as never)[0]).toMatchObject({ opens: null, open: false });
+  });
+  it('is empty with no path or no overlap', () => {
+    expect(crossings(catalog as never, { path: null, chosen: false, roles: [] })).toEqual([]);
+    expect(crossings({ ...catalog, path_roles: [] } as never, fullPath as never)).toEqual([]);
+  });
+});
+
 describe('Path page', () => {
   it('renders the timeline with status, exam line, progress and ticket links', async () => {
     stub(() => Response.json(fullPath));
@@ -115,14 +146,44 @@ describe('Path page', () => {
     expect(text(1)).toContain('You are here');
     expect(text(1)).toContain('ends in a role exam: one work day');
     expect(text(1)).toContain('1 of 2 tickets');
+    expect(items[1]?.querySelector('p')?.textContent).toBe('Tickets, users, permissions, a calm reply');
+    expect(items[0]?.querySelector('p')).toBeNull();
     expect(text(2)).toContain('after Support L1');
+    expect(text(3)).not.toContain('after');
     expect(items[2]?.querySelector('details')).not.toBeNull();
     expect(container.querySelectorAll('ol[aria-label="Roles on your path"] [aria-hidden="true"]').length).toBeGreaterThan(0);
-    expect(text(3)).toContain('Coming soon');
+    expect(text(3)).toContain('the destination');
+    expect(items[3]?.querySelector('.sr-only')?.textContent).toBe('coming later');
+    expect(text(0)).toContain('done');
     const link = container.querySelector('a[href="/t/support-l1/perms-03"]');
     expect(link?.textContent).toContain('Fix the shared folder');
     expect(link?.textContent).toContain('Passed');
     expect(container.querySelector('a[href="/t/support-l1/disk-01"]')?.textContent).toContain('Not started');
+  });
+
+  it('shows the belt panel and the crossing paths with headings in order', async () => {
+    stub(() => Response.json(fullPath));
+    await mount();
+    const heads = [...container.querySelectorAll('h1, h2')].map((h) => h.tagName);
+    expect(heads[0]).toBe('H1');
+    expect(heads.slice(1).every((t) => t === 'H2')).toBe(true);
+    const text = container.textContent ?? '';
+    expect(text).toContain('Your belt · how you work, on every path');
+    expect(container.querySelector('a[href="/paths"]')?.textContent).toBe('What the belt measures');
+    expect(text).toContain('Paths that cross yours');
+    expect(text).toContain('Foundations and Support L1 also opens SOC L1 on the Security path, coming later');
+    expect(text).toContain('Coming later');
+    expect(text).toContain('Switching path keeps every role you passed.');
+  });
+
+  it('omits the crossing panel when the catalog fails', async () => {
+    stub(
+      () => Response.json(fullPath),
+      () => Response.json({ error: 'x' }, { status: 401 }),
+    );
+    await mount();
+    expect(container.textContent).not.toContain('Paths that cross yours');
+    expect(container.textContent).toContain('Your belt');
   });
 
   it('still renders the roles when the catalog fails, without exam lines or path title', async () => {
@@ -134,6 +195,16 @@ describe('Path page', () => {
     expect(container.querySelectorAll('ol[aria-label="Roles on your path"] > li')).toHaveLength(4);
     expect(container.textContent).not.toContain('role exam');
     expect(container.textContent).not.toContain('path ·');
+  });
+
+  it('announces a locked middle role as coming later', async () => {
+    const roles = [role('a', 'Alpha', { passed: true }), role('b', 'Beta'), role('c', 'Gamma', { locked: true }), role('d', 'Delta', { locked: true })];
+    stub(() => Response.json({ path: 'systems-devops', chosen: true, roles }));
+    await mount();
+    const items = container.querySelectorAll('ol[aria-label="Roles on your path"] > li');
+    expect(items[2]?.textContent).toContain('coming later');
+    expect(items[2]?.querySelector('.sr-only')?.textContent).toBe('coming later');
+    expect(items[3]?.textContent).toContain('the destination');
   });
 
   it('handles every role passed', async () => {

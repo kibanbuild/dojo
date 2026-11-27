@@ -48,6 +48,10 @@ type User struct {
 	Email  string // the public profile email; empty means null
 	TwoFA  bool
 	Emails []Email
+
+	// Seeds for the unauthenticated reads (design 3.9); tests change them through /_fake/ routes.
+	Keys, SigningKeys []Key
+	Repos             []Repo
 }
 
 // Config seeds the fake. Now is injectable for expiry tests.
@@ -55,6 +59,14 @@ type Config struct {
 	Clients []Client
 	Users   []User
 	Now     func() time.Time
+
+	// RateLimit is the number of unauthenticated reads allowed per remote address per hour
+	// (FAKE_GITHUB_RATE_LIMIT); zero means no limit, though the headers are still sent.
+	RateLimit int
+
+	// GitRoot holds the bare repositories behind the commit and compare reads, <login>/<repo>.git
+	// (FAKE_GITHUB_GIT_ROOT); empty means those reads are 404.
+	GitRoot string
 
 	// PublicURL is the address browsers use to reach the fake; it fills verification_uri.
 	// Empty means derive it from the request's Host header.
@@ -104,6 +116,7 @@ type server struct {
 	codes  map[string]grant
 	tokens map[string]token
 	device map[string]*deviceGrant // by device_code
+	reads  *readStore
 }
 
 // New returns the fake GitHub handler.
@@ -111,7 +124,7 @@ func New(cfg Config) http.Handler {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	s := &server{cfg: cfg, users: map[string]User{}, codes: map[string]grant{}, tokens: map[string]token{}, device: map[string]*deviceGrant{}}
+	s := &server{cfg: cfg, users: map[string]User{}, codes: map[string]grant{}, tokens: map[string]token{}, device: map[string]*deviceGrant{}, reads: newReadStore(cfg.Users)}
 	for _, u := range cfg.Users {
 		s.users[u.Login] = u
 	}
@@ -126,6 +139,7 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("POST /login/device", s.deviceDecide)
 	mux.HandleFunc("POST /applications/{client_id}/token", s.checkToken)
 	mux.HandleFunc("DELETE /applications/{client_id}/token", s.revoke)
+	s.registerReads(mux)
 	return mux
 }
 

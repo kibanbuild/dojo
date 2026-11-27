@@ -72,6 +72,29 @@ type CliToken struct {
 	CliVersion string
 }
 
+type DoctorResult struct {
+	OrgID     pgtype.UUID
+	LearnerID pgtype.UUID
+	CheckID   string
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+	Status    string
+	Text      string
+	Fix       string
+	Source    string
+	CheckedAt pgtype.Timestamptz
+}
+
+type EmailLog struct {
+	ID        pgtype.UUID
+	OrgID     pgtype.UUID
+	LearnerID pgtype.UUID
+	Kind      string
+	SentAt    pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
 type EmailOutbox struct {
 	ID        pgtype.UUID
 	LearnerID pgtype.UUID
@@ -117,6 +140,10 @@ type Learner struct {
 	AnalyticsConsent pgtype.Bool
 	SuspendedAt      pgtype.Timestamptz
 	TermsVersion     string
+	ChosenPathID     pgtype.UUID
+	HostedDefault    bool
+	EmailSource      pgtype.Text
+	FirstRunSeenAt   pgtype.Timestamptz
 }
 
 type Operator struct {
@@ -157,6 +184,25 @@ type PathRole struct {
 	Position  int32
 }
 
+type PathWaitlist struct {
+	OrgID     pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+	LearnerID pgtype.UUID
+	PathID    pgtype.UUID
+}
+
+type PendingCommit struct {
+	ID        pgtype.UUID
+	OrgID     pgtype.UUID
+	LearnerID pgtype.UUID
+	ItemID    string
+	Commit    string
+	ClientAt  pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
 type Role struct {
 	ID        pgtype.UUID
 	OrgID     pgtype.UUID
@@ -167,6 +213,7 @@ type Role struct {
 	Kind      string
 	HasExam   bool
 	Advanced  bool
+	Summary   string
 }
 
 type Session struct {
@@ -213,4 +260,24 @@ type TicketProgress struct {
 	FirstPassedAt   pgtype.Timestamptz
 	PassedSeconds   pgtype.Int4
 	PassedCommit    pgtype.Text
+	CommitState     pgtype.Text
+	CommitTries     int32
+	CommitNextAt    pgtype.Timestamptz
+	CommitCheckedAt pgtype.Timestamptz
+	CommitAt        pgtype.Timestamptz
+}
+
+type TicketReport struct {
+	ID              pgtype.UUID
+	OrgID           pgtype.UUID
+	LearnerID       pgtype.UUID
+	ItemID          pgtype.Text
+	Kind            string
+	CliVersion      string
+	LastCheckOutput pgtype.Text
+	Message         string
+	DoctorSummary   string
+	EmailedAt       pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
 }

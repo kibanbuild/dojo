@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/lab"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/lab"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 // scriptLab runs nothing: it keeps every script the CLI sends, so a test can see which

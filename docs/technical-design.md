@@ -235,7 +235,7 @@ depend on its being public:
 - The API tells the CLI the minimum version it supports (`min_cli_version`); `dojo doctor` and
   `dojo exam check` report an outdated CLI.
 - Ticket bundles (`ticket.yaml`, `setup.sh`, `check.sh`, an optional `files/` directory, no
-  solutions) are built from the private catalog repo (`kibanbuild/dojo-katas`) into S3 and fetched
+  solutions) are built from the private catalog repo (`kibanyadev/dojo-katas`) into S3 and fetched
   by `dojo start` through the API with the CLI token, with a `catalog_version` (format in section
   3.8). A ticket can be fixed without a CLI release. Solutions, wrong-fix tests, the exam pool and
   exam checks stay in the private repo and on the runner, never in a bundle. The hint guard
@@ -318,7 +318,7 @@ are SPA routes served under `/app`: L3 is `/app/t/support-l1/perms-03`, and `doj
 
 | Code | Route | Primary action | States |
 |---|---|---|---|
-| P1 Home | `/` | Pick your path (to O0) | Static. No install command on the page: installing is O2, reached after sign-in; P1 shows none until the installer is served in M0b, and then only if the board adds it. |
+| P1 Home | `/` | Pick your path (to O0); install line | Static. Board: SuAuroraLanding on the canvas Public page. The install line shows `curl -fsSL <host>/install \| sh` with a "Coming soon" label and no copy control until the installer is served in M0b. |
 | P2 How it works | `/how-it-works` | Start Support L1 (to O0) | Static. The FAQ section is written in M9 from the questions real learners ask (M2 demo and first learners), then drawn on the board; no page of its own. |
 | P3 Paths and roles | `/paths` | Pick your path | Static. Four paths drawn; only Systems and DevOps is open, the others say "coming soon" (section 2.3). |
 | P4 The story | `/story` | Pick your path | Static. |
@@ -326,10 +326,10 @@ are SPA routes served under `/app`: L3 is `/app/t/support-l1/perms-03`, and `doj
 | LG1 Privacy, terms, conduct | `/privacy`, `/terms`, `/conduct` | none | Names the hint button, usage stats and what survives account deletion. Legal text written and reviewed before launch (NEEDS-DECISION for the reviewer). Ships in M2 as a draft with `noindex`, and stays that way until the M9 legal review. |
 | O0 Pick your path | `/start` | Continue: stores the chosen path in a short-lived cookie, applied at first sign-in | Reachable signed out. Security, Backend and Frontend show "coming soon" with "Tell me when" (the waitlist, section 2.3). |
 | O1 Sign in | `/app/signin` (in the SPA) | Continue with GitHub (web flow, section 3.1) | Asks for age (14 or older) and terms on first sign-in. Error: GitHub refused or the state check failed, retry. |
-| O2 Install | `/start/install` | Copy the install command per OS (Windows with WSL, macOS, Linux), then `dojo login` | Waits for `login` via SSE ("Waiting for dojo login on your computer"). Shows the usage-stats notice and `dojo telemetry off`. Error: code expired, show a new one. |
-| O3 Doctor | `/start/doctor` | Continue (enabled when every line is green) | Waiting, 2 to fix, all good, blocked. Blocked: "Use a hosted lab" turns on `learners.hosted_default` and goes on. "I'm stuck: get help" opens the report form. |
+| O2 Install | `/start/install` | Copy the install command per OS (Windows with WSL, macOS, Linux), then `dojo login` | Waits for `login` via SSE ("Waiting for dojo login on your computer"). Shows the usage-stats notice and `dojo telemetry off`. Error: code expired, show a new one. Contracts in section 3.9. |
+| O3 Doctor | `/start/doctor` | Continue (enabled when no line fails; amber lines do not block) | Waiting, 2 to fix, all good, blocked. Blocked: "Use a hosted lab" turns on `learners.hosted_default` and goes on. "I'm stuck: get help" opens the report form. |
 | O4 SSH key and repo | `/start/key` | Continue when the checklist is green | Steps the learner follows, each with the command to copy; `dojo doctor` verifies them and the page turns each line green (section 2.4). Failing lines show the fix. |
-| O5 First ticket | `/start/first` | Copy `dojo start support-l1/terminal-01` | Updates when the lab is ready, then when the ticket passes (a signed commit). |
+| O5 First ticket | `/start/first` | Copy `dojo start <id>` for the path's first ticket (`first_ticket` of `GET /v1/onboarding`) | Updates when the lab is ready, then when the ticket passes (a signed commit). |
 | L1 Today | `/today` | Continue the ticket / Start the next one | First run (after O5): "day one done", next ticket, role progress. Empty never occurs after onboarding. Maintenance and offline show a banner. |
 | R1 Your path | `/path` | Start or continue the role; Test out of Support L1 | Systems L2 and Junior DevOps show as locked "coming later" with no test-out card. Foundations passed; belt on the side. |
 | L3 Ticket | `/t/*id` (for example `/t/support-l1/perms-03`; served at `/app/t/support-l1/perms-03`) | Copy `dojo start <id>`; Show hint; Ask Carmen (AI hint) | States below. |
@@ -388,15 +388,18 @@ are the signal for which path to build next.
    Windows), prints a fix line per problem, and reports each result to the page. A laptop that
    cannot run labs sets the hosted lab default and skips to O4.
 5. **O4:** the learner follows the steps on the page: create an SSH key, add it to GitHub for
-   signing, turn on commit signing (`gpg.format ssh`), create the practice repo `<login>/dojo`
-   and a ruleset on `main`, and turn on 2FA and secret scanning. Every step shows the command or
+   signing (and again for authentication when the practice repo is cloned over SSH, which is the
+   default clone; a learner who clones over HTTPS skips that), turn on commit signing
+   (`gpg.format ssh`), create the public practice repo `<login>/dojo` with an `AGENTS.md` and a
+   ruleset on `main`, and turn on 2FA and secret scanning. Every step shows the command or
    the GitHub link to copy. We never receive write access to their GitHub, which keeps O1's
    promise ("no access to your code"). `dojo doctor` verifies each step from the laptop (the key
    exists and is on the account, signing is configured, the repo exists and is public, the
    ruleset is on, AGENTS.md is present) and reports the result, so the page turns green line by
-   line. There is no `dojo setup git` command. The `ssh dojo` host entry is written by
+   line. 2FA and secret scanning cannot be read without a token, so the page asks the learner to
+   confirm them (section 3.9). There is no `dojo setup git` command. The `ssh dojo` host entry is written by
    `dojo start`.
-6. **O5:** `dojo start support-l1/terminal-01` boots the first lab; `dojo check` passes it as a
+6. **O5:** `dojo start <first ticket>` boots the first lab; `dojo check` passes it as a
    signed commit; Today opens.
 
 ### 2.5 CLI commands
@@ -406,17 +409,17 @@ only for the role exam and for laptops that cannot run labs.
 
 | Command | What it does | States and errors |
 |---|---|---|
-| `dojo doctor` | Checks the computer can run labs and, for O4, the SSH key, signing, practice repo and ruleset; a fix to copy per problem; reports results to the API when logged in. | Offline works, results queue. Outdated CLI is reported. |
+| `dojo doctor` | Checks the computer can run labs and, for O4, the SSH key, signing, practice repo and ruleset; a fix to copy per problem; reports results to the API as one `doctor.run` event (section 3.9). | Offline works, results queue. Outdated CLI is reported. |
 | `dojo login` | GitHub device flow (section 3.1), stores the CLI token in the OS keychain or `DOJO_HOME` (file `token`, 0600; the keychain is a later card). `--force` logs in again. Address, GitHub host and client id come from flags or `DOJO_API_URL`, `DOJO_GITHUB_URL`, `DOJO_GITHUB_CLIENT_ID`; the API address and client id have no built-in default until the domain exists. | Code expired (`expired_token` or `token_expired`): retry. Denied on GitHub: retry. No account yet: sign up on the website first. Already logged in: says who. |
 | `dojo logout` | `DELETE /v1/auth/cli`, then deletes the token file (also on `401`, the token was already dead). | API unreachable: the file stays, the command fails and points to `--local`, which only forgets the token on this computer. |
-| `dojo start <id>` | Fetches the ticket bundle from the API with the CLI token, so the first start of a ticket needs `dojo login`; a bundle already cached on this computer starts logged out or offline, and its events queue and send after the next login (section 3.8; a ticket already started or passed restarts the same ticket, `--again` is not a variant), starts the lab (or a hosted machine when the laptop cannot, `--hosted` to force it), runs the ticket's `setup.sh`, writes `AGENTS.md` and `CLAUDE.md` (`@AGENTS.md`) into the lab and repo (PR 6d), reports `ticket.started`, then `lab.started` or `lab.failed`. `DOJO_KATAS=<dir>` stays as a local development override: it reads the catalog from that directory, skips the API and sends no ticket events. | Not logged in and no cached bundle: says `dojo login`. Not enough disk or memory: says how much and offers a hosted lab. Offline: starts from a cached bundle if present (the first fetch needs the network once), else says so. Out of hosted hours: on Free, names the pack and Supporter options; a Supporter at the 100 h hard stop is told the fair-use limit is reached and the date it resets. |
+| `dojo start <id>` | Fetches the ticket bundle from the API with the CLI token, so the first start of a ticket needs `dojo login`; a bundle already cached on this computer starts logged out or offline, and its events queue and send after the next login (section 3.8; a ticket already started or passed restarts the same ticket, `--again` is not a variant), starts the lab (a hosted machine, `--hosted` or a laptop that cannot, arrives in M5a: until then both print that hosted labs are coming soon), runs the ticket's `setup.sh`, writes `AGENTS.md` and `CLAUDE.md` (`@AGENTS.md`) into the lab and repo (PR 6d), reports `ticket.started`, then `lab.started` or `lab.failed`. `DOJO_KATAS=<dir>` stays as a local development override: it reads the catalog from that directory, skips the API and sends no ticket events. | Not logged in and no cached bundle: says `dojo login`. Not enough disk or memory: says how much and offers a hosted lab. Offline: starts from a cached bundle if present (the first fetch needs the network once), else says so. Out of hosted hours: on Free, names the pack and Supporter options; a Supporter at the 100 h hard stop is told the fair-use limit is reached and the date it resets. |
 | `dojo ssh` | Opens a root shell on the lab (local, or through the gateway for a hosted one). | No lab running: says `dojo start <id>`. |
-| `dojo check` | Reboots the lab so only persistent fixes pass, runs the checks, keeps the last output (PR 6d), reports pass or fail and the output as a `check.run` event, and from M3 on a pass writes a signed commit into the practice repo (the repo is set up in O4, so M2 reports the pass without a commit and `passed_commit` stays empty). | `--quick` skips the reboot. Offline: result saved and sent later. |
+| `dojo check` | Reboots the lab so only persistent fixes pass, runs the checks, keeps the last output (PR 6d), reports pass or fail and the output as a `check.run` event, and from M3 on a pass writes a signed commit into the local clone of the practice repo and pushes it (the repo is set up in O4, so M2 reports the pass without a commit and `passed_commit` stays empty; contract in section 3.9). `--repo PATH` picks and remembers the clone. | `--quick` skips the reboot. Offline: result saved and sent later. |
 | `dojo stop` | Stops the lab, frees memory, reports `lab.stopped`. Hosted: ends the machine and the session. | Work stays in the repo. |
 | `dojo status` | What is running and the current ticket id; `--quota` shows hosted hours (E4). | Nothing running: says so. |
 | `dojo exam` | `check` runs preflight; bare `exam` connects to the hosted exam machine over SSH; `submit` ends the exam. | Refuses with the missing rule (section 2.7). No AI, no hints on this machine. |
 | `dojo hint` | The AI hint for the current ticket (section 1.4), from M7. Until then it prints the L3 URL of the current ticket, where the written hints are. Written hints stay on the web. | Needs a failed check; shows hints left; offline or capped says so. |
-| `dojo mcp` | MCP server over stdio for the learner's own AI: current ticket, last check, hints opened, docs links; never a solution (PR 6e, hand-rolled JSON-RPC). | Does not run while an exam is open (a courtesy). |
+| `dojo mcp` | MCP server over stdio for the learner's own AI: current ticket, last check, hints opened; never a solution (PR 6e, hand-rolled JSON-RPC; tools in section 3.9). | Does not run while an exam is open (a courtesy). |
 | `dojo telemetry [on\|off\|status]` | Local switch for CLI usage stats (file `telemetry.json` in `DOJO_HOME`; on by default); mirrored to the account's `usage_stats` through `PATCH /v1/me` when logged in. `off` also drops the queue. The first command prints the notice on stderr ("Dojo shares usage stats ... When you are logged in they are tied to your account ... Turn it off any time with: dojo telemetry off") and neither it nor any earlier command sends; sending starts with the next one. The dispatcher records the command name, a result (`ok`, `failed`, `error`, `canceled`) and `duration_ms`, never arguments; `mcp` and `telemetry` are not recorded. Events queue in `telemetry-queue.json` (0600, atomic writes, at most 100) and flush in batches of at most 20 within 2 s at the end of a command: `204` or `400` drop the batch, `429` and other failures keep it and hold sending (Retry-After or one minute, at most an hour), a `401` on the bearer drops the batch and holds sending, never resending it anonymously (the account may have usage stats off) and never logging the learner out. `DOJO_TELEMETRY=off` or `DO_NOT_TRACK=1` always wins, and the environment can only turn it off. At `dojo login` (and when already logged in) the CLI reads `usage_stats` from `/v1/me`: an account that is off turns the local switch off. | API unreachable on `off`: the local switch stays off and the command says the account setting was not changed. |
 
 The CLI was `list`, `hint` (written), `shell`, `clean` and `ssh-config`; v1 renames `shell` to
@@ -697,7 +700,7 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   S1. Only shown to the learner and used in the app; it carries no
   public URL, so a change needs no redirect.
 - **Profile update (S1):** `PATCH /v1/me`, for an active learner by cookie (with the CSRF header and a
-  JSON content type) or bearer. Body `{"username"?, "language"?, "usage_stats"?, "analytics_consent"?}` (`usage_stats` a JSON boolean, the usage-stats switch the CLI mirrors; `analytics_consent` a JSON boolean, the web analytics choice), at least one, and any other field is
+  JSON content type) or bearer. Body `{"username"?, "language"?, "usage_stats"?, "analytics_consent"?}` (M3 adds `hosted_default`, `email` and `first_run_seen`, section 3.9) (`usage_stats` a JSON boolean, the usage-stats switch the CLI mirrors; `analytics_consent` a JSON boolean, the web analytics choice), at least one, and any other field is
   refused (`400 bad_request`, as is a non-JSON, empty, oversized or trailing body; a `null` counts as
   absent). `username` is lowercased, then held to the sign-in rules (`^[a-z0-9-]{3,30}$`, not reserved),
   so `Ada-New` saves as `ada-new`; `language` is `en` or `es`, exactly; a non-boolean `usage_stats` or `analytics_consent` is `400 bad_request`. Answers `200` with the body of
@@ -735,6 +738,7 @@ tickets are practice. Only the role exam is authoritative, and it runs on our ma
 | Event | Source | Trusted for |
 |---|---|---|
 | Onboarding steps, doctor results | CLI | Showing progress only |
+| Pass commit sha | CLI; the API reads the learner's public repo | Showing "verified" on L3 and Today, nothing else |
 | Ticket started, check run (pass or fail and output), written hint opened | CLI, web | Today, path, role progress |
 | Hosted lab check | CLI over the gateway | Same as local: self-reported |
 | Quiz answers | Web | Quizzes |
@@ -757,14 +761,14 @@ each migration states the grants for `dojo_api` and `dojo_admin` (section 3.7).
 | Table | Key columns | Notes |
 |---|---|---|
 | `orgs` | `slug`, `name` | One row, `public`. |
-| `learners` | `github_id` (unique), `github_login`, `username` (unique), `email`, `language` (en, es: explanations), `extra_time`, `hosted_default`, `age_confirmed_at`, `terms_accepted_at`, `terms_version`, `usage_stats` (bool), `analytics_consent` (null, true, false), `chosen_path_id`, `record_shared` (default false), `record_token_hash` (null when not shared), `suspended_at` | `extra_time` applies to every exam. `terms_version` is the API's required `TERMS_VERSION` at creation (1 to 32 of `a-z 0-9 . -`), insert-only like `terms_accepted_at`; rows from before the column read `unrecorded`. `record_shared` is the opt-in for the share link; the token is shown once, stored hashed, and regenerating replaces the hash. |
+| `learners` | `github_id` (unique), `github_login`, `username` (unique), `email`, `language` (en, es: explanations), `extra_time`, `hosted_default`, `email_source`, `first_run_seen_at`, `age_confirmed_at`, `terms_accepted_at`, `terms_version`, `usage_stats` (bool), `analytics_consent` (null, true, false), `chosen_path_id`, `record_shared` (default false), `record_token_hash` (null when not shared), `suspended_at` | `extra_time` applies to every exam. `terms_version` is the API's required `TERMS_VERSION` at creation (1 to 32 of `a-z 0-9 . -`), insert-only like `terms_accepted_at`; rows from before the column read `unrecorded`. `record_shared` is the opt-in for the share link; the token is shown once, stored hashed, and regenerating replaces the hash. |
 | `sessions`, `cli_tokens` | `learner_id`, `token_hash`, `last_used_at`, `revoked_at`; tokens add `device_name`, `os`, `cli_version`, `ssh_public_key` | Hashes only. M1 creates `cli_tokens` without `ssh_public_key` (the exam milestone adds it). `dojo_api` reads, inserts the device row and updates `last_used_at`, `revoked_at` and `updated_at`; no `DELETE`, and `dojo_admin` has no grant. No expiry: a token ends when revoked or when the learner is deleted (cascade). |
 | `paths` | `slug`, `title`, `status` (available, planned), `position` | Content, loaded at deploy from `catalog.yaml`. v1 data: one available path. |
-| `roles` | `slug`, `title`, `kind` (foundations, role), `has_exam`, `advanced` (default false) | Content. A role has no home path and no order of its own: membership and order live in `path_roles`, so Foundations is one row shared by every path. |
+| `roles` | `slug`, `title`, `summary` (one line, at most 120 characters, default empty), `kind` (foundations, role), `has_exam`, `advanced` (default false) | Content. A role has no home path and no order of its own: membership and order live in `path_roles`, so Foundations is one row shared by every path. |
 | `path_roles` | `path_id`, `role_id`, `position` | Content. Unique `(path_id, role_id)`. |
 | `catalog_state` | `id` (always 1, `CHECK (id = 1)`), `catalog_version` | One row, upserted on `id = 1` by every successful catalog load (section 3.8) in the same transaction; before the first load there is no row and `GET /v1/catalog` answers `catalog_version: null` with empty lists. It is where `GET /v1/catalog` reads the top-level version; `catalog_items.catalog_version` keeps the version each item was last loaded with. |
 | `catalog_items` | `id` (for example `support-l1/perms-03`), `role_id` (null for practice), `kind` (ticket, writing, quiz, story, feedback, practice), `position`, `title`, `est_minutes`, `tags` (text array), `brief` (markdown), `hints` (text array, one to three), `awards_mark`, `catalog_version`, `bundle_key`, `bundle_sha256`, `bundle_bytes` | Loaded from the catalog at deploy; the API never parses YAML per request. Tickets fill `brief`, `hints` and the bundle columns (section 3.8); other kinds leave them null until their milestone. |
-| `ticket_progress` | `learner_id`, `item_id`, `state` (started, passed, revisit), `lab` (local, hosted; null when an event other than `ticket.started` made the row), `lab_state` (starting, running, failed, stopped, expired; null until a lab event), `lab_state_at`, `first_started_at`, `last_seen_at`, `check_count`, `last_check_at`, `last_check_ok` (null before the first check), `last_check_passed`, `last_check_total`, `last_check_output`, `first_passed_at`, `passed_seconds`, `passed_commit` | One row per learner and item; no row means not started. Written by the events projection in the same transaction (section 3.8). `lab_state_at` and `last_check_at` are the CLI's `client_at` of the event that set the field, so an older event cannot overwrite a newer one; `first_started_at` is a `client_at` too, and `created_at` is the server's. Revisits never change `first_passed_at`. `passed_commit` stays null until M3. The record is kept for the life of the account. |
+| `ticket_progress` | `learner_id`, `item_id`, `state` (started, passed, revisit), `lab` (local, hosted; null when an event other than `ticket.started` made the row), `lab_state` (starting, running, failed, stopped, expired; null until a lab event), `lab_state_at`, `first_started_at`, `last_seen_at`, `check_count`, `last_check_at`, `last_check_ok` (null before the first check), `last_check_passed`, `last_check_total`, `last_check_output`, `first_passed_at`, `passed_seconds`, `passed_commit`; from M3 `commit_state`, `commit_tries`, `commit_next_at`, `commit_checked_at`, `commit_at` (section 3.9, migration 00021) | One row per learner and item; no row means not started. Written by the events projection in the same transaction (section 3.8). `lab_state_at` and `last_check_at` are the CLI's `client_at` of the event that set the field, so an older event cannot overwrite a newer one; `first_started_at` is a `client_at` too, and `created_at` is the server's. Revisits never change `first_passed_at`. `passed_commit` stays null until M3. The record is kept for the life of the account. |
 | `hint_opens` | `learner_id`, `item_id`, `n` (1 to 3), `opened_at` | Written hints the learner opened, one row each; primary key `(learner_id, item_id, n)`, `learner_id` cascades on delete, `dojo_api` may SELECT and INSERT only (no UPDATE or DELETE). Kept apart from `ticket_progress` so opening a hint never creates a row or marks a ticket started. The count and list are read from here. |
 | `events` | `learner_id`, `client_event_id` (unique with `learner_id`; the wire field `id`), `type`, `payload` (jsonb), `at` (server clock), `client_at` | Append-only audit behind `ticket_progress`. `at` is the server's; `client_at` is what the CLI said and orders only the per-field rules of section 3.8. A `check.run` payload keeps no output (it lives in `last_check_output`). Deleted after 12 months by `prune_events()`, run by the nightly job like `prune_telemetry()`. Migration 00013 builds all three progress tables and `prune_events()` (fixed 12 months, `EXECUTE` revoked from everyone). `events` has `org_id` but no `created_at` or `updated_at` (`at` is the server time); `hint_opens` has `org_id` and `opened_at` only. `item_id` is the catalog item's text id; on `ticket_progress` and `hint_opens` it references `catalog_items (id)` with no cascade, so a catalog load cannot drop an item that has progress. `dojo_api` has `SELECT` and `INSERT` on `events` (no `UPDATE`) and `hint_opens`, and `SELECT`, `INSERT` and `UPDATE` on the projected columns of `ticket_progress`; `dojo_admin` only reads `ticket_progress`; nobody has `DELETE`. |
 | `quiz_answers`, `writing_drafts`, `story_choices` | learner, item, answers or `body`, `review` (jsonb), `submitted_at` | Feedback records. |
@@ -782,8 +786,10 @@ each migration states the grants for `dojo_api` and `dojo_admin` (section 3.7).
 | `ai_hints` | `learner_id`, `item_id`, `seq`, `check_event_id`, `tokens_in`, `tokens_out`, `model`, `body`, `rejected_reason` | Counts per ticket and per day; drives the spend cap. |
 | `inbox_items`, `push_subscriptions`, `notification_prefs`, `email_log`, `email_suppressions` | kind, ref, `read_at`; endpoint and keys; per-kind toggles and quiet hours; kind and `sent_at`; address and reason | Story push max one a day, quiet 22:00 to 08:00. |
 | `telemetry_events` | `org_id`, `learner_id` (nullable, cascades on delete), `command`, `result`, `duration_ms`, `cli_version`, `os`, `at` (server clock) | CLI usage stats. Accepted without a token (`learner_id` null, rate limited) so the CLI can report before `dojo login`, but the CLI sends nothing until it has shown its usage-stats notice once (on first run) with `dojo telemetry off`. The API drops events sent with a token whose learner has `usage_stats` off. `dojo telemetry off` is the local switch; when logged in it also sets `learners.usage_stats` (`PATCH /v1/me` accepts `usage_stats`, a boolean, alongside `username` and `language`), which the CLI reads at login. Deleted after 12 months by `prune_telemetry()` (migration 00007: a fixed 12 months, one `DELETE`, returns the count, `EXECUTE` revoked from everyone), run by the nightly job (`db/jobs/nightly.sql`) with the migration role, so `dojo_api` has no `DELETE`, no `SELECT` and no `UPDATE`: it only inserts, and `dojo_admin` has no grant. Indexed by `at` for the prune. |
-| `ticket_reports` | `learner_id`, `item_id`, `kind` (broken ticket, setup help), `cli_version`, `last_check_output`, `message` | Forwarded by email to us. |
-| `path_waitlist` | `learner_id`, `path_id` (unique together) | The "Tell me when" list for planned paths. |
+| `ticket_reports` | `learner_id`, `item_id`, `kind` (`broken_ticket`, `setup_help`), `cli_version`, `last_check_output`, `message`, `doctor_summary`, `emailed_at` | Forwarded by email to us by the sender, which reads the unsent rows (section 3.9, M3; migration 00022). |
+| `pending_commits` | `learner_id`, `item_id`, `commit`, `client_at` (unique on the first two) | A `ticket.commit` sha that arrived before its pass; applied and deleted when the pass projects, first sha wins, removed after 30 days by `prune_pending_commits()` in the nightly job (section 3.9, migration 00021). |
+| `path_waitlist` | `learner_id`, `path_id` (unique together) | The "Tell me when" list for planned paths (section 3.9, migration 00018). |
+| `doctor_results` | `learner_id`, `check_id`, `status`, `text`, `fix`, `source` (`cli`, `learner`), `checked_at` | Latest result per `dojo doctor` check, written by the events projection and by the two self-confirmed steps (section 3.9, migration 00019). |
 | `record_items` | `learner_id`, `ref` (ticket or practice item), `shown` | What the learner chose to show on a shared record. |
 | `system_flags` | `key`, `value` | `maintenance`, `ai_enabled`, `ai_reviews_enabled`, `pass_review_required`, `min_cli_version`, `max_concurrent_machines`, `max_free_lab_machines`, `supporter_soft_cap_h` (60), `supporter_hard_cap_h` (100), `ai_cap_month`. No org. Seeded by migrations (`pass_review_required` seeded on); changed only from A3 (M5b on) or `trip_ai_cap()`. |
 | `catalog_secrets` | `item_id`, `hint_guard` (patterns), `catalog_version` | API only: no endpoint returns it, never in a bundle, never readable by a learner or a CLI. Loaded at deploy from the private catalog repo (section 1.6). Created in M7 with the output guard that is its only reader; M2 does not create it. |
@@ -791,7 +797,7 @@ each migration states the grants for `dojo_api` and `dojo_admin` (section 3.7).
 | `operators` | `github_id` (unique), `github_login`, `added_by`, `added_at`, `revoked_at` | Operator service only; `dojo_api` has no grant. No `org_id` (platform level, like `system_flags`); migration 00008. `dojo_admin` inserts `github_id`, `github_login`, `added_by` and updates only `revoked_at`, which is one-way (a trigger refuses any change once it is set); no service role deletes. The audit FK keeps an operator row, and so its `github_login`, until that operator's audit rows are pruned after 2 years (flag for the legal review). The first row is written by `dojo-admin bootstrap` with the migration role. |
 | `admin_sessions` | `operator_id`, `token_hash`, `created_at`, `expires_at` (created plus 1 hour, no sliding), `revoked_at` | Operator service only. Migration 00008: a CHECK pins `expires_at` to `created_at` plus 1 hour; `dojo_admin` inserts `operator_id` and `token_hash` and updates only `revoked_at`, one-way like `operators.revoked_at`. |
 | `admin_audit` | `operator_id`, `operator_login` (copied), `action`, `target_type`, `target_id`, `reason`, `before`, `after` (jsonb, changed fields only), `at` | Append-only: `dojo_admin` may insert and select; no role a service uses may update or delete. Written in the same transaction as the change. `before` and `after` never hold an email, a username or a login: for those fields the row says only that they changed. The reason box asks for no personal data. Kept 2 years, then removed by `prune_admin_audit()` (migration 00009, fixed 2 years, proposed, confirm with the legal review). Migration 00008: no `org_id`, `target_id` is text, `reason` is optional. |
-| `email_outbox` | `learner_id` (null on delete), `to_address` (copied when queued), `kind` (E1 to E8), `ref`, `sent_at` | The operator service never sends mail: it inserts here and the API's sender delivers. Unique `(kind, ref)` so each mail goes once; `ref` per kind: E1 the learner, E2 and E3 the attempt, a corrected E2 the appeal, E4 the learner, month and threshold, E5 and E6 the Stripe event, E7 the learner and ISO week, E8 the learner id. The sender skips kinds whose template is not built yet. On send it calls `mark_email_sent(id)` (section 3.7), which writes `email_log` (except E8), sets `sent_at` and clears `to_address`, and deletes an E8 row, so no address of a deleted learner stays. The address is copied so E8 can go after the learner row is gone. Migration 00010: no `org_id` (a platform queue like `system_flags`, and the learner link is nulled on delete); `kind` is a CHECK on `E1` to `E8`; `to_address` is nullable because the sender clears it; `dojo_api` and `dojo_admin` have `SELECT` and `INSERT` on `learner_id`, `to_address`, `kind`, `ref` only, no `UPDATE` and no `DELETE` until `mark_email_sent()` lands in M3. |
+| `email_outbox` | `learner_id` (null on delete), `to_address` (copied when queued), `kind` (E1 to E8), `ref`, `sent_at` | The operator service never sends mail: it inserts here and the API's sender delivers. Unique `(kind, ref)` so each mail goes once; `ref` per kind: E1 the learner, E2 and E3 the attempt, a corrected E2 the appeal, E4 the learner, month and threshold, E5 and E6 the Stripe event, E7 the learner and ISO week, E8 the learner id. The sender skips kinds whose template is not built yet. On send it calls `mark_email_sent(id)` (section 3.7), which writes `email_log` (except E8), sets `sent_at` and clears `to_address`, and deletes an E8 row, so no address of a deleted learner stays. The address is copied so E8 can go after the learner row is gone. Migration 00010: no `org_id` (a platform queue like `system_flags`, and the learner link is nulled on delete); `kind` is a CHECK on `E1` to `E8`; `to_address` is nullable because the sender clears it; `dojo_api` and `dojo_admin` have `SELECT` and `INSERT` on `learner_id`, `to_address`, `kind`, `ref` only, no `UPDATE` and no `DELETE`. Migration 00017 adds `mark_email_sent(id)` (owner, `EXECUTE` to `dojo_api` only; it locks the unsent row, writes `email_log` when the learner exists, sets `sent_at` and clears `to_address`, or deletes an E8 row; false for an unknown or already sent id) and `email_log` (`learner_id` cascading, `kind` E1 to E7, `sent_at`, the common columns; no service grant). The sender (`internal/server/outbox.go`) scans every 5 s the unsent rows of kinds with a template (E1 only so far) that have an address and a learner (E8 needs none), and sends each inside a transaction holding `pg_try_advisory_xact_lock(5, hashtext(id::text))` (class 5, the email outbox row claim), because `dojo_api` has no `UPDATE` and so no `SELECT ... FOR UPDATE`; a row that fails to send is left out of the scan (so it cannot fill the batch of 20) for 5 minutes, or an hour after an SMTP 5xx, and a crash between send and mark sends again (at least once). A mail already in flight when its learner is deleted still goes out: the row is gone before the mark, which is logged and not retried. E1 is sent from `carmen@` the domain in `DOJO_EMAIL_DOMAIN`, names the first available path, and is queued with the new learner in one statement; a learner with no address queues nothing. |
 | `comp_grants` | `learner_id`, `kind` (hours, supporter), `seconds` or `until`, `operator_id`, `reason`, `revoked_at`, `revoked_by` | Written only by `dojo_admin`; `dojo_api` reads it for the quota and plan entitlements. Kept apart from Stripe's tables so comps are told apart. |
 | `exam_tombstones` | `github_id`, `role_id`, `retry_after` | Kept after a delete so deleting does not skip the retry wait; deleted at `retry_after`. No name, email or results. |
 
@@ -822,7 +828,7 @@ request within 30 days is a manual backup restore, not a soft delete.
 
 ### 3.6 API groups
 
-`/v1/auth/*`, `/v1/me` and prefs, `/v1/path`, `/v1/today` and `/v1/catalog`, `/v1/events`, `/v1/stream` (SSE),
+`/v1/auth/*`, `/v1/me` and prefs, `/v1/path`, `/v1/today`, `/v1/activity` and `/v1/catalog`, `/v1/events`, `/v1/stream` (SSE), `/v1/onboarding/*` (M3, section 3.9),
 `/v1/tickets/:id/*` (bundle, progress, written hints; M2 routes in section 3.8), `/v1/hints/ai`, `/v1/quiz`, `/v1/writing`,
 `/v1/labs` (hosted start, stop, terminal ticket), `/v1/exams/*`, `/v1/billing/*`, `/v1/inbox`,
 `/v1/push`, `/v1/reports`, `/v1/telemetry`, `/v1/webhooks/{stripe,ses}`, `/v1/health`.
@@ -986,7 +992,7 @@ pass, a plan, the pass gate. It gets its own binary, database role and network p
     audit. Before A3 lands (M5b) the flags keep their migration seed values; there are no learners
     before launch.
 - **Not built:** refunds (the Stripe dashboard does them), analytics (PostHog), content edits
-  (they stay in git, in `kibanbuild/dojo-katas`), email (Mailpit locally, the SES console in
+  (they stay in git, in `kibanyadev/dojo-katas`), email (Mailpit locally, the SES console in
   AWS). Restoring an account from backup is a written runbook, not a screen.
 - **First operator.** `dojo-admin bootstrap <github-login>` runs once as a one-off task with the
   migration role and writes the first `operators` row and its audit row. Later operators are added
@@ -1033,8 +1039,9 @@ reads its copy from the bundle.
 
 **Catalog source.** The catalog repo has a top-level `catalog.yaml` with three lists, decoded as
 strictly as `ticket.yaml`: `paths` (`slug`, `title`, `position`, `status` of `available` or
-`planned`), `roles` (`slug`, `title`, `kind` of `foundations` or `role`, `has_exam`, optional
-`advanced`, default false) and `path_roles` (`path`, `role`, `position`; a role that several paths
+`planned`), `roles` (`slug`, `title`, `summary`, `kind` of `foundations` or `role`, `has_exam`, optional
+`advanced`, default false; `summary` is required, one line of at most 120 characters, shown under the
+role title on the Path page, and a load that lacks it or exceeds it fails naming the role) and `path_roles` (`path`, `role`, `position`; a role that several paths
 share, like Foundations, appears once in `roles` and once per path here, and this list alone says
 which roles a path has and in what order). The load fills `paths`, `roles`, `path_roles` and
 `catalog_state` from it, validates every `ticket.yaml` `role` against it, and sets `kind` to
@@ -1154,7 +1161,9 @@ learner `403 account_suspended`. Body `Content-Type: application/json`, at most 
   the end of a command. `200` and `400` drop the batch;
   `429` and other failures keep it and hold sending (`Retry-After` or one minute, at most an
   hour). A `401` keeps the queue and holds sending: these events are progress, so they wait for
-  the next `dojo login`, and a login as a different account drops the queue first. `dojo status`
+  the next `dojo login`, and a login as a different account drops the queue first. A `403
+  account_suspended` keeps the queue with the usual backoff and prints "This account is suspended:
+  your progress stays on this computer and is sent once it is restored." on stderr. `dojo status`
   says how many events are waiting.
 
 **`ticket_progress`.** One row per learner and ticket, written by the API in the same transaction
@@ -1162,7 +1171,11 @@ that inserts the event (the columns are in section 3.3). A per-learner advisory 
 (`pg_advisory_xact_lock(1, hashtext(learner_id::text))`) serializes a learner's batches, so two
 devices cannot deadlock on rows. Advisory locks use the two-integer form, the first being a
 constant per purpose (1 for a learner's progress, 2 for the expiry sweeper), so purposes never
-collide.
+collide. Registry of classes in use: 1 learner progress, `(1, hashtext(learner_id::text))`; 2 expiry
+sweeper, `(2, 0)`; 3 catalog load, `(3, 0)`; 5 email outbox row claim (the sender's, set by the email
+PR); 4 is left free. The exam sweeper (M6a) and anything later takes the next free class and adds
+it here. Work that several tasks can share, like the commit verifier (section 3.9), claims rows with
+a lease instead of taking a class.
 
 - `state`: no row is not started. `started`, `passed`, and `revisit`, a passed ticket that was
   started again. `revisit` counts as passed everywhere (the path, the Foundations rule, exam
@@ -1219,10 +1232,10 @@ collide.
   `409 hint_locked` (`n` above 1 and hint `n - 1` not open; the order check is skipped when the ticket's `state` is passed or revisit), plus the
   usual `401`, `403`, `429` (it shares the events budget) and `500`.
 
-**Read routes.** `GET /v1/catalog`, `/v1/path`, `/v1/today` and `/v1/tickets/{id}` take the cookie
+**Read routes.** `GET /v1/catalog`, `/v1/path`, `/v1/today`, `/v1/activity` and `/v1/tickets/{id}` take the cookie
 or the bearer of an active learner and share a budget of 120 reads a minute per learner. Errors,
 all `{"error": "<code>"}`: `401 unauthenticated`, `403 account_suspended`, `404 not_found` (only
-the ticket route), `429 rate_limited` with `Retry-After`, `500 server_error`. Answers are
+the ticket route), `400 bad_request` (only the activity route, an invalid `tz`), `429 rate_limited` with `Retry-After`, `500 server_error`. Answers are
 `Cache-Control: no-store`. Examples, trimmed to one item:
 
 `GET /v1/catalog` is the public catalog (no brief, no hints, no learner data):
@@ -1232,10 +1245,12 @@ the ticket route), `429 rate_limited` with `Retry-After`, `500 server_error`. An
  "paths": [{"slug": "systems-devops", "title": "Systems and DevOps", "status": "available",
             "position": 1},
            {"slug": "security", "title": "Security", "status": "planned", "position": 2}],
- "roles": [{"slug": "foundations", "title": "Foundations", "kind": "foundations",
+ "roles": [{"slug": "foundations", "title": "Foundations",
+            "summary": "Linux, networks, git, English for tickets", "kind": "foundations",
             "has_exam": false, "advanced": false},
-           {"slug": "support-l1", "title": "Support L1", "kind": "role", "has_exam": true,
-            "advanced": false}],
+           {"slug": "support-l1", "title": "Support L1",
+            "summary": "Tickets, users, permissions, a calm reply", "kind": "role",
+            "has_exam": true, "advanced": false}],
  "path_roles": [{"path": "systems-devops", "role": "foundations", "position": 1},
                 {"path": "systems-devops", "role": "support-l1", "position": 2}],
  "items": [{"id": "support-l1/perms-03", "role": "support-l1", "order": 3, "kind": "ticket",
@@ -1248,13 +1263,15 @@ available path and `"chosen": false` (section 2.1). A role is `locked` when its 
 
 ```json
 {"path": "systems-devops", "chosen": false,
- "roles": [{"slug": "foundations", "title": "Foundations", "locked": false, "passed": false,
+ "roles": [{"slug": "foundations", "title": "Foundations",
+            "summary": "Linux, networks, git, English for tickets", "locked": false, "passed": false,
             "tickets_passed": 4, "tickets_total": 6,
             "items": [{"id": "foundations/terminal-01", "title": "Find the log", "order": 1,
                        "state": "passed", "lab_state": "stopped"},
                       {"id": "foundations/terminal-05", "title": "Free the disk", "order": 5,
                        "state": null, "lab_state": null}]},
-           {"slug": "systems-l2", "title": "Systems L2", "locked": true, "passed": false,
+           {"slug": "systems-l2", "title": "Systems L2", "summary": "...", "locked": true,
+            "passed": false,
             "tickets_passed": 0, "tickets_total": 0, "items": []}]}
 ```
 
@@ -1272,6 +1289,25 @@ the role that holds `current`, or else `next`. When every ticket of every open r
           "lab_state": null},
  "role": {"slug": "foundations", "title": "Foundations", "tickets_passed": 3, "tickets_total": 6},
  "all_passed": false}
+```
+
+`GET /v1/activity` backs the activity panel of L1 Today: a 20-week by 7-day graph of passes and the
+latest three pass lines, without one ticket read per pass. It counts first passes (`first_passed_at`,
+which a revisit never changes) of tickets, never quizzes, for the calling learner only. `from` and `to`
+are the 140 days ending today, inclusive. A day is a calendar day in the zone given by the optional
+`tz` query parameter, an IANA name such as `Europe/Madrid` (at most 64 characters, `UTC` when absent;
+an unknown name or `Local` answers `400 bad_request`); the app sends the browser's zone. The api binary embeds Go's tz database (`time/tzdata`, about 450 KB) because the image is `FROM scratch`; a name Go accepts but Postgres rejects also answers `400 bad_request`. `days` lists
+only the days with `count` above 0, ascending. `total` counts every first pass ever, not only the
+window. `recent` is the last three by `first_passed_at`, newest first, with the ticket's catalog title;
+`commit` is `passed_commit`, `null` until M3. The three reads use the `ticket_progress` primary key
+(`learner_id, item_id`); no extra index is needed at a catalog of hundreds of tickets per learner.
+
+```json
+{"from": "2026-07-09", "to": "2026-11-25",
+ "days": [{"day": "2026-11-23", "count": 1}, {"day": "2026-11-24", "count": 2}],
+ "total": 9,
+ "recent": [{"ticket_id": "foundations/terminal-04", "title": "Count the lines",
+             "at": "2026-11-24T21:30:00Z", "commit": null}]}
 ```
 
 `GET /v1/tickets/{id}` is L3. `hints` holds only the opened ones, as `{n, text}`; a locked hint is
@@ -1342,6 +1378,413 @@ written to a log, a trace or an error report.
   reads `ready`, then the `progress` message, then a `heartbeat`; a second test kills the
   listener connection and expects `resync`.
 
+### 3.9 Onboarding contracts (M3)
+
+Decided 2026-11-25. Same rule as 3.8: later milestones add fields and event types and do not
+rewrite these. Everything is checked by integration tests on the local stack (section 1.7): the
+fake GitHub for the learner's GitHub data, a bare git repository for the practice repo, Mailpit
+for E1. Migrations are numbered from 00018: 00017 belongs to the email PR (`email_log` and
+`mark_email_sent`). Every new route answers errors as `{"error": "<code>"}` with the usual
+`401 unauthenticated`, `403 account_suspended`, `403 csrf_rejected`, `429 rate_limited` with
+`Retry-After` and `500 server_error`; only the codes that are new are listed.
+
+**O0: the path choice.** A signed-out visitor has no account to store a choice on, so the choice
+lives in a cookie until first sign-in.
+
+- **Cookie `dojo_path`:** `Path=/v1`, `HttpOnly`, `SameSite=Lax`, `Secure` whenever `PUBLIC_ORIGIN` is
+  `https`, 24 hours. The value is `base64url(json).base64url(hmac)`, the HMAC-SHA256 of the JSON
+  under the state key (section 3.1) with its own label `dojo-path-v1.`, so a state cookie can never
+  pass as a path cookie. The JSON is `{"v": 1, "path": "<slug or omitted>", "waitlist": ["<slug>"],
+  "issued": <unix>}`: at most one available path and at most 3 planned ones, slugs only. It is signed,
+  not encrypted, and holds nothing else. A cookie that fails the MAC, the version or the 24 hours is
+  ignored, never an error.
+- **Binding to the OAuth state:** `POST /v1/auth/github/start` reads and verifies `dojo_path` (the
+  browser sends it, same origin) and copies the verified `path` and `waitlist` into the sealed
+  `dojo_oauth` state cookie as optional fields, next to the age and terms ticks. The callback trusts
+  only the sealed state, so a cookie swapped between start and callback has no effect, then deletes
+  `dojo_path`. The state's `v` stays 1: an older verifier ignores the new fields.
+- **Applying it:** in the transaction that creates the learner the callback sets
+  `learners.chosen_path_id` (when the path still exists with status `available`) and inserts the
+  `path_waitlist` rows (planned paths only; one that vanished or became available is skipped). For a
+  returning learner it sets `chosen_path_id` only when it is null (a stale cookie never overwrites a
+  choice) and inserts missing waitlist rows. With no path in the cookie the column stays null and
+  the learner lands on O0 (section 2.1). `GET /v1/path` returns `"chosen": true` once it is set.
+- **`POST /v1/onboarding/path`**, body `{"path": "<slug>"}`, JSON with `X-Dojo-Csrf` for every
+  caller. Signed out it sets `dojo_path` (replacing `path`, keeping `waitlist`); signed in (cookie or
+  bearer) it sets `chosen_path_id` (S1 "Switch path" uses it too). `204`. Errors: `400 bad_request`,
+  `404 not_found` (unknown slug), `409 path_planned` (a planned path cannot be chosen).
+- **`POST /v1/onboarding/waitlist`** and **`DELETE /v1/onboarding/waitlist/{slug}`**, same
+  conventions. `POST` takes `{"path": "<slug>"}` of a planned path ("Tell me when"); signed out it adds
+  the slug to the cookie list (a fourth is `400 bad_request`), signed in it inserts the row
+  (idempotent), email or not. `DELETE` removes it from the cookie or the table. `204`. Errors:
+  `404 not_found`, `409 path_available` (an available path has no waitlist). A learner with a
+  waitlist row and no email on file sees the email prompt (below) on O0 and Today, so the list has
+  a way to reach them.
+- **Limits:** signed out, the per-IP limit of the auth routes; signed in, the shared budget of 10
+  writes a minute (section 3.1).
+- **Where it lives:** `learners.chosen_path_id` (uuid, references `paths (id)`, `ON DELETE SET
+  NULL`) and `path_waitlist (learner_id, path_id)`, unique together, both cascading. The M2 rule
+  "no choice means the only available path" stays for a learner with no choice.
+
+**`GET /v1/onboarding`.** Cookie or bearer of an active learner, `no-store`, shares the 120 reads a
+minute. One read for O2 to O5 and for routing a signed-in learner (section 2.1). It grows with the
+PRs: PR 2 returns `next_step` (`o0`, `o2`, `o5` or `done` only), `env`, `public_origin`, `path`,
+`cli_connected`, `agents_md` and `first_ticket`; PR 3 adds `checks` and the `o3` and `o4` steps to
+`next_step` (and `github_id` to `GET /v1/me`, which the `git_identity` fix text needs); PR 4 adds
+`hosted_default` (and the `o3` skip). The full shape:
+
+```json
+{"next_step": "o3", "env": "local", "public_origin": "http://localhost:8080",
+ "path": {"slug": "systems-devops", "chosen": true},
+ "hosted_default": false, "cli_connected": true,
+ "checks": [{"id": "memory", "group": "machine", "status": "ok", "text": "16 GB RAM", "fix": "",
+             "source": "cli", "checked_at": "2026-11-26T09:00:00Z"}],
+ "agents_md": "# Mentor rules\n...",
+ "first_ticket": {"id": "foundations/terminal-01", "title": "Find the log"}}
+```
+
+- `next_step` is derived on every read, never stored, in this order. `done` first: the learner has a
+  ticket in `passed` or `revisit`, and it stays `done` whatever happens after (a sign-out, a revoked
+  token, a check id added later never sends a working learner back into onboarding). Otherwise `o0`
+  with no `chosen_path_id`; `o2` with no non-revoked CLI token (`cli_connected` false); `o3` unless
+  the machine step is ready or `hosted_default` is true; `o4` unless the O4 step is ready; `o5`
+  after that. A step is ready only when every id it requires (the Readiness bullet below) has a
+  row, so with no `doctor_results` rows neither is ready. Pages before O2 are signed-in only, O0 aside.
+- `checks` is the latest result per check id (below); `agents_md` is `mentor.AgentsMD()` from
+  `internal/mentor`, so the O4 copy block and the file `dojo start` writes are one text.
+  `first_ticket` is the `next` of `GET /v1/today` for this learner (the first ticket in path
+  order), so O5 never hardcodes an id. `env` is `DOJO_ENV` and `public_origin` is `PUBLIC_ORIGIN`.
+
+**O2: the `login` event.** `POST /v1/auth/cli` writes the token and, in the same transaction, a
+`pg_notify` on the learner's channel (section 3.8) with an `event` key. A stream message with no
+`event` key is `progress`, as before. The stream sends `event: login`, `data: {"device_name",
+"os", "cli_version", "at"}` (the new token's row; no token, no hash). The page marks the step green
+on `login` and also on `ready` when `GET /v1/onboarding` says `cli_connected`, so a login made before
+the stream opened still counts. Nothing replays (section 3.8).
+
+- **Install line (decision of 2026-11-25):** O2 shows the real `curl -fsSL <public_origin>/install | sh`
+  under macOS, Linux and Windows tabs; the Windows tab adds "open your WSL2 terminal first" and the
+  same line. When `env` is `local` it also says "Local stack: build the CLI (`make build`) and put
+  `bin/dojo` on your PATH", because the installer is served from M0b on. Then `dojo login`.
+
+**O3 and O4: how `dojo doctor` reports.** A new event type on `POST /v1/events`, not its own
+endpoint: it gets the idempotent id, the offline queue, the per-learner budget and the bearer rules
+of section 3.8 for free, and a doctor result is progress (section 3.2), nothing more.
+
+```json
+{"id": "0194f1a2-...", "type": "doctor.run", "at": "2026-11-26T09:00:00Z",
+ "checks": [{"id": "memory", "status": "ok", "text": "16 GB RAM", "fix": ""},
+            {"id": "ruleset", "status": "fail", "text": "main has no ruleset",
+             "fix": "Settings > Rules > New branch ruleset ..."}]}
+```
+
+- **Fields:** no `item_id` (the only type without one). `checks` has 1 to 20 entries with distinct
+  `id` from the table below (an unknown id, or `two_factor` or `secret_scanning`, which only the
+  learner confirms, is `400 bad_request`); `status` is `ok`, `warn`, `fail`
+  or `unknown` (the CLI could not tell: GitHub unreachable or rate limited, git silent); `text` 1 to
+  200 characters; `fix` 0 to 600, may hold newlines. The CLI replaces its home directory with `~` in
+  both, and `git_identity` text never carries the name or email ("git identity is set"). Both are
+  stored as sent, untrusted, and always rendered escaped.
+- **Projection:** one row per learner and check id in `doctor_results`, upserted only when the event's
+  `client_at` is at or after the row's `checked_at` (the ordering rule of 3.8, `client_at` clamped
+  to the server clock). A run lists only the ids it evaluated: an id it could not evaluate is left
+  out and its row stays. The `events` row keeps the payload without `text` and `fix`.
+- **Offline:** the same `events-queue.json` and rules as 3.8, with one addition: recording a
+  `doctor.run` first drops any unsent `doctor.run`, because an older result is stale. Logged out, the
+  machine and local checks still run and queue; the GitHub checks need the login (the CLI reads
+  `github_login` from `GET /v1/me`), so they are skipped with a line "log in to check your GitHub
+  steps". The page shows "Waiting" until a row exists.
+- **SSE:** `event: doctor`, `data: {"checks": [{"id", "status"}]}` for the ids a projection changed
+  (text and fix are not sent). The page patches the lines and refetches `GET /v1/onboarding`
+  debounced by 500 ms, and refetches it on `ready` and `resync`.
+- **Readiness:** a step is ready when each id it requires has a row and none of those rows is `fail`;
+  `warn` (amber) and `unknown` (grey) do not block, so a GitHub rate limit never traps a learner.
+  O3 requires `memory`, `disk`, `cpu`, `virtualization`, `vm_manager` and `git`. O4 requires
+  `ssh_key`, `git_signing`, `key_signing`, `key_auth`, `repo`, `ruleset` and `agents_md`. Because only
+  `fail` blocks, an undone O4 step reports `fail` (today `ssh_key` and `git_signing` report `warn`);
+  the CLI's exit code still looks at the machine group only, so `dojo doctor` exits as it does now.
+  Code change in `internal/doctor` and `internal/cli`: `doctor.Result` gains `ID` (the check id) and
+  `Group` (`machine`, `key`, `repo` or `advisory`); `Ready` and `dojo doctor`'s exit code count only
+  `machine` results; in `ssh.go` the `ssh_key` miss (no key found, unusable key) and the
+  `git_signing` miss (not configured, wrong format, `gpgsign` off, git too old) change from `Warn` to
+  `Fail`, while "git signs with a different key than dojo uses" stays `Warn`; `git_email_github` and
+  the other advisory ids stay `Warn`. Tests to update: `doctor_test.go` lines 253, 254, 256 to 258 and 262 (the `no
+  key`, `unusable chosen key`, `signing not configured`, `format is gpg`, `gpgsign off` and `git too old` rows now
+  want `Fail`; `no ssh-keygen` on line 255 stays `Warn`) and `cli_test.go` lines 446 and 461 (`TestDoctorReady` and `TestDoctorNotReady`, which
+  must still exit 0 and `ErrNotReady` from the machine group alone), plus a case with a failing key
+  group and a good machine that exits 0.
+  `ssh_keygen`, `editor`, `git_identity` and `git_email_github` are advisory and never block.
+  `two_factor` and `secret_scanning` are advisory too: shown, confirmable, never gating.
+
+| Check id | Group | What it tests (and how, with no token) |
+|---|---|---|
+| `memory`, `disk`, `cpu`, `virtualization` | machine | `internal/doctor` today: thresholds in `Evaluate` |
+| `vm_manager` | machine | Lima ready, or WSL2 on Windows (a `fail` until WSL2 lands) |
+| `git`, `git_identity` | machine | git installed and answering; name and email set. The `git_identity` fix recommends the learner's GitHub noreply address, `<id>+<login>@users.noreply.github.com` (the id and login come from `GET /v1/me`, which gains `github_id`), because a commit email GitHub does not know shows as Unverified |
+| `git_email_github` | key | `warn` when `user.email` is not that noreply address (the older `<login>@users.noreply.github.com` also passes). Verified emails cannot be read without a token, so this only suggests; it never blocks |
+| `editor` | machine | `code` on the PATH; `warn` at worst |
+| `ssh_key` | key | A usable private key exists locally (`sshconfig.ResolveKey`) |
+| `ssh_keygen` | key | `ssh-keygen` on the PATH (always reported; today only when missing); advisory |
+| `git_signing` | key | `gpg.format ssh`, `user.signingkey` and `commit.gpgsign true` set, git 2.34 or newer |
+| `key_signing` | key | The public key git signs with (the dojo key when none is set) is in the account's signing keys: `GET /users/{login}/ssh_signing_keys` |
+| `key_auth` | key | Applies only when the practice clone's `origin` is an SSH URL, or no clone exists yet and the default clone would be made over SSH. Then a key that `ssh` offers for github.com (the `identityfile` entries of `ssh -G github.com` with their `.pub` files, and `ssh-add -L` when an agent answers; not `user.signingkey`) must be in `GET /users/{login}/keys`. GitHub keeps signing and authentication keys apart, so one key is added twice. An HTTPS clone reports `ok` with "Not needed: your clone uses HTTPS" |
+| `repo` | repo | `GET /repos/{login}/dojo` answers `200` with `private` false; a private or missing repo is the same `404` to an anonymous caller, so the fix says "create it, public" |
+| `ruleset` | repo | `GET /repos/{login}/dojo/rules/branches/main` lists `required_signatures`, `non_fast_forward` and `deletion` |
+| `agents_md` | repo | `GET /repos/{login}/dojo/contents/AGENTS.md` answers `200` |
+| `two_factor`, `secret_scanning` | repo | Not verifiable: GitHub shows a user's 2FA and a repo's secret scanning only to its owner with a token. The page draws them as advisory steps the learner confirms; they never gate O4 |
+
+- **Self-confirmed steps:** `PUT /v1/onboarding/confirmations/{step}` and `DELETE` the same path
+  (`step` is `two_factor` or `secret_scanning`; `404 not_found` otherwise) write or remove the
+  `doctor_results` row with `source` `learner`, status `ok`, text "Confirmed by you". `204`; the
+  shared write budget; an `unconfirm` is allowed so a mis-click is not permanent.
+- **Why this ruleset:** the CLI pushes to `main` directly (below), so a pull-request rule would reject
+  it. `required_signatures` makes GitHub enforce what the pass commit promises, `non_fast_forward` and
+  `deletion` protect the history. The page's steps and the `fix` text name exactly these three. The
+  rules endpoint on a public repo without a token is GitHub's documented behavior; confirm it with
+  one live probe in M0b, like the admin 2FA field.
+- **GitHub reads from the CLI:** unauthenticated `GET`s to `DOJO_CLI_GITHUB_API_URL` (default
+  `https://api.github.com`, the same bare-origin rule as `GITHUB_API_URL` in 3.1; a new name because
+  `DOJO_GITHUB_API_URL` already feeds the API container in `compose.yaml`), 5 s timeout each, at
+  most 7 calls per run, never a token. GitHub allows 60 anonymous calls an hour per IP; a `403` or
+  `429` with `X-RateLimit-Remaining: 0` makes the GitHub checks `unknown` with "GitHub is limiting
+  requests, try again in N minutes" from `X-RateLimit-Reset`. A network failure is `unknown`, never `fail`.
+- **fake-github serves these** (the local stack points `DOJO_CLI_GITHUB_API_URL` and the API's
+  `GITHUB_API_URL` at it): `GET /user/{id}` (the public account lookup by numeric id, `login` and
+  `id`), `GET /users/{login}/keys`
+  and `/users/{login}/ssh_signing_keys` (`[{"id", "key"}]`, plus `title` and `created_at` on the
+  second), `GET /repos/{owner}/{repo}` (`name`, `full_name`, `private`, `default_branch`, `html_url`),
+  `GET /repos/{owner}/{repo}/rules/branches/{branch}` (`[{"type", "ruleset_id"}]`),
+  `GET /repos/{owner}/{repo}/contents/{path}` (`type`, `name`, `path`, `sha`), `GET
+  /repos/{owner}/{repo}/commits/{sha}` (`sha`, `commit.message`, `commit.verification.verified` and
+  `reason`) and `GET /repos/{owner}/{repo}/compare/{base}...{head}` (`status`, `ahead_by`,
+  `behind_by`). A private repo, an unknown login or an unknown path is `404`. Each answer carries
+  `X-RateLimit-Remaining` and `X-RateLimit-Reset`; `FAKE_GITHUB_RATE_LIMIT=<n>` per remote address
+  turns on the `403` of the rate-limit test. Users are seeded with `Keys`, `SigningKeys` and `Repos`
+  (name, visibility, rules, files) and changed in a test through `/_fake/` control routes. The
+  commit and compare answers are read from a bare repository under `FAKE_GITHUB_GIT_ROOT`
+  (`<login>/dojo.git`, a volume shared with the CLI test) with `git`; `verified` is true when
+  `git verify-commit` accepts the signature against an allowed-signers file built from that user's
+  seeded signing keys.
+
+**O3 blocked: hosted by default.** `learners.hosted_default` (boolean, default false) is set through
+`PATCH /v1/me` with `{"hosted_default": true}` (or false; S1 uses it too), a `400 bad_request` for a
+non-boolean, on the shared write budget; `GET /v1/me` returns it. "Use a hosted lab" sends it and goes to O4 (`next_step` skips
+`o3` while it is true). Before the learner chooses it, O3 says plainly that hosted labs arrive later,
+and what they can do meanwhile: fix the failing lines, or go on with O4 so the repo and keys are
+ready, and start labs once hosted ones open. Until M5a, `dojo start` with `hosted_default` true, and
+`dojo start --hosted` whatever the default, print "Hosted labs are coming soon. Turn off the hosted
+default in Settings to use a local lab." (the second half only when the default is on) and exit
+1 before it fetches a bundle or sends an event. The CLI reads the flag from `GET /v1/me` at login and
+on every online start and keeps the last value in its state file for offline starts.
+
+**Signed commit on a pass.** Decided 2026-11-25: the CLI commits, signed, in the learner's local
+clone and pushes with the learner's own git; the API stores the sha and checks it in the public repo.
+We never hold write access to their GitHub.
+
+- **The clone:** the push goes to the clone's own `origin`, whatever its URL (a learner who cloned
+  over HTTPS with a credential helper pushes over HTTPS; nothing forces SSH). Only when the CLI
+  makes the default clone itself does it choose a URL: `<DOJO_GITHUB_GIT_URL><login>/dojo.git`, where
+  the base defaults to `git@github.com:` and is a default, not a requirement (the local stack points
+  it at `file://` bare repos). The default path is `$HOME/dojo`; `dojo check --repo PATH` chooses
+  another and remembers it as `repo` in the state file, like `dojo start --key`. A path that is set
+  and gone is an error naming it. If the path is unset and the default is absent, the first pass
+  clones there; if the default exists but is not a clone of that repo (origin differs, case aside),
+  the CLI leaves it alone and skips the commit.
+- **On a pass** (`dojo check` with `result` pass, when the state file's `commits` map has no sha for
+  the ticket, or the API last said this ticket's commit is `unverified`, which the CLI reads from
+  `GET /v1/tickets/{id}` when online; so a plain revisit pass adds none, a retry after a failed
+  commit still makes one, and a learner who fixed their key or email can recover): the CLI queues
+  the `check.run` as before, then in the clone, never touching the learner's other files:
+  `git pull --ff-only` (a failure here is not fatal), write `<role-slug>/<ticket-slug>/RESULT.md`,
+  `git add` that path only, `git commit -S --only -- <path>` (with `--allow-empty` when `RESULT.md`
+  is unchanged, as in a recommit), then `git push origin main`. The branch must be `main`, else no
+  commit and a message.
+- **Non-interactive:** `git commit -S` and `git push` each run with no terminal and stdin closed,
+  `GIT_TERMINAL_PROMPT=0`, `GIT_SSH_COMMAND="ssh -o BatchMode=yes"` (left alone when the learner set
+  `core.sshCommand`), and a 20 s limit each, so a passphrase or host-key prompt fails fast instead
+  of hanging `dojo check`.
+- **The commit:** `RESULT.md` holds the title as a heading, then the lines `Passed: <RFC 3339>`,
+  `Checks: <passed> of <total>` (omitted when unknown), `Catalog version: <12 characters>` and
+  `Dojo CLI: <version>`; no check output. The message is `pass: <item id>`, a blank line, then the
+  trailers `Dojo-Ticket: <item id>` and `Dojo-Event: <the check.run event id>`.
+- **Signing is required:** `-S` makes git refuse when no key or agent answers, and then no commit
+  exists; the pass still counts (it is self-reported, section 3.2) and the CLI prints "Passed. The
+  signed commit was not made: <reason>. Run dojo doctor." plus, for a locked key, how to load it
+  (`ssh-add <key>`) and run `dojo check` again. The CLI never commits unsigned.
+- **A failed push does not block the pass.** The commit stays local, the state file sets `push_pending`
+  and the CLI retries `git push` at the end of `dojo check`, `dojo start` and `dojo status` (each
+  with the same limit) until it succeeds; `dojo status` says "1 signed commit waiting to be pushed".
+- **How the sha reaches the API:** a separate event, `ticket.commit`, with `item_id` and `commit`
+  (40 lower-case hex), queued right after the commit is made and whether or not the push worked.
+  It is separate because the sha exists only after the pass event was recorded and because the push
+  can finish much later. Projection, under the learner's class-1 lock like every projection: on a
+  ticket in `passed` or `revisit` whose `commit_state` is null, `pending` or `verified` the first
+  sha wins (a repeat or a different sha is stored in `events` and changes nothing); on `unverified`
+  a new sha is accepted. Accepting sets `passed_commit`, `commit_state` `pending`, `commit_tries` 0,
+  `commit_at` now and `commit_next_at` now plus 5 s. A `ticket.commit` for a ticket with no pass
+  yet (the pass event was lost or is still queued behind it) is kept in `pending_commits` and applied
+  when that pass projects, then deleted.
+- **Verification** (a lease, not a global lock, so several API tasks share the work and a crashed
+  task loses nothing): every tick (`DOJO_COMMIT_VERIFY_INTERVAL_SECONDS`, default 60) each task claims up to
+  `DOJO_COMMIT_VERIFY_BATCH` rows (default 20) with one statement,
+  `UPDATE ticket_progress SET commit_next_at = now() + interval '5 minutes' WHERE (learner_id,
+  item_id) IN (SELECT learner_id, item_id FROM ticket_progress WHERE commit_state = 'pending' AND
+  commit_next_at <= now() ORDER BY commit_next_at LIMIT <batch> FOR UPDATE SKIP LOCKED) RETURNING
+  learner_id, item_id, passed_commit, commit_tries`. The lease lasts 5 minutes, so a task that dies
+  mid-check is simply retried later. The GitHub calls run outside any transaction. The result is
+  written in a short transaction that updates only the commit columns, `WHERE ... commit_state =
+  'pending' AND passed_commit = <the sha it read>`, so a recommit that landed meanwhile is never
+  overwritten. It takes no class-1 lock: the projection touches the commit columns only for
+  `ticket.commit` (which holds class 1), the verifier touches nothing else, and each verifier
+  transaction locks one row and waits on nothing, so the two cannot deadlock.
+- **What it checks**, reading the public repo through the GitHub adapter without the learner's
+  credentials: `GET /repos/{github_login}/dojo/commits/{sha}` answers `200`,
+  `commit.verification.verified` is true, the message carries `Dojo-Ticket: <item id>`, and `GET
+  .../compare/main...{sha}` says `behind` or `identical` (the commit is on `main`). All four:
+  `verified`, `commit_checked_at` now. A `404`, an unpushed commit or `verified` false: stays
+  `pending`, `commit_tries` plus 1 and `commit_next_at` moves on the schedule 5 s, 1 min, 5 min,
+  30 min, 2 h, 6 h, then every 24 h; 7 days after `commit_at` it becomes `unverified` whatever the
+  last answer was (a `404`, a failed signature, or a GitHub error), and the learner is not blocked.
+  A GitHub `5xx`, a network error or a rate-limit `403` is not a try: the lease (5 minutes) is the
+  wait, and only the 7-day rule ends it. On a `404` for the repo or the commit, before counting the try, the
+  verifier refreshes `learners.github_login` once from `GET /user/{github_id}` (public, by the stable
+  numeric id), because a renamed account would otherwise fail for good, and retries the read.
+- **GitHub access from the API:** the adapter is pinned to the configured GitHub API origin
+  (`GITHUB_API_URL`): it builds every URL itself from a login that matches `[A-Za-z0-9-]{1,39}` and a
+  40-character hex sha, refuses a path that leaves the origin, and does not follow redirects (so the
+  token can never go to another host). `DOJO_GITHUB_READ_TOKEN` is ours, with no scopes, optional
+  locally, required in `pre` and `pro`: it lifts the anonymous limit of 60 calls an hour, which one
+  IP would exhaust. The `DOJO_` prefix keeps GitHub Actions' own `GITHUB_*` variables out of compose.
+- **What the learner sees:** `ticket_progress` gets `commit_state`, `commit_tries`, `commit_next_at`
+  `commit_checked_at` and `commit_at` (migration below). `GET /v1/tickets/{id}` `progress` adds
+  `passed_commit_state` (`null`, `pending`, `verified`, `unverified`) and `passed_commit_url`
+  (`https://github.com/<login>/dojo/commit/<sha>`, only when `verified`); `passed_commit` is the sha
+  once set. L3 says "Commit pending" (with the push hint when `dojo status` has one), "Verified" with
+  the link, or for `unverified` "Could not verify the commit: check that your signing key is on
+  GitHub, that your git email is one GitHub knows (the noreply address works), and the `main`
+  ruleset, then run `dojo check` again"; O5 turns green on `pass` and shows the same line. The `progress` stream payload adds
+  `passed_commit_state`; `GET /v1/activity` `recent[].commit` is `passed_commit` when `verified`, else null.
+- **Fake GitHub's role:** the integration test pushes to the bare repo, the fake answers the four
+  reads from it, and a test covers pending (not yet pushed), verified, a commit signed by an unknown
+  key (`verified` false) and an unpushed commit.
+
+**Mentor files and `dojo mcp`.** `internal/mentor` stays the one source of the rules.
+
+- **Files:** `dojo start` writes `AGENTS.md` (`mentor.AgentsMD()`) and `CLAUDE.md` (`@AGENTS.md`) into
+  the lab home, as today (6d). New: it writes the same two files into the local clone of
+  `<login>/dojo` when the clone exists and neither file is there; it never overwrites a file, and the
+  pass commit stages only `RESULT.md`, so these stay local. The copy of `AGENTS.md` in the GitHub repo
+  is the learner's, added at O4 from the page's copy block (`agents_md` above); `agents_md` checks presence
+  only, not content.
+- **Tools** (no arguments, read-only, plain text answers, `isError` on failure; the server's
+  instructions are `mentor.Rules`; none returns a solution, `setup.sh`, `check.sh` or a hint the
+  learner has not opened):
+
+| Tool | Answer | M3 change |
+|---|---|---|
+| `current_ticket` | Id, title and brief of the ticket in progress, and "passed on <date>" when it is | none |
+| `last_check` | The output of the last `dojo check` kept locally | none |
+| `hints_opened` | The written hints the learner opened, each as `Hint n/N: text` | Reads `GET /v1/tickets/{id}` with the CLI token (hints open on the web, section 3.8, so the local counter never moves); offline or logged out it says it cannot read them. With `DOJO_KATAS` it keeps the local counter |
+
+  On a ticket in `passed` or `revisit`, `hints_opened` lists every hint, because the ticket reveals
+  them all (section 3.8).
+
+  The "docs links" tool of section 2.5 is dropped from M3: `ticket.yaml` has no field for links, and
+  adding one changes the 3.8 contract. A later milestone adds a tool with its source.
+
+**The report form.** `POST /v1/reports`, cookie (with the CSRF headers) or bearer, active learner.
+Body at most 8 KB:
+
+```json
+{"kind": "broken_ticket", "item_id": "support-l1/perms-03",
+ "message": "The check fails even after I fixed the owner.", "include_output": true}
+```
+
+- **Fields:** `kind` is `broken_ticket` or `setup_help` (the "Report a broken ticket" link on L3 and
+  "I'm stuck: get help" on O3); `item_id` is required for `broken_ticket` and optional for
+  `setup_help`, and must be a ticket in `catalog_items`; `message` is 1 to 2,000 characters, trimmed,
+  no NUL; `include_output` (default false) asks the API to copy the learner's own
+  `ticket_progress.last_check_output` for that ticket, never text from the client. For `setup_help`
+  the API copies the learner's `doctor_results` that are not `ok` as `<id>: <text>` lines (at most
+  2,000 characters) into `doctor_summary`. `cli_version` is the most recently used non-revoked
+  device's. Answer `201 {"id": "<uuid>"}`. Errors: `400 bad_request` (also a missing `item_id` for
+  `broken_ticket`), `404 not_found` (unknown item), `429 rate_limited`.
+- **Limits:** 5 reports an hour and 20 a day per learner, counted from `ticket_reports.created_at`
+  so every API task agrees; the `Retry-After` is the time until the oldest counted report leaves the window.
+- **Email to us, without a new outbox kind:** `email_outbox` is the ledger of mail to learners (its
+  `kind` CHECK is E1 to E8, `mark_email_sent` writes `email_log`, and the address is cleared on send);
+  a report is an internal notice, so its own reader claims rows with `SELECT ... FOR UPDATE SKIP
+  LOCKED` on `ticket_reports` where `emailed_at` is null (a few at a time), sends each, and sets
+  `emailed_at` in that same transaction, so two tasks never send one report twice and a failed
+  send leaves the row for the next pass. It sends to `DOJO_REPORTS_TO` (required in `pre` and `pro`, Mailpit locally) with
+  subject `[dojo report] <kind> <item id or -> <first 8 characters of the id>`, `Reply-To` the learner's
+  email when there is one (the form says "we reply to your sign-in email"), and a text body with
+  the message, `github_login`, `cli_version`, the doctor summary and the output in a fenced block.
+  An unsent row of a deleted learner is gone with the cascade, so no personal data outlives the account.
+
+**First run on Today.** First run is data, not a flag the CLI sets: the learner has at least one
+ticket in `passed` or `revisit` and `learners.first_run_seen_at` is null. `GET /v1/today` adds
+`"first_run"`, null or `{"id", "title", "first_passed_at", "passed_commit_state"}` for the learner's
+earliest first pass. L1 then draws "day one done" with that ticket and its commit line, the `next`
+ticket and the role progress. The page sets `first_run_seen_at` when the learner leaves it through
+"Start the next one" or "Continue", with `PATCH /v1/me {"first_run_seen": true}` (only `true` is
+accepted, once; a repeat is a `200` and changes nothing). A learner with no pass never gets
+`first_run`: if `next_step` is not `done` the app routes to that step instead of an empty Today.
+
+**E1 and the email prompt (issue 67).**
+
+- **E1:** queued in `email_outbox` (`kind` `E1`, `ref` the learner id, address copied). The email
+  PR queues it when the learner is created with an address. PR 8 adds the later triggers: the email
+  prompt below, and a later sign-in that brings the learner's first address. Every insert is `ON
+  CONFLICT (kind, ref) DO NOTHING`, so it goes once however many triggers fire. There is no
+  suppression lookup yet: `email_suppressions` has no migration, and it arrives with the bounce work
+  (SNS, M0b to M9), which adds the check to every trigger. It is plain text with an HTML alternative, English in M3.
+- **Subject:** "Welcome to Dojo" (the path title is in the body, so a subject never depends on a
+  choice made later). **Body:** greets by `username`; names the chosen path (or the only available
+  one when none) and its first role; the three things to do next with the real line `curl -fsSL
+  <PUBLIC_ORIGIN>/install | sh`, `dojo login` and `dojo doctor`; a link to the app (`PUBLIC_ORIGIN/app`);
+  one line that labs run on their computer and the work stays in their own `<login>/dojo` repo; "If you did not sign up, ignore this
+  message." No tracking pixel, no streak language (section 2.9).
+- **Prompt:** when `GET /v1/me` has `"email": null`, the app shows an in-app prompt (a banner on O2
+  and on Today, and the email step before "Tell me when") asking for an address for welcome and
+  account email. `PATCH /v1/me {"email": "<address>"}` saves it only while the stored email is empty:
+  3 to 320 characters, one `@`; the local part only letters, digits and `. _ % + -` (no quotes,
+  spaces, commas, angle brackets or control characters, so it can never carry a header or a second
+  recipient); the domain labels `[a-z0-9-]`, at least one dot, lower-cased; no verification mail in
+  M3. Errors: `400 invalid_email`, `409 email_set` (an address is
+  already on file; the settings change comes in M9, issue 69). It sets `learners.email_source` to
+  `learner` and queues E1 in the same transaction. A GitHub email that arrives at a later sign-in
+  replaces a learner-set one and sets `email_source` back to `github`, as 3.1 says today; M9's
+  learner setting is what stops that. Accepted risk: an address nobody confirmed can make us send one
+  welcome mail per GitHub account to a stranger, and the same holds for a future waitlist notice;
+  the risk stands until the suppression lookup exists.
+  E1 carries nothing private and goes once per account, and the account is a GitHub login, which
+  bounds the abuse.
+
+**SMTP only.** Decided 2026-11-25. Email goes through the email PR's SMTP adapter
+(`internal/mail`), configured by `DOJO_SMTP_HOST`, `DOJO_SMTP_PORT`, `DOJO_SMTP_USERNAME`,
+`DOJO_SMTP_PASSWORD` and `DOJO_EMAIL_DOMAIN`; the From address is `carmen@<DOJO_EMAIL_DOMAIN>`, and
+STARTTLS is required whenever credentials are set. Locally that is the `mailpit` compose service
+(SMTP on 1025, inbox on 8025, no credentials). SES is the same adapter pointed at its SMTP endpoint
+in M0b, configuration and no code, so M3 has no SES work. The sender, `email_log` and
+`mark_email_sent` are the email PR's (00017); this section adds the E1 triggers and template and the
+report reader.
+
+**Tables and migrations.** Each migration states its grants like the others (section 3.7); every
+new table has `org_id`, `created_at`, `updated_at` and cascades on `learner_id`.
+
+| Migration | Change | `dojo_api` | `dojo_admin` |
+|---|---|---|---|
+| 00017 | Reserved: `email_log`, `mark_email_sent` (email PR) | | |
+| 00018 (PR 1) | `learners.chosen_path_id`; `path_waitlist (learner_id, path_id)`, primary key on both | `learners`: `INSERT (chosen_path_id)` added to the sign-in list and `UPDATE (chosen_path_id)`; `path_waitlist`: `SELECT`, `INSERT (org_id, learner_id, path_id)`, `DELETE` | `SELECT` on both (A2 shows the choice; the waitlist counts are the signal for the next path) |
+| 00019 (PR 3) | `doctor_results (learner_id, check_id, status, text, fix, source, checked_at)`, primary key `(learner_id, check_id)`; CHECKs on `status` (`ok`, `warn`, `fail`, `unknown`), `source` (`cli`, `learner`) and the text lengths of this section; the `events.type` CHECK is dropped and recreated with `doctor.run` added (`ALTER TABLE events DROP CONSTRAINT events_type_check`, then `ADD CONSTRAINT events_type_check CHECK (type IN ('ticket.started', 'lab.started', 'lab.failed', 'lab.stopped', 'check.run', 'hint.opened', 'doctor.run'))`) | `SELECT`; `INSERT (org_id, learner_id, check_id, status, text, fix, source, checked_at)`; `UPDATE (updated_at, status, text, fix, source, checked_at)`; `DELETE` (only the unconfirm route uses it) | `SELECT` |
+| 00020 (PR 4) | `learners.hosted_default` (boolean, default false) | `UPDATE (updated_at, hosted_default)` on `learners` (a new learner takes the default) | `SELECT` |
+| 00021 (PR 5) | One feature, these statements: `ALTER TABLE ticket_progress` adds `commit_state` (`pending`, `verified`, `unverified`), `commit_tries` (default 0), `commit_next_at`, `commit_checked_at`, `commit_at`, plus a CHECK on `passed_commit` (`^[0-9a-f]{40}$`) and a partial index on `commit_next_at` where `commit_state = 'pending'`; `CREATE TABLE pending_commits (id, org_id, learner_id` references `learners` `ON DELETE CASCADE`, `item_id` references `catalog_items (id)` with no cascade like `events`, `commit` with the same CHECK, `client_at`, `created_at, updated_at)`, unique `(learner_id, item_id)`, for a sha that arrives before its pass; `events_type_check` dropped and recreated as in 00019 with `doctor.run` and `ticket.commit` both in the list; `prune_pending_commits()`, fixed 30 days, one `DELETE`, `EXECUTE` revoked from everyone, called from `db/jobs/nightly.sql` next to `prune_events()` | `ticket_progress`: `UPDATE (commit_state, commit_tries, commit_next_at, commit_checked_at, commit_at, passed_commit)` added to the projected list; `pending_commits`: `SELECT`, `INSERT (org_id, learner_id, item_id, "commit", client_at)` (`commit` is quoted in the migration and sqlc queries; a repeat is `ON CONFLICT DO NOTHING`, so the first sha wins; no `UPDATE`), `DELETE` (the projection removes a row in the transaction that applies it); `learners.github_login` is already updatable | `SELECT` on `pending_commits` |
+| 00022 (PR 7) | `ticket_reports (id, learner_id, item_id, kind, cli_version, last_check_output, message, doctor_summary, emailed_at)`; no foreign key on `item_id`, so retiring a ticket never blocks a catalog load; index on `(learner_id, created_at)` and a partial one on `emailed_at IS NULL` | `SELECT`; `INSERT (org_id, learner_id, item_id, kind, cli_version, last_check_output, message, doctor_summary)`; `UPDATE (updated_at, emailed_at)` | `SELECT` |
+| 00023 (PR 8) | `learners.email_source` (`github` or `learner`, null with no email; existing rows with an email become `github`), `learners.first_run_seen_at` | `INSERT (email_source)` added to the sign-in list; `UPDATE (email_source, first_run_seen_at)` (`email` is already updatable) | `SELECT` |
+
+Section 3.3 carries the column lists; the grants test (M1) covers each new table and column.
+
 ## 4. Accessibility carried into the build
 
 - Dialogs (palette, install sheet, danger zone) trap focus, restore it on close, close on Escape.
@@ -1386,7 +1829,7 @@ written to a log, a trace or an error report.
 
 ## 5. Delivery notes
 
-Tickets and exam content are a parallel track to this build (authoring in `kibanbuild/dojo-katas`)
+Tickets and exam content are a parallel track to this build (authoring in `kibanyadev/dojo-katas`)
 and the critical path to the 2027-03-31 done-line: Foundations, about 12 Support L1 tickets, two
 quizzes, writing tasks and one exam definition with its checks. It is tracked in `docs/plan.md`,
 not designed here.
@@ -1441,6 +1884,10 @@ Still open:
 5. **Legal text (LG1) and the GDPR review** for learners aged 14 to 17 whose check output goes to
    Bedrock: Edith's review before the first charge.
 6. **Bedrock and SES in `eu-south-2`:** checked in M0b; the fallback is decided (section 1.1).
+7. **Anonymous GitHub rules read:** `GET /repos/{owner}/{repo}/rules/branches/{branch}` without a token
+   is documented for public repos; one live probe in M0b confirms it before O4 relies on it (section 3.9).
+8. **Email language:** E1 and the report form are English in M3. Whether E1 follows `learners.language`
+   (Spanish explanations) once Spanish copy exists is open.
 
 Not blocking v1: running-system exam checks for later roles; per-learner variants; Teams; moving
 the web and API to a shared Kiban platform if that parked decision lands.
@@ -1479,17 +1926,26 @@ parallel (section 5).
 - **M2: Tickets on local labs, mirrored on the web.** The contracts are in section 3.8. Catalog
   sync and bundles (`catalog_items` only; `catalog_secrets` waits for M7), CLI verb changes
   (`ssh`, `stop`, `status`, `check` events; `dojo start` fetches its bundle with the CLI token, and a cached bundle starts logged out), `ticket_progress`,
-  SSE, Today, Path, ticket page, written hints, public pages P1 to P4 (no install command on P1, no FAQ
+  SSE, Today, Path, ticket page, written hints, public pages P1 to P4 (P1 install line marked coming soon, no FAQ
   on P2 yet) and LG1 as a `noindex` draft. A learner with no chosen path gets the
   only available one until O0 lands in M3. `dojo check` reports a pass without a signed commit
   (it comes with the practice repo in M3) and `dojo hint` prints the L3 URL until M7. Operator A2
   learner lookup (searches and views write `admin_audit` rows) with suspend, unsuspend
   and delete (the E8 row is queued now and sent once its template lands in M9; void comes with the exam tables in M6a, comps with M8's
   entitlements).
-- **M3: Onboarding.** O0 with the waitlist, O1 to O5, `dojo doctor` verifying the O4 steps and
-  reporting, AGENTS.md and `dojo mcp`, E1 over Mailpit and SES, first-run Today, the report form,
-  and the signed commit on a pass (`dojo check` writes it into the practice repo from O4, filling
-  `passed_commit`).
+- **M3: Onboarding.** The contracts are in section 3.9. O0 with the waitlist, O1 to O5, `dojo doctor`
+  verifying the O4 steps and reporting, AGENTS.md and `dojo mcp`, E1 over SMTP (Mailpit locally; SES
+  is the same adapter configured in M0b), first-run Today, the report form, and the signed commit on
+  a pass (`dojo check` commits and pushes it in the local clone of the practice repo, and the API
+  verifies it on GitHub, filling `passed_commit`). PRs after the contracts (migrations 00018 to 00023,
+  after the email PR's 00017): (1) path cookie, `chosen_path_id`, waitlist; (2) `GET /v1/onboarding`
+  and the SSE `login` event (the answer carries the O0 and O2 slice only: `next_step`, `env`,
+  `public_origin`, `path`, `cli_connected`, `agents_md`, `first_ticket`); (3) doctor ids, `doctor.run`,
+  `doctor_results`, the fake GitHub reads, `checks` and the `o3` and `o4` steps in `next_step`,
+  `github_id` on `GET /v1/me`, the `doctor.Result` `ID` and `Group` change; (4) the GitHub checks,
+  confirmations, `hosted_default` and its field in `GET /v1/onboarding`; (5) signed commit, `ticket.commit` and
+  the verifier; (6) mentor files and `dojo mcp`; (7) the report form, its reader and the `Reply-To`
+  field on `mail.Message`; (8) the E1 triggers, the email prompt, `email_source` and first-run Today.
 - **M4: Between tickets.** Writing tasks, quizzes and the simulated feedback round with the AI
   review adapter, practice catalogue, inbox, belt marks, settings S3 and S4, PWA W1 to W5.
 - **M5a: Runner and pool.** Packer AMI and the lab image, runner, mTLS to the API, `Backend`

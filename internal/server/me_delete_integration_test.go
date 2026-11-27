@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/server"
+	"github.com/kibanyadev/dojo/internal/server"
 )
 
 // eraseMe sends DELETE /v1/me as the browser: its cookie, plus the CSRF header when csrf is set.

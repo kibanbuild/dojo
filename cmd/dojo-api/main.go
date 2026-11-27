@@ -13,10 +13,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/github"
-	"github.com/kibanbuild/dojo/internal/server"
-	"github.com/kibanbuild/dojo/internal/server/repo"
-	"github.com/kibanbuild/dojo/internal/storage"
+	"github.com/kibanyadev/dojo/internal/github"
+	"github.com/kibanyadev/dojo/internal/mail"
+	"github.com/kibanyadev/dojo/internal/server"
+	"github.com/kibanyadev/dojo/internal/server/repo"
+	"github.com/kibanyadev/dojo/internal/storage"
 )
 
 func main() {
@@ -52,6 +53,9 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := github.RequireReadToken(os.Getenv("DOJO_ENV"), ghCfg); err != nil {
+		return err
+	}
 	stateKey, err := server.ParseStateKey(os.Getenv("AUTH_STATE_KEY"), local)
 	if err != nil {
 		return err
@@ -85,13 +89,24 @@ func run(args []string) error {
 	hub := server.NewHub(store.ListenConn)
 	go hub.Run(ctx)
 	go server.RunExpiry(ctx, store, server.ExpiryInterval)
+	if err := startOutbox(ctx, store); err != nil {
+		return err
+	}
+
+	gh := github.New(ghCfg)
+	verifyEvery, verifyBatch, err := server.ParseCommitVerify(os.Getenv)
+	if err != nil {
+		return err
+	}
+	go server.RunCommitVerifier(ctx, &server.CommitVerifier{Store: store, GitHub: gh, Batch: verifyBatch}, verifyEvery)
 
 	auth := server.Auth{Store: store.Queries(), Catalog: store.Queries(),
 		Bundles: &server.Bundles{Store: store.Queries(), Signer: objects}, Secure: secure, Events: store,
 		Stream: hub, StreamHeartbeat: heartbeat,
-		Tickets: &server.Tickets{Reader: store.Queries(), Opener: store}}
-	gh := github.New(ghCfg)
-	cli := &server.CLILogin{GitHub: gh, Store: store.Queries()}
+		Tickets: &server.Tickets{Reader: store.Queries(), Opener: store}, Reports: store,
+		Onboarding: &server.Onboarding{Facts: store.Queries(), Doctor: store, Confirmer: store,
+			Env: os.Getenv("DOJO_ENV"), PublicOrigin: strings.TrimRight(os.Getenv("PUBLIC_ORIGIN"), "/")}}
+	cli := &server.CLILogin{GitHub: gh, Store: store.Queries(), Tokens: store}
 	signin := &server.SignIn{GitHub: gh, Store: store.Queries(), Auth: auth,
 		Origin: strings.TrimRight(os.Getenv("PUBLIC_ORIGIN"), "/"), Key: stateKey, TermsVersion: termsVersion}
 	srv := &http.Server{
@@ -142,4 +157,36 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// startOutbox runs the email sender (design 3.3). With no DOJO_SMTP_HOST it logs that mail is off and
+// returns: queued mail then waits in email_outbox.
+func startOutbox(ctx context.Context, store *repo.Store) error {
+	reportsTo := os.Getenv("DOJO_REPORTS_TO")
+	switch {
+	case reportsTo == "" && os.Getenv("DOJO_ENV") != "local":
+		return errors.New("DOJO_REPORTS_TO is required outside local")
+	case reportsTo != "" && !mail.ValidAddress(reportsTo):
+		return errors.New("DOJO_REPORTS_TO must be a bare email address")
+	}
+	host := os.Getenv("DOJO_SMTP_HOST")
+	if host == "" {
+		slog.Warn("DOJO_SMTP_HOST is not set: queued email will not be sent")
+		return nil
+	}
+	domain := os.Getenv("DOJO_EMAIL_DOMAIN")
+	if domain == "" {
+		return errors.New("DOJO_EMAIL_DOMAIN is required with DOJO_SMTP_HOST")
+	}
+	smtp := &mail.SMTP{Host: host, Port: envOr("DOJO_SMTP_PORT", "587"),
+		Username: os.Getenv("DOJO_SMTP_USERNAME"), Password: os.Getenv("DOJO_SMTP_PASSWORD")}
+	o := &server.Outbox{Queue: store, Reader: store.Queries(), Mail: smtp, Domain: domain, Origin: os.Getenv("PUBLIC_ORIGIN")}
+	slog.Info("email sender configured", "host", host, "port", smtp.Port, "domain", domain)
+	go server.RunOutbox(ctx, o, server.OutboxInterval)
+	if reportsTo == "" {
+		slog.Warn("DOJO_REPORTS_TO is not set: reports are stored and not forwarded")
+		return nil
+	}
+	go server.RunReportForwarder(ctx, &server.ReportForwarder{Queue: store, Mail: smtp, To: reportsTo, Domain: domain}, server.OutboxInterval)
+	return nil
 }

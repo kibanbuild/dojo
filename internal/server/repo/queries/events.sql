@@ -39,6 +39,24 @@ SET updated_at = now(), state = @state, lab = @lab, lab_state = @lab_state, lab_
     first_passed_at = @first_passed_at, passed_seconds = @passed_seconds
 WHERE learner_id = @learner_id AND item_id = @item_id;
 
+-- ticket.commit (design 3.9): an accepted sha starts its verification clock. Only the projection writes
+-- it, under the class-1 lock.
+-- name: AcceptTicketCommit :exec
+UPDATE ticket_progress
+SET updated_at = now(), passed_commit = @passed_commit, commit_state = 'pending', commit_tries = 0,
+    commit_at = @commit_at, commit_next_at = @commit_next_at
+WHERE learner_id = @learner_id AND item_id = @item_id;
+
+-- A sha that arrived before its pass; a repeat changes nothing, so the first one wins.
+-- name: InsertPendingCommit :exec
+INSERT INTO pending_commits (org_id, learner_id, item_id, "commit", client_at)
+VALUES (@org_id, @learner_id, @item_id, @commit, @client_at)
+ON CONFLICT (learner_id, item_id) DO NOTHING;
+
+-- No row back means no sha was waiting.
+-- name: TakePendingCommit :one
+DELETE FROM pending_commits WHERE learner_id = $1 AND item_id = $2 RETURNING "commit";
+
 -- The expiry sweeper (design 3.8): class 2 = one sweep at a time, released at commit.
 -- name: TryLockExpirySweep :one
 SELECT pg_try_advisory_xact_lock(2, 0) AS locked;

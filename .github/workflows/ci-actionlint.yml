@@ -19,7 +19,7 @@ permissions: {}
 
 jobs:
   actionlint:
-    if: github.repository == 'kibanbuild/dojo'
+    if: github.repository == 'kibanyadev/dojo'
     permissions:
       contents: read
-    uses: kibanbuild/.github/.github/workflows/reusable-actionlint.yml@23fea8cf9d58f966067ef7c9d7b6a9737a290884 # main
+    uses: kibanyadev/.github/.github/workflows/reusable-actionlint.yml@5363fd3d2c7bc0a6f00f69bda52352264765628d # v1.0.0

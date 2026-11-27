@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '../routes';
 import { parseBlocks } from '../lib/markdown';
 import { readBlockedUntil, resetReadBlock, type Ticket, type TicketProgress } from '../lib/read';
-import { duration, viewOf } from './Ticket';
+import { duration, shortDate, viewOf } from './Ticket';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -89,7 +89,7 @@ async function mount(t: Ticket | number, path = `/t/${ID}`) {
 }
 
 const text = () => container.textContent ?? '';
-const button = (name: string) => [...container.querySelectorAll('button')].find((b) => b.textContent === name);
+const button = (name: string) => [...container.querySelectorAll('button')].find((b) => (b.getAttribute('aria-label') ?? b.textContent) === name);
 
 beforeEach(() => {
   resetReadBlock();
@@ -107,9 +107,10 @@ afterEach(() => {
 
 describe('helpers', () => {
   it('formats durations', () => {
-    expect(duration(34 * 60)).toBe('34 min');
-    expect(duration(10)).toBe('1 min');
-    expect(duration(65 * 60)).toBe('1 h 5 min');
+    expect(duration(34 * 60)).toBe('about 34 min');
+    expect(duration(10)).toBe('about 1 min');
+    expect(duration(65 * 60)).toBe('about 1 h');
+    expect(duration(185 * 60)).toBe('about 3 h');
   });
 
   it('maps progress to a view', () => {
@@ -118,6 +119,10 @@ describe('helpers', () => {
     expect(viewOf(progress({ lab_state: null }))).toBe('running');
     expect(viewOf(progress({ state: 'passed' }))).toBe('passed');
     expect(viewOf(progress({ state: 'revisit', lab_state: 'expired' }))).toBe('revisit');
+  });
+
+  it('formats dates as month day', () => {
+    expect(shortDate('2026-11-24T12:00:00Z')).toBe('Nov 24');
   });
 
   it('parses the markdown subset', () => {
@@ -153,46 +158,157 @@ describe('Ticket not started', () => {
     await settle();
     expect(posts).toEqual([`/v1/tickets/${ID}/hints/1`]);
     expect(container.querySelector('section[aria-label=Hints] code')?.textContent).toBe('ls -ld shared');
-    expect(text()).toContain('1 of 3 opened');
+    expect(text()).toContain('1 of 3 open');
     expect(button('Show hint 2')).toBeDefined();
   });
 });
 
-describe('Ticket live states', () => {
-  it('shows a starting lab without a command', async () => {
-    await mount(ticket({ progress: progress({ lab_state: 'starting' }) }));
-    expect(text()).toContain('Starting your lab');
-    expect(container.querySelector('button[aria-label^="Copy command"]')).toBeNull();
-  });
+const checked = { check_count: 2, last_check_ok: false, last_check_passed: 1, last_check_total: 3 };
+const badge = () => container.querySelector('main span')?.textContent;
+const startCmd = `button[aria-label="Copy command: dojo start ${ID}"]`;
 
-  it('offers a restart when the lab failed or expired', async () => {
-    await mount(ticket({ progress: progress({ lab_state: 'failed' }) }));
-    expect(text()).toContain("Lab didn't start");
-    expect(container.querySelector(`button[aria-label="Copy command: dojo start ${ID}"]`)).not.toBeNull();
-  });
-
-  it('shows the last failed check with output and a live region', async () => {
-    await mount(ticket({ progress: progress({ check_count: 2, last_check_ok: false, last_check_passed: 1, last_check_total: 3, last_check_at: new Date().toISOString(), last_check_output: 'FAIL: other can write <b>' }) }));
+describe('Ticket in progress', () => {
+  it('shows the check command, the last check and the output block', async () => {
+    await mount(ticket({ progress: progress({ ...checked, last_check_at: new Date().toISOString(), last_check_output: 'FAIL: other can write <b>' }) }));
+    expect(text()).toContain('In progress');
+    expect(container.querySelector('button[aria-label="Copy command: dojo check"]')).not.toBeNull();
+    expect(text()).toContain('Results show here.');
     const status = container.querySelector('section[aria-label="Last check"] [role=status]')!;
     expect(status.textContent).toBe('Not yet · 1 of 3 checks pass · just now');
     const pre = container.querySelector('pre[aria-label="Check output"]')!;
     expect(pre.textContent).toBe('FAIL: other can write <b>');
     expect(pre.querySelector('b')).toBeNull();
+    expect(container.querySelector('figcaption')?.textContent).toBe('last dojo check · from your laptop');
   });
 
-  it('shows the passed state with time and every hint', async () => {
-    await mount(ticket({ hints: HINTS.map((t, i) => ({ n: i + 1, text: t })), progress: progress({ state: 'passed', check_count: 3, last_check_ok: true, last_check_passed: 3, last_check_total: 3, passed_seconds: 34 * 60 }) }));
+  it('drops the laptop suffix for a hosted lab', async () => {
+    await mount(ticket({ progress: progress({ ...checked, lab: 'hosted', last_check_output: 'x' }) }));
+    expect(container.querySelector('figcaption')?.textContent).toBe('last dojo check');
+  });
+
+  it('hides the Hints tab when the ticket has no hints', async () => {
+    await mount(ticket({ hint_count: 0, progress: progress() }));
+    expect([...container.querySelectorAll('[role=tab]')].map((t) => t.textContent)).toEqual(['Ticket', 'Check']);
+  });
+
+  it('gives each tabpanel a tab stop', async () => {
+    await mount(ticket({ progress: progress() }));
+    expect(container.querySelector('#panel-ticket')?.getAttribute('tabindex')).toBe('0');
+  });
+
+  it('leaves the output block out before the first check', async () => {
+    await mount(ticket({ progress: progress() }));
+    expect(container.querySelector('pre[aria-label="Check output"]')).toBeNull();
+    expect(container.querySelector('section[aria-label="Last check"]')).toBeNull();
+  });
+
+  it('offers the three phone tabs and keeps one h1 and ordered headings', async () => {
+    await mount(ticket({ progress: progress() }));
+    const tabs = [...container.querySelectorAll('[role=tab]')];
+    expect(tabs.map((t) => t.textContent)).toEqual(['Ticket', 'Hints', 'Check']);
+    expect(tabs.map((t) => t.getAttribute('aria-selected'))).toEqual(['true', 'false', 'false']);
+    await act(async () => (tabs[1] as HTMLElement).click());
+    expect(container.querySelector('#tab-hints')?.getAttribute('aria-selected')).toBe('true');
+    expect(container.querySelector('#panel-ticket')?.className).toContain('max-md:hidden');
+    expect(container.querySelector('#panel-hints')?.className).not.toContain('max-md:hidden');
+    expect(container.querySelectorAll('h1')).toHaveLength(1);
+    expect([...container.querySelectorAll('h1,h2')].map((h) => h.tagName)[0]).toBe('H1');
+  });
+
+  it('moves between tabs with the arrow keys', async () => {
+    await mount(ticket({ progress: progress() }));
+    const first = container.querySelector('#tab-ticket') as HTMLElement;
+    await act(async () => first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })));
+    expect(container.querySelector('#tab-hints')?.getAttribute('aria-selected')).toBe('true');
+  });
+});
+
+describe('Ticket starting', () => {
+  it('says the lab is starting, with no command and no invented steps', async () => {
+    await mount(ticket({ progress: progress({ lab_state: 'starting' }) }));
+    expect(badge()).toBe('Starting lab');
+    expect(text()).toContain('Your lab is booting. This can take a few minutes the first time on this computer.');
+    expect(text()).toContain('lab starting');
+    expect(container.querySelector('button[aria-label^="Copy command"]')).toBeNull();
+    expect(container.querySelector('[role=tab]')).toBeNull();
+  });
+});
+
+describe('Ticket did not start', () => {
+  it('offers dojo doctor and the start command, and says the online lab is not available', async () => {
+    await mount(ticket({ progress: progress({ lab_state: 'failed' }) }));
+    expect(text()).toContain("Lab didn't start");
+    expect(text()).toContain("The lab didn't start");
+    expect(text()).toContain('dojo doctor');
+    expect(text()).not.toContain('Nothing is broken');
+    expect(text()).toContain('An online lab is not available yet.');
+    expect(container.querySelector(startCmd)).not.toBeNull();
+  });
+});
+
+describe('Ticket expired', () => {
+  it('explains the 7 days and offers the start command and doctor', async () => {
+    await mount(ticket({ progress: progress({ lab_state: 'expired' }) }));
+    expect(badge()).toBe('Lab expired');
+    expect(text()).toContain('Your lab expired');
+    expect(text()).toContain('Your lab was marked expired after 7 days without a report from the CLI. Run dojo start again.');
+    expect(text()).not.toContain('your work is in your repo');
+    expect(text()).toContain('If the CLI seems stuck, run dojo doctor.');
+    expect(container.querySelector(startCmd)).not.toBeNull();
+  });
+});
+
+describe('Ticket passed', () => {
+  const passed = (over: Partial<TicketProgress> = {}) =>
+    ticket({ hints: HINTS.map((t, i) => ({ n: i + 1, text: t })), progress: progress({ state: 'passed', check_count: 3, last_check_ok: true, last_check_passed: 3, last_check_total: 3, passed_seconds: 34 * 60, ...over }) });
+
+  it('shows time and checks, every hint, and no signed commit in M2', async () => {
+    await mount(passed());
     expect(text()).toContain('Ticket passed');
-    expect(text()).toContain('You fixed it in 34 min.');
+    expect(text()).toContain('You fixed it in about 34 min.');
+    expect(text()).toContain('passed in about 34 min');
+    expect(container.querySelector('dl')?.textContent).toContain('about 34 min');
+    expect(container.querySelector('dl')?.textContent).toContain('3/3');
+    expect(container.querySelector('dl')?.textContent).toContain('checks pass');
     expect(text()).toContain('3 of 3 open');
+    expect(text()).not.toContain('signed');
     expect(button('Show hint 1')).toBeUndefined();
+    expect(container.querySelector('a[href="/path"]')).not.toBeNull();
   });
 
-  it('shows practice mode with the plain start command', async () => {
-    await mount(ticket({ progress: progress({ state: 'revisit', first_passed_at: new Date(Date.now() - 2 * 86_400_000).toISOString(), passed_seconds: 2040 }) }));
-    expect(text()).toContain('Practice mode');
-    expect(text()).toContain('34 min');
-    expect(container.querySelector(`button[aria-label="Copy command: dojo start ${ID}"]`)).not.toBeNull();
+  it('shows the commit as signed only when it is verified', async () => {
+    await mount(passed({ passed_commit: '3f9a1c2d9e0b', passed_commit_state: 'verified' }));
+    expect(text()).toContain('signed');
+    expect(text()).toContain('3f9a1c2');
+    expect(text()).not.toContain('3f9a1c2d');
+  });
+
+  it.each(['pending', 'unverified'] as const)('does not claim signed for a %s commit', async (state) => {
+    await mount(passed({ passed_commit: '3f9a1c2d9e0b', passed_commit_state: state }));
+    expect(text()).not.toContain('signed');
+  });
+});
+
+describe('Ticket revisit', () => {
+  it('shows practice mode with the date, the plain start command and the hints open', async () => {
+    const first = new Date(Date.now() - 2 * 86_400_000).toISOString();
+    await mount(ticket({ hints: HINTS.map((t, i) => ({ n: i + 1, text: t })), progress: progress({ state: 'revisit', first_passed_at: first, passed_seconds: 2040 }) }));
+    expect(badge()).toBe('Passed 2 days ago');
+    expect(text()).toContain('practice mode');
+    expect(text()).toContain(`You passed this ticket on ${shortDate(first)} in about 34 min.`);
+    expect(text()).toContain('hint 1 · hint 2 · hint 3 open');
+    expect(text()).toContain("It doesn't change your progress.");
+    expect(container.querySelector(startCmd)).not.toBeNull();
+    expect(text()).not.toContain('--again');
+  });
+});
+
+describe('Ticket hints', () => {
+  it('keeps unopened hints in dashed cards with the unlock rule', async () => {
+    await mount(ticket({ hints: [{ n: 1, text: HINTS[0]! }], progress: progress() }));
+    expect(text()).toContain('1 of 3 open');
+    expect(text()).toContain('unlocks after hint 2');
+    expect(button('Show hint 2')?.textContent).toBe('Show');
   });
 });
 

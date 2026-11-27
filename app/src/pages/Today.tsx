@@ -10,13 +10,16 @@ import {
   ticketKey,
   useActivity,
   useToday,
+  TODAY_KEY,
   type Activity,
+  type FirstRun,
   type Ticket,
   type Today as TodayData,
   type TodayTicket,
 } from '../lib/read';
+import { patchMe } from '../lib/settings';
 import { useLiveData } from '../lib/stream';
-import { ago, buildHeatGrid, capitalize, heatSummary, initial, parseBrief, sameDay, shortCommit, type BriefMessage } from '../lib/today';
+import { ago, buildHeatGrid, capitalize, heatSummary, initial, parseBrief, shortCommit, type BriefMessage } from '../lib/today';
 
 const card = 'flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5';
 const badge = 'inline-flex h-[26px] flex-none items-center rounded-md px-2.5 text-xs font-bold whitespace-nowrap';
@@ -407,26 +410,42 @@ function CurrentView({ current, next, role }: { current: TodayTicket; next: Toda
   );
 }
 
-function NextView({ next, role, name }: { next: TodayTicket; role: TodayData['role']; name: string }) {
+/** Leaving "day one done" through its action marks it seen (design 3.9); a failure only means it shows once more. */
+function useMarkFirstRunSeen() {
+  const queryClient = useQueryClient();
+  return () => {
+    void patchMe({ first_run_seen: true }).then((r) => {
+      if (r.ok) queryClient.setQueryData<TodayData>(TODAY_KEY, (t) => (t ? { ...t, first_run: null } : t));
+    });
+  };
+}
+
+/** `next` is the ticket the action opens: the next one, or with `continuing` the one already in progress. */
+function NextView({
+  next,
+  role,
+  name,
+  firstRun,
+  continuing = false,
+}: {
+  next: TodayTicket;
+  role: TodayData['role'];
+  name: string;
+  firstRun: FirstRun | null;
+  continuing?: boolean;
+}) {
   const activityQuery = useActivity();
+  const markSeen = useMarkFirstRunSeen();
   const nextTicket = useTicketIf(next.id);
   const activity = activityQuery.data;
-  const done = lastPass(activity);
+  const done = activity?.recent.find((r) => r.ticket_id === firstRun?.id) ?? null;
   const brief = nextTicket ? parseBrief(nextTicket.brief) : null;
-  // Day one is told apart by the one pass's own time, so the headline waits for the activity read.
-  const settling = activityQuery.isPending;
-  const first = activity?.total === 1 && done !== null && role?.tickets_passed === 1 && sameDay(done.at);
+  const first = firstRun !== null;
   const left = role ? role.tickets_total - role.tickets_passed : 0;
 
   return (
     <div className="flex flex-col gap-6">
-      {settling ? (
-        <div role="status" className="flex flex-col gap-2.5">
-          <span className="sr-only">Loading today...</span>
-          <div aria-hidden="true" className="h-[18px] w-24 rounded-md bg-surface2" />
-          <div aria-hidden="true" className="h-[34px] w-3/4 rounded-lg bg-surface2 md:h-[46px]" />
-        </div>
-      ) : first ? (
+      {first ? (
         <div className="flex flex-col gap-2.5">
           <span className={`${mono} text-[13px]`}>day one · done</span>
           <h1 className="m-0 text-[30px] leading-[1.06] font-extrabold tracking-[-1px] md:text-[44px] md:tracking-[-1.5px]">
@@ -440,14 +459,15 @@ function NextView({ next, role, name }: { next: TodayTicket; role: TodayData['ro
       )}
       <div className="grid items-start gap-[18px] md:grid-cols-[1fr_380px] md:gap-6">
         <div className="flex min-w-0 flex-col gap-[18px]">
-          {first && done && (
+          {firstRun && (
             <section aria-label="Your first ticket is done" className={`${card} border-ok`}>
               <div className="flex items-center justify-between gap-3">
                 <h2 className="m-0 text-base font-extrabold">Your first ticket is done</h2>
-                <span className={`${badge} bg-oksoft font-mono text-ok`}>{shortId(done.ticket_id)}</span>
+                <span className={`${badge} bg-oksoft font-mono text-ok`}>{shortId(firstRun.id)}</span>
               </div>
+              <p className="m-0 text-[17px] font-extrabold">{firstRun.title}</p>
               <p className="m-0 text-sm leading-[1.55] text-fg2">
-                {done.commit && (
+                {done?.commit && (
                   <>
                     Your first signed commit is <b className="font-mono">{shortCommit(done.commit)}</b>.{' '}
                   </>
@@ -458,7 +478,7 @@ function NextView({ next, role, name }: { next: TodayTicket; role: TodayData['ro
           )}
           <section aria-label="Next up" className={card}>
             <div className="flex items-center justify-between gap-3">
-              <h2 className="m-0 text-base font-extrabold">Next up</h2>
+              <h2 className="m-0 text-base font-extrabold">{continuing ? 'In progress' : 'Next up'}</h2>
               {nextTicket && <span className="font-mono text-xs text-muted">about {nextTicket.est_minutes} min</span>}
             </div>
             <p className="m-0 text-[17px] font-extrabold">
@@ -466,8 +486,8 @@ function NextView({ next, role, name }: { next: TodayTicket; role: TodayData['ro
             </p>
             {brief && <p className="m-0 text-sm leading-[1.55] text-fg2">{brief.text}</p>}
             <div className="flex flex-wrap gap-2.5">
-              <Link to={ticketHref(next.id)} className={primaryBtn}>
-                Start {shortId(next.id)}
+              <Link to={ticketHref(next.id)} onClick={first ? markSeen : undefined} className={primaryBtn}>
+                {continuing ? 'Continue' : first ? 'Start the next one' : `Start ${shortId(next.id)}`}
               </Link>
               <Link to="/path" className={ghostBtn}>
                 See the whole path
@@ -477,7 +497,7 @@ function NextView({ next, role, name }: { next: TodayTicket; role: TodayData['ro
         </div>
         <aside aria-label="Your progress" className="flex flex-col gap-[18px]">
           {role && <RoleCard role={role} />}
-          {!settling && activity && (first ? <ActivityNote activity={activity} /> : <ActivityPanel activity={activity} />)}
+          {activity && (first ? <ActivityNote activity={activity} /> : <ActivityPanel activity={activity} />)}
         </aside>
       </div>
     </div>
@@ -542,9 +562,11 @@ export function Today({ me }: { me: Me }) {
       </div>
     );
   } else {
-    const { current, next, role, all_passed: allPassed } = today.data;
-    if (current) body = <CurrentView current={current} next={next} role={role} />;
-    else if (next) body = <NextView next={next} role={role} name={me.username} />;
+    const { current, next, role, all_passed: allPassed, first_run: firstRun = null } = today.data;
+    if (firstRun && (current ?? next)) {
+      body = <NextView next={(current ?? next)!} role={role} name={me.username} firstRun={firstRun} continuing={current !== null} />;
+    } else if (current) body = <CurrentView current={current} next={next} role={role} />;
+    else if (next) body = <NextView next={next} role={role} name={me.username} firstRun={null} />;
     else if (allPassed && role) {
       body = (
         <div className={grid2}>

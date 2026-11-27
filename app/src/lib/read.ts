@@ -72,7 +72,16 @@ export interface TodayTicket {
   lab_state: LabState | null;
 }
 
+/** The learner's earliest first pass while they have not left "day one done" (design 3.9). */
+export interface FirstRun {
+  id: string;
+  title: string;
+  first_passed_at: string;
+  passed_commit_state: 'pending' | 'verified' | 'unverified' | null;
+}
+
 export interface Today {
+  first_run?: FirstRun | null;
   current: TodayTicket | null;
   next: TodayTicket | null;
   role: { slug: string; title: string; tickets_passed: number; tickets_total: number } | null;

@@ -293,15 +293,17 @@ describe('Today read budget', () => {
 describe('Today on day one', () => {
   const justNow = new Date().toISOString();
   const oneToday = activityOf({ total: 1, days: [{ day: '2026-11-25', count: 1 }], recent: [passAt(sudo.id, sudo.title, justNow)] });
+  const first_run = { id: sudo.id, title: sudo.title, first_passed_at: justNow, passed_commit_state: null };
+  const patches = () => (fetch as unknown as { mock: { calls: [string, RequestInit?][] } }).mock.calls.filter(([, init]) => init?.method === 'PATCH');
 
-  it('welcomes the learner after the first ticket passed today', async () => {
-    stubApi({ current: null, next: ssh, role: { ...role, tickets_passed: 1 }, all_passed: false }, { activity: oneToday, tickets: { [ssh.id]: ticket(ssh.id) } });
+  it('welcomes the learner when the API serves first_run', async () => {
+    stubApi({ first_run, current: null, next: ssh, role: { ...role, tickets_passed: 1 }, all_passed: false }, { activity: oneToday, tickets: { [ssh.id]: ticket(ssh.id) } });
     await mount();
     expect(container.querySelector('h1')?.textContent).toBe('Welcome to the team, @irene.');
     expect(text()).toContain('day one · done');
     expect(container.querySelector('section[aria-label="Your first ticket is done"]')?.textContent).toContain('sudo-01');
     expect(container.querySelector('section[aria-label="Next up"]')?.textContent).toContain('about 15 min');
-    expect(link('Start ssh-01')).toBeDefined();
+    expect(link('Start the next one')?.getAttribute('href')).toBe('/t/support-l1/ssh-01');
     const note = container.querySelector('section[aria-label="Activity"]')!;
     expect(note.textContent).toContain('One so far: support-l1/sudo-01');
     expect(note.querySelector('[role=img]')).toBeNull();
@@ -311,39 +313,57 @@ describe('Today on day one', () => {
 
   it('names the sha in the note once one is served', async () => {
     const withSha = { ...oneToday, recent: [passAt(sudo.id, sudo.title, justNow, '4c1e9a0ffff')] };
-    stubApi({ current: null, next: ssh, role: { ...role, tickets_passed: 1 }, all_passed: false }, { activity: withSha, tickets: { [ssh.id]: ticket(ssh.id) } });
+    stubApi({ first_run, current: null, next: ssh, role: { ...role, tickets_passed: 1 }, all_passed: false }, { activity: withSha, tickets: { [ssh.id]: ticket(ssh.id) } });
     await mount();
     expect(container.querySelector('section[aria-label="Activity"]')?.textContent).toContain('One so far: 4c1e9a0 support-l1/sudo-01');
     expect(container.querySelector('section[aria-label="Your first ticket is done"]')?.textContent).toContain('4c1e9a0');
   });
 
-  it('falls back to the plain headline when the activity read fails, without claiming a pass', async () => {
-    stubApi({ current: null, next: ssh, role: { ...role, tickets_passed: 1 }, all_passed: false }, { activity: 500, tickets: {} });
+  it('still welcomes the learner when the activity read fails, without a commit line', async () => {
+    stubApi({ first_run, current: null, next: ssh, role: { ...role, tickets_passed: 1 }, all_passed: false }, { activity: 500, tickets: {} });
     await mount();
-    await act(async () => new Promise((r) => setTimeout(r, 1200)));
-    expect(container.querySelector('h1')?.textContent).toBe('Ready for the next ticket.');
-    expect(container.querySelector('section[aria-label="Activity"]')).toBeNull();
+    expect(container.querySelector('h1')?.textContent).toBe('Welcome to the team, @irene.');
+    expect(container.querySelector('section[aria-label="Your first ticket is done"]')?.textContent).not.toContain('signed commit');
   });
 
-  it('uses the plain headline and the grid when the pass is older', async () => {
-    stubApi({ current: null, next: ssh, role: { ...role, tickets_passed: 1 }, all_passed: false }, { activity: { ...oneToday, recent: [passAt(sudo.id, sudo.title, threeDaysAgo)] }, tickets: {} });
+  it('uses the plain headline and the grid without first_run', async () => {
+    stubApi({ first_run: null, current: null, next: ssh, role: { ...role, tickets_passed: 1 }, all_passed: false }, { activity: { ...oneToday, recent: [passAt(sudo.id, sudo.title, threeDaysAgo)] }, tickets: {} });
     await mount();
     expect(container.querySelector('h1')?.textContent).toBe('Ready for the next ticket.');
     expect(container.querySelector('section[aria-label="Activity"] [role=img]')).not.toBeNull();
+    expect(link('Start ssh-01')).toBeDefined();
   });
 
-  it('shows no headline until the activity read settles', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url: string) => {
-        if (url === '/v1/me') return Promise.resolve(Response.json(me));
-        if (url === '/v1/today') return Promise.resolve(Response.json({ current: null, next: ssh, role: { ...role, tickets_passed: 1 }, all_passed: false }));
-        return new Promise<Response>(() => {});
-      }),
-    );
+  it('marks the first run seen when the learner starts the next one', async () => {
+    stubApi({ first_run, current: null, next: ssh, role: { ...role, tickets_passed: 1 }, all_passed: false }, { activity: oneToday, tickets: { [ssh.id]: ticket(ssh.id) } });
     await mount();
-    expect(container.querySelector('h1')).toBeNull();
-    expect(text()).toContain('Loading today...');
+    expect(patches()).toHaveLength(0);
+    await act(async () => link('Start the next one')!.click());
+    await settle();
+    expect(router.state.location.pathname).toBe('/t/support-l1/ssh-01');
+    expect(patches()).toHaveLength(1);
+    expect(patches()[0]![0]).toBe('/v1/me');
+    expect(JSON.parse(String(patches()[0]![1]!.body))).toEqual({ first_run_seen: true });
+  });
+
+  it('offers Continue and marks it seen when a ticket is already in progress', async () => {
+    stubApi({ first_run, current: perms, next: ssh, role: { ...role, tickets_passed: 1 }, all_passed: false }, { activity: oneToday, tickets: { [perms.id]: ticket(perms.id) } });
+    await mount();
+    expect(link('Start the next one')).toBeUndefined();
+    await act(async () => link('Continue')!.click());
+    await settle();
+    expect(router.state.location.pathname).toBe('/t/support-l1/perms-03');
+    expect(patches()).toHaveLength(1);
+  });
+
+  it('still opens the ticket when the seen PATCH fails', async () => {
+    stubApi({ first_run, current: null, next: ssh, role: { ...role, tickets_passed: 1 }, all_passed: false }, { activity: oneToday });
+    const base = fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => (init?.method === 'PATCH' ? Promise.resolve(new Response(null, { status: 500 })) : base(url, init))));
+    await mount();
+    await act(async () => link('Start the next one')!.click());
+    await settle();
+    expect(router.state.location.pathname).toBe('/t/support-l1/ssh-01');
   });
 });
 

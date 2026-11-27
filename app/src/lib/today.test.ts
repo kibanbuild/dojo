@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ago, buildHeatGrid, capitalize, heatSummary, parseBrief, sameDay, shortCommit } from './today';
+import { ago, buildHeatGrid, capitalize, heatSummary, parseBrief, shortCommit } from './today';
 
 describe('parseBrief', () => {
   it('reads sender, team and the first paragraph', () => {
@@ -20,11 +20,6 @@ describe('small helpers', () => {
     const now = Date.parse('2026-11-25T12:00:00Z');
     expect(ago('2026-11-25T11:57:00Z', now)).toBe('3 min ago');
     expect(ago(null, now)).toBe('');
-  });
-  it('detects the same local day', () => {
-    const now = new Date(2026, 10, 25, 20);
-    expect(sameDay(new Date(2026, 10, 25, 1).toISOString(), now)).toBe(true);
-    expect(sameDay(new Date(2026, 10, 24, 23).toISOString(), now)).toBe(false);
   });
   it('shortens and capitalizes', () => {
     expect(shortCommit('3f9a1c2deadbeef')).toBe('3f9a1c2');

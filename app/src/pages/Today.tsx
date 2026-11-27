@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { AppFrame } from '../components/AppFrame';
+import { EmailPrompt } from '../components/EmailPrompt';
 import { ME_KEY, type Me } from '../lib/me';
 import {
   fetchTicket,
@@ -591,5 +592,14 @@ export function Today({ me }: { me: Me }) {
     }
   }
 
-  return <AppFrame me={me}>{body}</AppFrame>;
+  return (
+    <AppFrame me={me}>
+      {me.email === null && (
+        <div className="mb-5">
+          <EmailPrompt me={me} />
+        </div>
+      )}
+      {body}
+    </AppFrame>
+  );
 }

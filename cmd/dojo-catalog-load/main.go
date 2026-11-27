@@ -14,8 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kibanyadev/dojo/internal/catalogload"
+	"github.com/kibanyadev/dojo/internal/dbpool"
 	"github.com/kibanyadev/dojo/internal/storage"
 )
 
@@ -54,7 +54,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	pool, err := pgxpool.New(ctx, dsn)
+	pool, err := dbpool.New(ctx, dsn)
 	if err != nil {
 		return fmt.Errorf("open pool: %w", err)
 	}

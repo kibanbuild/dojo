@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/kibanyadev/dojo/internal/dbpool"
 )
 
 const publicOrg = "public"
@@ -18,7 +20,7 @@ type Store struct {
 
 // Open connects to Postgres.
 func Open(ctx context.Context, url string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, url)
+	pool, err := dbpool.New(ctx, url)
 	if err != nil {
 		return nil, fmt.Errorf("open pool: %w", err)
 	}

@@ -13,6 +13,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd/dojo-api ./cmd/dojo-api
 COPY internal/server ./internal/server
+COPY internal/dbpool ./internal/dbpool
 COPY internal/github ./internal/github
 COPY internal/mail ./internal/mail
 COPY internal/storage ./internal/storage
@@ -26,6 +27,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd/dojo-admin ./cmd/dojo-admin
 COPY internal/admin ./internal/admin
+COPY internal/dbpool ./internal/dbpool
 COPY internal/github ./internal/github
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/dojo-admin ./cmd/dojo-admin
 
@@ -36,6 +38,7 @@ RUN go mod download
 COPY cmd/dojo-catalog-load ./cmd/dojo-catalog-load
 COPY internal/catalog ./internal/catalog
 COPY internal/catalogload ./internal/catalogload
+COPY internal/dbpool ./internal/dbpool
 COPY internal/storage ./internal/storage
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/dojo-catalog-load ./cmd/dojo-catalog-load
 

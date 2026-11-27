@@ -7,8 +7,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kibanyadev/dojo/internal/admin"
+	"github.com/kibanyadev/dojo/internal/dbpool"
 	"github.com/kibanyadev/dojo/internal/github"
 )
 
@@ -33,7 +33,7 @@ func bootstrap(ctx context.Context, args []string, getenv func(string) string, o
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	pool, err := pgxpool.New(ctx, dsn)
+	pool, err := dbpool.New(ctx, dsn)
 	if err != nil {
 		return fmt.Errorf("open pool: %w", err)
 	}

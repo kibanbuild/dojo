@@ -9,6 +9,7 @@ project:
   board: "https://github.com/orgs/kibanyadev/projects/3"
   next_gate: "M2: tickets on local labs mirrored on the web (M1 sign-in and operator skeleton done 2026-11-23)"
   close_if: "no learner passes Support L1 by 2027-03-31, or local labs fail on typical student PCs and hosted machines cost more than the budget allows"
+  merge: manual
 ---
 
 # dojo

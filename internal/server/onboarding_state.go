@@ -91,16 +91,32 @@ type onboardingResponse struct {
 	FirstTicket   *firstTicket      `json:"first_ticket"`
 }
 
+// firstTicket is the first ticket of the learner's path, whatever their progress: it never moves.
+// State is null until the learner has a progress row; CommitState is the passed commit's state.
 type firstTicket struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
+	ID          string  `json:"id"`
+	Title       string  `json:"title"`
+	State       *string `json:"state"`
+	CommitState *string `json:"commit_state"`
+}
+
+// selectFirstTicket is the first ticket in path order, skipping locked roles; nil when there is none.
+func selectFirstTicket(roles []pathRole) *firstTicket {
+	for _, role := range roles {
+		if role.Locked || len(role.Items) == 0 {
+			continue
+		}
+		it := role.Items[0]
+		return &firstTicket{it.ID, it.Title, it.State, it.CommitState}
+	}
+	return nil
 }
 
 // onboarding is GET /v1/onboarding: one read for O2 to O5 and for routing a signed-in learner.
 func (a Auth) onboarding(w http.ResponseWriter, r *http.Request) {
 	p, _ := principalOf(r.Context())
 	o := a.Onboarding
-	path, seen, err := a.loadPath(r)
+	path, _, err := a.loadPath(r)
 	if err != nil {
 		readFailed(w, r, err)
 		return
@@ -129,8 +145,6 @@ func (a Auth) onboarding(w http.ResponseWriter, r *http.Request) {
 	for _, c := range checks {
 		out.Checks = append(out.Checks, onboardingCheck{c.ID, c.Group, c.Status, c.Text, c.Fix, c.Source, c.CheckedAt.UTC().Format(time.RFC3339)})
 	}
-	if next := selectToday(path.Roles, seen).Next; next != nil {
-		out.FirstTicket = &firstTicket{next.ID, next.Title}
-	}
+	out.FirstTicket = selectFirstTicket(path.Roles)
 	writeNoStore(w, out)
 }

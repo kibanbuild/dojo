@@ -21,6 +21,40 @@ func TestWaitlistOutIsNeverNull(t *testing.T) {
 	}
 }
 
+func TestSelectFirstTicket(t *testing.T) {
+	str := func(s string) *string { return &s }
+	role := func(locked bool, items ...pathItem) pathRole { return pathRole{Locked: locked, Items: items} }
+	a := func(state, commit *string) pathItem {
+		return pathItem{ID: "r/a", Title: "A", State: state, CommitState: commit}
+	}
+	b := pathItem{ID: "r/b", Title: "B", State: str("started")}
+	for _, c := range []struct {
+		name      string
+		roles     []pathRole
+		id        string
+		state, cs *string
+	}{
+		{"fresh learner", []pathRole{role(false, a(nil, nil), b)}, "r/a", nil, nil},
+		{"started", []pathRole{role(false, a(str("started"), nil), b)}, "r/a", str("started"), nil},
+		{"passed, pending", []pathRole{role(false, a(str("passed"), str("pending")), b)}, "r/a", str("passed"), str("pending")},
+		{"passed, verified", []pathRole{role(false, a(str("passed"), str("verified")), b)}, "r/a", str("passed"), str("verified")},
+		{"passed, unverified", []pathRole{role(false, a(str("passed"), str("unverified")), b)}, "r/a", str("passed"), str("unverified")},
+		{"skips a locked role", []pathRole{role(true), role(false, a(nil, nil))}, "r/a", nil, nil},
+	} {
+		got := selectFirstTicket(c.roles)
+		eq := func(x, y *string) bool { return (x == nil) == (y == nil) && (x == nil || *x == *y) }
+		if got == nil || got.ID != c.id || !eq(got.State, c.state) || !eq(got.CommitState, c.cs) {
+			t.Errorf("%s: %+v", c.name, got)
+		}
+	}
+	if got := selectFirstTicket([]pathRole{role(true)}); got != nil {
+		t.Errorf("no tickets: %+v", got)
+	}
+	if got := selectFirstTicket(nil); got != nil {
+		t.Errorf("no roles: %+v", got)
+	}
+}
+
 func TestNextStep(t *testing.T) {
 	both := repo.Readiness{O3: true, O4: true}
 	for _, c := range []struct {

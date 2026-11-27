@@ -26,7 +26,7 @@ SELECT id, catalog_version, bundle_key, bundle_sha256, bundle_bytes
 FROM catalog_items WHERE id = $1 AND bundle_key IS NOT NULL;
 
 -- name: ListLearnerTicketStates :many
-SELECT item_id, state, lab_state, last_seen_at FROM ticket_progress WHERE learner_id = $1;
+SELECT item_id, state, lab_state, last_seen_at, commit_state FROM ticket_progress WHERE learner_id = $1;
 
 -- GET /v1/activity (design 3.8): first passes only, bucketed by the day in the learner's zone.
 -- name: ListLearnerActivityDays :many

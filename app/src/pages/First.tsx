@@ -12,7 +12,7 @@ import { CopyCommand, Headline } from './Today';
 
 const MENTOR: Record<FirstView, string> = {
   hosted: 'Hosted labs are not open yet. Your key and repo are ready, so you are not behind.',
-  start: 'Nobody here expects you to know everything. They expect you to read before you ask. Start with the command, then man du.',
+  start: 'Nobody here expects you to know everything. They expect you to read before you ask. Start the lab, then read the ticket twice.',
   starting: 'Booting a lab takes a minute the first time. Read the ticket while you wait.',
   running: 'You are in. Look around before you change anything: read first, then fix.',
   checked: 'Not yet is a normal answer. Read the output, change one thing, check again.',

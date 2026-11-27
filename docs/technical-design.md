@@ -298,7 +298,7 @@ public (P1-P4, P6, LG1) -> O0 pick path -> O1 sign in -> O2 install -> O3 doctor
 Today -> Ticket (L3) -> writing task (L9) / quiz (L11) / story moment (L4) -> next ticket
 Path -> all tickets of the role done -> L6 rules + preflight -> H1 preparing -> R3/H2 work day
   -> submit -> defend (feedback) -> result (a pass waits for a person first): R4 role passed -> R5 record
-     or L6 not yet -> practise -> retry (an appeal is possible once, after the result)
+     or L6 not yet -> practice -> retry (an appeal is possible once, after the result)
 ```
 
 The app nav is Today, Path, Practice, plus the inbox bell (N1), the command palette (K1, desktop)
@@ -344,7 +344,7 @@ are SPA routes served under `/app`: L3 is `/app/t/support-l1/perms-03`, and `doj
 | R3/H2 The work day | `/exam/:role/day` | Submit the exam (after a confirm step) | Queue of four parts, answer boxes that autosave ("Saved 10:42"), browser terminal or `dojo exam`. Clock states: extra time applied, paused, warnings, clock hidden (section 2.7). Phone: "open this on a computer", the clock has not started. |
 | L6 Defend | `/exam/:role/defend` | Send answers | Three questions, 30 minutes, draft saved, skip allowed. Feedback only, never scored. |
 | L6 Submitted, checking a pass | `/exam/:role/result` | none (waits) | Canvas v109 L6 Submitted. While scoring and defend run it says "Submitted. Checking your work."; once defend closes, a Not yet goes straight to L6 Not yet, and a pass waiting for review shows "Submitted. Checking your pass." (telling the learner it scored as a pass before E2 is deliberate: the wait already says so). Shows the submitted time and the one-appeal rule. `dojo status` shows the same. |
-| L6 Not yet / R4 Role passed | `/exam/:role/result`, `/roles/:role/passed` | Practise (not yet); See your track record (passed); Appeal | Not yet shows the five scored items, what did not hold and one retry date. Appeal is offered once per attempt, with a reason box (canvas v104 L6 Appeal and L6 Appeal decided, section 2.7). |
+| L6 Not yet / R4 Role passed | `/exam/:role/result`, `/roles/:role/passed` | Practice (not yet); See your track record (passed); Appeal | Not yet shows the five scored items, what did not hold and one retry date. Appeal is offered once per attempt, with a reason box (canvas v104 L6 Appeal and L6 Appeal decided, section 2.7). |
 | R5 Track record | `/record` | Share (opt-in switch, copy link, regenerate or revoke) | Empty before the first role. Private by default; the learner turns sharing on and chooses which practice items show. Foundations and Support L1 entries read "Verified by Dojo" only when the pass is server-side (exam); tickets and practice read "Practice". |
 | Public record | `/r/:token` | none | Only when the learner opted in; the token is long, random and unguessable, and the learner can revoke it or regenerate it (the old link then dies). Shows verified work and the items they chose, nothing else, `noindex`, not listed. There is no per-name record URL and no username namespace. This is not a public portfolio. |
 | L7 / L8 Belt mark, belt | `/celebrate/:id` | Next ticket | Shown once, then in the inbox. L8 only when the four white marks are done. |
@@ -562,7 +562,7 @@ from these hours. On a phone there is no terminal.
   Webhooks are idempotent by Stripe event id and are the only writer of billing tables.
 - **Emails:** E1 welcome (names the path), E2 role passed, E3 not yet, E4 hours low, E5 supporter
   welcome, E6 supporter ends, E7 weekly summary (Sundays), E8 account deleted (the last email,
-  sent once). Product news is off by default. No streak or "you have not practised" email.
+  sent once). Product news is off by default. No streak or "you have not practiced" email.
   Every email is queued in `email_outbox` (section 3.3), whose `(kind, ref)` key makes it go once;
   bounces suppress an address.
 

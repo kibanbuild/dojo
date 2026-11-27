@@ -6,7 +6,7 @@ import (
 )
 
 // Each fact prints exactly one line, empty when unknown. Firmware
-// virtualisation reads False once a hypervisor (Hyper-V) is running, so a
+// virtualization reads False once a hypervisor (Hyper-V) is running, so a
 // present hypervisor also counts as enabled.
 const probeScript = `$c = Get-CimInstance Win32_ComputerSystem
 $p = Get-CimInstance Win32_Processor | Select-Object -First 1

@@ -51,9 +51,9 @@ func TestEvaluate(t *testing.T) {
 		{"many cores", good, nil, "CPU cores", OK},
 		{"two cores", with(good, func(m *Machine) { m.CPUs = 2 }), nil, "CPU cores", Warn},
 		{"one core", with(good, func(m *Machine) { m.CPUs = 1 }), nil, "CPU core", Fail},
-		{"virtualisation on", good, nil, "virtualisation", OK},
-		{"virtualisation off", with(good, func(m *Machine) { m.Virtualization = false }), nil, "virtualisation", Fail},
-		{"virtualisation unknown", with(good, func(m *Machine) { m.VirtualizationKnown = false }), nil, "virtualisation", Warn},
+		{"virtualization on", good, nil, "virtualization", OK},
+		{"virtualization off", with(good, func(m *Machine) { m.Virtualization = false }), nil, "virtualization", Fail},
+		{"virtualization unknown", with(good, func(m *Machine) { m.VirtualizationKnown = false }), nil, "virtualization", Warn},
 		{"no VM manager", good, errors.New("not installed"), "VM manager", Fail},
 		{"VM manager ready", good, nil, "VM manager", OK},
 		{"KVM present but denied", with(good, func(m *Machine) { m.KVMDenied = true; m.VirtualizationKnown = false }), nil, "/dev/kvm exists", Warn},
@@ -260,7 +260,7 @@ func TestKVMDeniedFixNamesTheGroup(t *testing.T) {
 			t.Errorf("fix %q", r.Fix)
 		}
 	}
-	if strings.Contains(fmt.Sprint(Evaluate(m, "lima", nil)), "virtualisation is enabled") {
+	if strings.Contains(fmt.Sprint(Evaluate(m, "lima", nil)), "virtualization is enabled") {
 		t.Error("denied KVM reported as enabled")
 	}
 }
@@ -294,7 +294,7 @@ func TestParseCPUFlags(t *testing.T) {
 		t.Error("vmx/svm not detected")
 	}
 	if parseCPUFlags("flags : fpu sse\n") || parseCPUFlags("") {
-		t.Error("flag-less cpu reported as virtualisation capable")
+		t.Error("flag-less cpu reported as virtualization capable")
 	}
 }
 

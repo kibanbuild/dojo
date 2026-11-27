@@ -69,7 +69,7 @@ type Machine struct {
 	VirtualizationKnown bool
 	// KVMDenied is set on Linux when /dev/kvm exists but this user cannot open it.
 	KVMDenied bool
-	// KVMMissing is set on Linux x86 when the CPU supports virtualisation but /dev/kvm does not exist.
+	// KVMMissing is set on Linux x86 when the CPU supports virtualization but /dev/kvm does not exist.
 	KVMMissing bool
 	HasGit     bool
 	// GitUnknown is set when git did not answer in time.
@@ -158,13 +158,13 @@ func Evaluate(m Machine, backendName string, backendErr error) []Result {
 	case m.KVMDenied:
 		add("virtualization", mach, Warn, "/dev/kvm exists but your user cannot open it", "add yourself to the kvm group (sudo usermod -aG kvm $USER), then log out and back in")
 	case m.KVMMissing:
-		add("virtualization", mach, Fail, "the CPU supports virtualisation but /dev/kvm is missing", "load the kvm module (sudo modprobe kvm_intel or kvm_amd), or enable virtualisation in the BIOS/UEFI")
+		add("virtualization", mach, Fail, "the CPU supports virtualization but /dev/kvm is missing", "load the kvm module (sudo modprobe kvm_intel or kvm_amd), or enable virtualization in the BIOS/UEFI")
 	case !m.VirtualizationKnown:
-		add("virtualization", mach, Warn, "could not tell whether CPU virtualisation is enabled", "if the lab fails to start, check VT-x/AMD-V in your BIOS")
+		add("virtualization", mach, Warn, "could not tell whether CPU virtualization is enabled", "if the lab fails to start, check VT-x/AMD-V in your BIOS")
 	case !m.Virtualization:
-		add("virtualization", mach, Fail, "CPU virtualisation is disabled", "enable VT-x (Intel) or AMD-V/SVM (AMD) in your BIOS/UEFI settings")
+		add("virtualization", mach, Fail, "CPU virtualization is disabled", "enable VT-x (Intel) or AMD-V/SVM (AMD) in your BIOS/UEFI settings")
 	default:
-		add("virtualization", mach, OK, "CPU virtualisation is enabled", "")
+		add("virtualization", mach, OK, "CPU virtualization is enabled", "")
 	}
 
 	switch {

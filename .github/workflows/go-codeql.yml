@@ -18,7 +18,7 @@ permissions: {}
 
 jobs:
   go-analyze:
-    if: github.repository == 'kibanbuild/dojo'
+    if: github.repository == 'kibanbuild/dojo' || github.repository == 'kibanyadev/dojo'
     name: CodeQL Security Analysis
     runs-on: ubuntu-latest
     timeout-minutes: 30

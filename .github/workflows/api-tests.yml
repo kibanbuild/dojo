@@ -16,7 +16,7 @@ permissions: {}
 
 jobs:
   api-tests:
-    if: github.repository == 'kibanbuild/dojo'
+    if: github.repository == 'kibanbuild/dojo' || github.repository == 'kibanyadev/dojo'
     name: API Integration
     runs-on: ubuntu-latest
     timeout-minutes: 20

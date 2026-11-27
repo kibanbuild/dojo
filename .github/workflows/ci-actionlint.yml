@@ -19,7 +19,7 @@ permissions: {}
 
 jobs:
   actionlint:
-    if: github.repository == 'kibanbuild/dojo'
+    if: github.repository == 'kibanbuild/dojo' || github.repository == 'kibanyadev/dojo'
     name: GitHub Actions Schema Check
     runs-on: ubuntu-latest
     timeout-minutes: 10

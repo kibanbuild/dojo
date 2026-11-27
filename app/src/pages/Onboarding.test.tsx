@@ -6,7 +6,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '../routes';
 import { resetReadBlock } from '../lib/read';
-import type { NextStep, Onboarding } from '../lib/onboarding';
+import type { CheckStatus, DoctorCheck, NextStep, Onboarding } from '../lib/onboarding';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -42,16 +42,22 @@ let root: Root;
 let router: ReturnType<typeof createMemoryRouter>;
 let calls: Call[];
 let onboarding: Onboarding;
+let patchStatus: number;
 let meBody: object | null;
 
 function ob(next: NextStep, extra: Partial<Onboarding> = {}): Onboarding {
   return { next_step: next, env: 'pro', public_origin: 'https://dojo.example', path: { slug: 'systems-devops', chosen: true }, cli_connected: false, first_ticket: null, ...extra };
 }
 
+const check = (id: string, status: CheckStatus = 'ok', text = `${id} text`, fix = ''): DoctorCheck => ({ id, status, text, fix });
+const REQUIRED = ['memory', 'disk', 'cpu', 'virtualization', 'vm_manager', 'git'];
+const allOk = () => REQUIRED.map((id) => check(id));
+
 function setup(state: Onboarding, me: object | null = learner) {
   calls = [];
   FakeES.all = [];
   onboarding = state;
+  patchStatus = 200;
   meBody = me;
   vi.stubGlobal('EventSource', FakeES);
   vi.stubGlobal(
@@ -60,7 +66,13 @@ function setup(state: Onboarding, me: object | null = learner) {
       const method = init?.method ?? 'GET';
       calls.push({ method, url, body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined });
       if (url === '/v1/me' && method === 'GET') return meBody ? Response.json(meBody) : new Response(null, { status: 401 });
+      if (url === '/v1/me' && method === 'PATCH') {
+        if (patchStatus !== 200) return Response.json({ error: 'bad_request' }, { status: patchStatus });
+        onboarding = { ...onboarding, next_step: 'o4', hosted_default: true };
+        return Response.json(learner);
+      }
       if (url === '/v1/onboarding') return Response.json(onboarding);
+      if (url === '/v1/reports') return Response.json({ id: 'r1' }, { status: 201 });
       return new Response(null, { status: 404 });
     }),
   );
@@ -87,6 +99,7 @@ const text = () => container.textContent ?? '';
 const button = (name: string) => [...container.querySelectorAll('button')].find((b) => b.textContent?.startsWith(name));
 const click = (el: Element | undefined) => act(async () => (el as HTMLElement).click());
 const emit = (name: string, data?: object) => act(async () => FakeES.all.at(-1)?.emit(name, data));
+const onboardingReads = () => calls.filter((c) => c.url === '/v1/onboarding').length;
 const ready = (name: string) => until(() => button(name) !== undefined);
 
 beforeEach(() => {
@@ -223,5 +236,148 @@ describe('O2 Install', () => {
     setup(ob('o2'));
     await mount('/start/install');
     await until(() => text().includes('run dojo login again for a new one'));
+  });
+});
+
+describe('O3 Doctor', () => {
+  it('waits while no result exists', async () => {
+    setup(ob('o3', { checks: [] }));
+    await mount('/start/doctor');
+    await until(() => text().includes('Not checked yet'));
+    expect(text()).toContain('waiting');
+    expect(button('Continue')?.disabled).toBe(true);
+  });
+
+  it('draws results that arrive on the doctor event, then fills their text from the read', async () => {
+    setup(ob('o3', { checks: [] }));
+    await mount('/start/doctor');
+    await until(() => FakeES.all.length > 0 && text().includes('waiting'));
+    const before = onboardingReads();
+    onboarding = ob('o3', { checks: [check('memory', 'ok', '16 GB RAM'), check('vm_manager', 'fail', 'No VM manager found', 'brew install lima')] });
+    await emit('doctor', { checks: [{ id: 'memory', status: 'ok' }, { id: 'vm_manager', status: 'fail' }] });
+    await until(() => text().includes('1 to fix'));
+    await until(() => onboardingReads() > before && text().includes('No VM manager found'), 300);
+    expect(text()).toContain('-> brew install lima');
+    expect(text()).toContain('16 GB RAM');
+  });
+
+  it('counts fail and warn lines to fix, and blocks Continue while one fails', async () => {
+    setup(ob('o3', { checks: [...allOk().slice(0, 4), check('vm_manager', 'fail', 'No VM manager found', 'brew install lima'), check('git', 'ok'), check('git_identity', 'warn', 'Git has no name', 'git config --global user.name "Your Name"')] }));
+    await mount('/start/doctor');
+    await until(() => text().includes('2 to fix'));
+    expect(button('Continue')?.disabled).toBe(true);
+    expect(text()).toContain('git config --global user.name');
+  });
+
+  it('lets amber lines through', async () => {
+    setup(ob('o3', { checks: [...allOk(), check('git_identity', 'warn', 'Git has no name', 'fix it')] }));
+    await mount('/start/doctor');
+    await until(() => text().includes('1 to fix'));
+    expect(button('Continue')?.disabled).toBe(false);
+  });
+
+  it('says all good and unlocks Continue when every required line passes', async () => {
+    setup(ob('o3', { checks: allOk() }));
+    await mount('/start/doctor');
+    await until(() => text().includes('all good'));
+    expect(button('Continue')?.disabled).toBe(false);
+  });
+
+  it('keeps waiting while a required line has no result yet', async () => {
+    setup(ob('o3', { checks: allOk().slice(0, 3) }));
+    await mount('/start/doctor');
+    await until(() => text().includes('memory text'));
+    expect(text()).toContain('waiting');
+    expect(button('Continue')?.disabled).toBe(true);
+  });
+
+  it('treats an advisory line that fails as amber: it never blocks and never offers the hosted way out', async () => {
+    setup(ob('o3', { checks: [...allOk(), check('git_identity', 'fail', 'Git has no name', 'set it')] }));
+    await mount('/start/doctor');
+    await until(() => text().includes('1 to fix'));
+    expect(button('Continue')?.disabled).toBe(false);
+    expect(button("I can't fix this")).toBeUndefined();
+    expect(container.querySelector('[aria-label="Your machine"]')?.textContent).toContain('Warning');
+    expect(container.querySelector('[aria-label="Your machine"]')?.textContent).not.toContain('Not yet');
+  });
+
+  it('says so when the results cannot be loaded and retries', async () => {
+    setup(ob('o3', { checks: [] }));
+    const real = globalThis.fetch;
+    let down = true;
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => (down && url === '/v1/onboarding' ? Promise.resolve(new Response(null, { status: 500 })) : real(url, init))));
+    await mount('/start/doctor');
+    await until(() => container.querySelector('[role=alert]') !== null);
+    expect(text()).not.toContain('Not checked yet');
+    down = false;
+    await click(button('Retry'));
+    await until(() => text().includes('Not checked yet'));
+  });
+
+  it('says a hosted lab is already chosen instead of asking again', async () => {
+    setup(ob('o3', { checks: [], hosted_default: true }));
+    await mount('/start/doctor');
+    await until(() => text().includes('You already chose a hosted lab'));
+    expect(text()).not.toContain('Choose this');
+  });
+
+  it('shows only the machine lines', async () => {
+    setup(ob('o3', { checks: [...allOk(), check('ssh_key', 'fail', 'No key')] }));
+    await mount('/start/doctor');
+    await until(() => text().includes('all good'));
+    expect(text()).not.toContain('No key');
+  });
+
+  it('refreshes onboarding before moving on, so a stale next_step cannot send the learner back', async () => {
+    setup(ob('o3', { checks: allOk() }));
+    await mount('/start/doctor');
+    await until(() => button('Continue')?.disabled === false);
+    onboarding = ob('o4', { checks: allOk() });
+    await click(button('Continue'));
+    await until(() => router.state.location.pathname === '/start/key');
+  });
+
+  it('offers the hosted lab once a failing line is called unfixable, and sets hosted_default', async () => {
+    setup(ob('o3', { checks: [...allOk().slice(0, 4), check('vm_manager', 'fail', 'No admin rights', 'ask IT'), check('git')] }));
+    await mount('/start/doctor');
+    await until(() => button("I can't fix this") !== undefined);
+    expect(button('Use a hosted lab')).toBeUndefined();
+    await click(button("I can't fix this"));
+    expect(text()).toContain('blocked');
+    expect(text()).toContain('Hosted labs arrive later');
+    expect(button('Continue')?.disabled).toBe(true);
+    await click(button('Use a hosted lab'));
+    await until(() => router.state.location.pathname === '/start/key');
+    expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ hosted_default: true });
+  });
+
+  it('keeps the learner on the page and says why when hosted_default cannot be saved', async () => {
+    setup(ob('o3', { checks: [check('vm_manager', 'fail', 'No admin rights', 'ask IT')] }));
+    await mount('/start/doctor');
+    await until(() => button("I can't fix this") !== undefined);
+    await click(button("I can't fix this"));
+    patchStatus = 400;
+    await click(button('Use a hosted lab'));
+    await until(() => text().includes('That value is not accepted'));
+    expect(router.state.location.pathname).toBe('/start/doctor');
+    expect(button('Use a hosted lab')?.disabled).toBe(false);
+  });
+
+  it('shows the blocked view to a learner who already chose a hosted lab', async () => {
+    setup(ob('o3', { checks: [], hosted_default: true }));
+    await mount('/start/doctor');
+    await until(() => text().includes('Use a hosted lab instead'));
+  });
+
+  it('opens the setup help report from "I\'m stuck: get help"', async () => {
+    setup(ob('o3', { checks: [] }));
+    await mount('/start/doctor');
+    await ready("I'm stuck");
+    await click(button("I'm stuck"));
+    expect(container.querySelector('[role=dialog]')?.textContent).toContain('Get help with setup');
+    const field = container.querySelector('textarea') as HTMLTextAreaElement;
+    expect(field).not.toBeNull();
+    await click(button('Cancel'));
+    expect(container.querySelector('[role=dialog]')).toBeNull();
   });
 });

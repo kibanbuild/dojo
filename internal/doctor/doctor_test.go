@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/lab"
-	"github.com/kibanbuild/dojo/internal/sshconfig"
+	"github.com/kibanyadev/dojo/internal/lab"
+	"github.com/kibanyadev/dojo/internal/sshconfig"
 )
 
 func with(m Machine, f func(*Machine)) Machine { f(&m); return m }
@@ -86,11 +87,97 @@ func TestReady(t *testing.T) {
 	if !Ready(Evaluate(good, "lima", nil)) {
 		t.Error("a good machine should be ready")
 	}
-	if !Ready([]Result{{Status: OK}, {Status: Warn}}) {
+	if !Ready([]Result{{Group: GroupMachine, Status: OK}, {Group: GroupMachine, Status: Warn}}) {
 		t.Error("warnings alone should be ready")
 	}
-	if Ready([]Result{{Status: OK}, {Status: Fail}}) {
-		t.Error("a failure should not be ready")
+	if Ready([]Result{{Group: GroupMachine, Status: OK}, {Group: GroupMachine, Status: Fail}}) {
+		t.Error("a machine failure should not be ready")
+	}
+	if !Ready([]Result{{Group: GroupMachine, Status: OK}, {Group: GroupKey, Status: Fail}, {Group: GroupRepo, Status: Fail}}) {
+		t.Error("a failing key or repo group must not block a good machine")
+	}
+	if !Ready(Evaluate(good, "lima", nil)) {
+		t.Error("a good machine with no SSH key is still ready")
+	}
+}
+
+func TestResultIDsAndGroups(t *testing.T) {
+	m := with(good, func(m *Machine) {
+		m.HasSSHKeygen, m.SSHKeyPath = true, "/home/ana/.ssh/id_ed25519"
+		m.GitSigningFormat, m.GitSigningKey, m.GitSignCommits = "ssh", "/home/ana/.ssh/id_ed25519.pub", "true"
+		m.SigningKeyIsSSHKey = true
+	})
+	want := []struct {
+		id    string
+		group Group
+	}{
+		{"memory", GroupMachine}, {"disk", GroupMachine}, {"cpu", GroupMachine}, {"virtualization", GroupMachine},
+		{"vm_manager", GroupMachine}, {"git", GroupMachine}, {"git_identity", GroupMachine},
+		{"ssh_key", GroupKey}, {"ssh_keygen", GroupKey}, {"git_signing", GroupKey}, {"editor", GroupMachine},
+	}
+	rs := Evaluate(m, "lima", nil)
+	if len(rs) != len(want) {
+		t.Fatalf("got %d results, want %d:\n%s", len(rs), len(want), textsOf(rs))
+	}
+	for i, w := range want {
+		if rs[i].ID != w.id || rs[i].Group != w.group {
+			t.Errorf("result %d = %s/%s, want %s/%s", i, rs[i].ID, rs[i].Group, w.id, w.group)
+		}
+	}
+}
+
+func TestWireChecks(t *testing.T) {
+	rs := Evaluate(with(good, func(m *Machine) {
+		m.HasSSHKeygen, m.SSHKeyPath = true, "/home/ana/.ssh/id_ed25519"
+	}), "lima", nil)
+	wire := WireChecks(rs, "/home/ana")
+	if len(wire) != len(rs) {
+		t.Fatalf("got %d wire checks, want %d", len(wire), len(rs))
+	}
+	seen := map[string]WireCheck{}
+	for _, w := range wire {
+		seen[w.ID] = w
+		for _, s := range []string{w.Text, w.Fix} {
+			if strings.Contains(s, "Ana") || strings.Contains(s, "ana@x.dev") || strings.Contains(s, "/home/ana") {
+				t.Errorf("%s leaks personal data: %q", w.ID, s)
+			}
+		}
+	}
+	if g := seen["git_identity"]; g.Text != "git identity is set" || g.Status != "ok" {
+		t.Errorf("git_identity = %+v", g)
+	}
+	if g := seen["git_signing"]; g.Status != "fail" || !strings.Contains(g.Fix, "~/.ssh/id_ed25519.pub") {
+		t.Errorf("git_signing = %+v", g)
+	}
+	other := WireChecks(Evaluate(with(good, func(m *Machine) {
+		m.HasSSHKeygen, m.SSHKeyPath = true, "/home/ana/.ssh/id_ed25519"
+		m.GitSigningFormat, m.GitSigningKey, m.GitSignCommits = "ssh", "/mnt/secret/team/other.pub", "true"
+	}), "lima", errors.New("open /home/ana/.lima: denied")), "/home/ana")
+	for _, w := range other {
+		if strings.Contains(w.Text, "/mnt/secret") || strings.Contains(w.Text, "/home/ana") {
+			t.Errorf("%s leaks a path: %q", w.ID, w.Text)
+		}
+		if w.ID == "git_signing" && (w.Status != "warn" || !strings.Contains(w.Text, "other.pub")) {
+			t.Errorf("git_signing = %+v", w)
+		}
+		if w.ID == "vm_manager" && !strings.Contains(w.Text, "open ~/.lima: denied") {
+			t.Errorf("vm_manager = %+v", w)
+		}
+	}
+	if got := tilde("/home/anabel/x /home/ana/y /home/ana", "/home/ana"); got != "/home/anabel/x ~/y ~" {
+		t.Errorf("tilde boundary = %q", got)
+	}
+	for _, home := range []string{"", "/", `C:`, `C:\`} {
+		if got := tilde("/a C:/b", home); got != "/a C:/b" {
+			t.Errorf("home %q changed the text: %q", home, got)
+		}
+	}
+	long := WireChecks([]Result{{ID: "memory", Status: Warn, Text: strings.Repeat("é", 300), Fix: strings.Repeat("x", 700)}}, "")
+	if n := len([]rune(long[0].Text)); n != 200 {
+		t.Errorf("text runes = %d, want 200", n)
+	}
+	if n := len(long[0].Fix); n != 600 {
+		t.Errorf("fix len = %d, want 600", n)
 	}
 }
 
@@ -224,7 +311,7 @@ func TestParseWindowsFactsKeepsPositions(t *testing.T) {
 	}
 	m = Machine{}
 	parseWindowsFacts("", &m)
-	if m != (Machine{}) {
+	if !reflect.DeepEqual(m, Machine{}) {
 		t.Errorf("empty output: %+v", m)
 	}
 }
@@ -250,16 +337,16 @@ func TestSSHChecks(t *testing.T) {
 		want Status
 	}{
 		{"key found", with(good, withKey), "SSH key found: id_ed25519", OK},
-		{"no key", with(good, func(m *Machine) { m.HasSSHKeygen = true; m.SSHKeyErr = fmt.Errorf("x: %w", sshErrNoKey) }), "no SSH key found", Warn},
-		{"unusable chosen key", with(good, func(m *Machine) { m.HasSSHKeygen = true; m.SSHKeyErr = errors.New("permission denied") }), "could not use an SSH key: permission denied", Warn},
+		{"no key", with(good, func(m *Machine) { m.HasSSHKeygen = true; m.SSHKeyErr = fmt.Errorf("x: %w", sshErrNoKey) }), "no SSH key found", Fail},
+		{"unusable chosen key", with(good, func(m *Machine) { m.HasSSHKeygen = true; m.SSHKeyErr = errors.New("permission denied") }), "could not use an SSH key: permission denied", Fail},
 		{"no ssh-keygen", with(good, func(m *Machine) { m.HasSSHKeygen = false }), "`ssh-keygen` not found", Warn},
-		{"signing not configured", with(good, withKey), "not set up to sign", Warn},
-		{"format is gpg", with(good, func(m *Machine) { signing(m); m.GitSigningFormat = "openpgp" }), "not set up to sign", Warn},
-		{"gpgsign off", with(good, func(m *Machine) { signing(m); m.GitSignCommits = "false" }), "not set up to sign", Warn},
+		{"signing not configured", with(good, withKey), "not set up to sign", Fail},
+		{"format is gpg", with(good, func(m *Machine) { signing(m); m.GitSigningFormat = "openpgp" }), "not set up to sign", Fail},
+		{"gpgsign off", with(good, func(m *Machine) { signing(m); m.GitSignCommits = "false" }), "not set up to sign", Fail},
 		{"signing with dojo's key", with(good, func(m *Machine) { signing(m); m.SigningKeyIsSSHKey = true }), "configured to sign commits with id_ed25519", OK},
 		{"signing with another key", with(good, signing), "not with the key dojo uses", Warn},
 		{"signing, no key to compare", with(good, func(m *Machine) { signing(m); m.SSHKeyPath = "" }), "configured to sign commits with an SSH key", OK},
-		{"git too old", with(good, func(m *Machine) { signing(m); m.GitMajor, m.GitMinor = 2, 30 }), "too old", Warn},
+		{"git too old", with(good, func(m *Machine) { signing(m); m.GitMajor, m.GitMinor = 2, 30 }), "too old", Fail},
 		{"git 2.34 is enough", with(good, func(m *Machine) { signing(m); m.SigningKeyIsSSHKey = true; m.GitMajor, m.GitMinor = 2, 34 }), "configured to sign", OK},
 		{"git version unknown is not too old", with(good, func(m *Machine) { signing(m); m.SigningKeyIsSSHKey = true }), "configured to sign", OK},
 	}

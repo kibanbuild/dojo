@@ -15,8 +15,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/kibanbuild/dojo/internal/github"
-	"github.com/kibanbuild/dojo/internal/server/repo"
+	"github.com/kibanyadev/dojo/internal/github"
+	"github.com/kibanyadev/dojo/internal/server/repo"
 )
 
 const ghToken = "gho_secretdevicetoken0123456789abcdef"
@@ -82,7 +82,7 @@ func (f *fakeCLIStore) UpsertLearner(_ context.Context, a repo.UpsertLearnerPara
 	return *f.known, nil
 }
 
-func (f *fakeCLIStore) InsertCLIToken(_ context.Context, a repo.InsertCLITokenParams) (repo.InsertCLITokenRow, error) {
+func (f *fakeCLIStore) InsertCLITokenAndNotify(_ context.Context, a repo.InsertCLITokenParams) (repo.InsertCLITokenRow, error) {
 	f.inserted = append(f.inserted, a)
 	return repo.InsertCLITokenRow{}, f.insertErr
 }
@@ -103,7 +103,7 @@ func newCLIRig() *cliRig {
 		gh: &fakeCLIGitHub{info: github.TokenInfo{UserID: 1001, Login: "ada", Scopes: []string{"read:user", "user:email"}}, emails: "ada@example.test"},
 		st: &fakeCLIStore{known: existingLearner()},
 	}
-	cli := &CLILogin{GitHub: r.gh, Store: r.st, Backoff: []time.Duration{time.Millisecond, time.Millisecond}}
+	cli := &CLILogin{GitHub: r.gh, Store: r.st, Tokens: r.st, Backoff: []time.Duration{time.Millisecond, time.Millisecond}}
 	r.h = New(fakeReady{}, Auth{Store: &fakeSessions{}}, NewRateLimits(1), nil, cli)
 	return r
 }

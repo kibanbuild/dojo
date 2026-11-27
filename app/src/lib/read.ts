@@ -16,6 +16,7 @@ export interface CatalogPath {
 export interface CatalogRole {
   slug: string;
   title: string;
+  summary: string;
   kind: string;
   has_exam: boolean;
   advanced: boolean;
@@ -50,6 +51,7 @@ export interface PathItem {
 export interface PathRole {
   slug: string;
   title: string;
+  summary: string;
   locked: boolean;
   passed: boolean;
   tickets_passed: number;
@@ -91,6 +93,8 @@ export interface TicketProgress {
   first_passed_at: string | null;
   passed_seconds: number | null;
   passed_commit: string | null;
+  passed_commit_state?: 'pending' | 'verified' | 'unverified' | null;
+  passed_commit_url?: string | null;
 }
 
 export interface Ticket {
@@ -103,6 +107,31 @@ export interface Ticket {
   hint_count: number;
   hints: { n: number; text: string }[];
   progress: TicketProgress | null;
+}
+
+export interface ActivityDay {
+  /** Calendar day `YYYY-MM-DD` in the zone the read was made with. */
+  day: string;
+  count: number;
+}
+
+export interface ActivityRecent {
+  ticket_id: string;
+  title: string;
+  at: string;
+  /** Null until signed commits exist (M3). */
+  commit: string | null;
+}
+
+/** GET /v1/activity: first passes of tickets over the 140 days ending today, plus the last three. */
+export interface Activity {
+  from: string;
+  to: string;
+  /** Only days with a count above 0. */
+  days: ActivityDay[];
+  /** Every first pass ever, not only the window. */
+  total: number;
+  recent: ActivityRecent[];
 }
 
 export type ReadFailure = 'signed_out' | 'suspended' | 'not_found' | 'rate_limited' | 'failed';
@@ -174,6 +203,20 @@ export const fetchCatalog = () => getJSON<Catalog>('/v1/catalog');
 export const fetchPath = () => getJSON<LearnerPath>('/v1/path');
 export const fetchToday = () => getJSON<Today>('/v1/today');
 
+/** The browser's IANA zone, or null when it cannot say (the read then omits tz and the server uses UTC). */
+export function browserZone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
+export function fetchActivity(): Promise<Activity> {
+  const tz = browserZone();
+  return getJSON<Activity>(tz ? `/v1/activity?tz=${encodeURIComponent(tz)}` : '/v1/activity');
+}
+
 /** Ticket ids hold a slash (`support-l1/perms-03`); each segment is escaped, the slash stays. */
 export function fetchTicket(id: string): Promise<Ticket> {
   const escaped = id.split('/').map(encodeURIComponent).join('/');
@@ -218,6 +261,7 @@ export async function openHint(id: string, n: number): Promise<HintResult> {
 export const CATALOG_KEY = ['catalog'] as const;
 export const PATH_KEY = ['path'] as const;
 export const TODAY_KEY = ['today'] as const;
+export const ACTIVITY_KEY = ['activity'] as const;
 export const ticketKey = (id: string) => ['ticket', id] as const;
 export const TICKET_KEY_PREFIX = ['ticket'] as const;
 
@@ -229,3 +273,4 @@ export const usePath = () => useQuery({ queryKey: PATH_KEY, queryFn: fetchPath, 
 export const useToday = () => useQuery({ queryKey: TODAY_KEY, queryFn: fetchToday, retry, staleTime: Infinity });
 export const useTicket = (id: string) =>
   useQuery({ queryKey: ticketKey(id), queryFn: () => fetchTicket(id), retry, staleTime: Infinity });
+export const useActivity = () => useQuery({ queryKey: ACTIVITY_KEY, queryFn: fetchActivity, retry, staleTime: Infinity });

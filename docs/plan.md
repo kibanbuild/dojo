@@ -4,7 +4,7 @@ Done-line: a first learner finishes Foundations and Support L1 and passes the Su
 exam on a hosted machine, by 2027-03-31.
 
 The design is `docs/technical-design.md`; its section 8 describes each milestone. This file holds
-the order, the target dates and the status. Tracked on the kibanbuild GitHub Project.
+the order, the target dates and the status. Tracked on the [kibanyadev GitHub Project](https://github.com/orgs/kibanyadev/projects/3).
 
 ## How we work
 

@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/cli"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/cli"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 // syncBuf is a buffer the test reads while the CLI writes.
@@ -38,11 +38,20 @@ var userCodeRE = regexp.MustCompile(`\b[A-Z]{4}-[A-Z]{4}\b`)
 // the CLI has printed it ("" leaves it pending, "deny" denies).
 func runCLI(t *testing.T, approveAs string, args ...string) (string, error) {
 	t.Helper()
+	return runCLIWith(t, approveAs, nil, args...)
+}
+
+// runCLIWith is runCLI with a hook to set more of the app, such as the doctor's probe and backend.
+func runCLIWith(t *testing.T, approveAs string, setup func(*cli.App), args ...string) (string, error) {
+	t.Helper()
 	out := &syncBuf{}
 	app := &cli.App{
 		Out: out, Err: out, Now: time.Now,
 		HTTP:  &http.Client{Timeout: 15 * time.Second, Transport: ipTransport{newBrowser(t).ip}},
 		Login: cli.LoginConfig{APIURL: apiURL(t), GitHubURL: fakeURL(t), GitHubOAuth: "dojo-web-local"},
+	}
+	if setup != nil {
+		setup(app)
 	}
 	done := make(chan struct{})
 	defer close(done)

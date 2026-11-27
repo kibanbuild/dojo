@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/kibanbuild/dojo/internal/server/repo"
+	"github.com/kibanyadev/dojo/internal/server/repo"
 )
 
 var (
@@ -40,6 +40,9 @@ type fakeSessions struct {
 
 	updates   []repo.UpdateLearnerProfileParams
 	updateErr error
+
+	emails    []string // addresses SetLearnerEmail stored
+	firstSeen int      // MarkFirstRunSeen calls that changed the learner
 
 	telemetry    []repo.InsertTelemetryEventsParams
 	telemetryErr error

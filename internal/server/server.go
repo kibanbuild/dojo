@@ -36,6 +36,14 @@ func New(ready Readiness, auth Auth, limits *RateLimits, signin *SignIn, cli *CL
 		mux.HandleFunc("GET /v1/catalog", requireSession(auth.catalog))
 		mux.HandleFunc("GET /v1/path", requireSession(auth.path))
 		mux.HandleFunc("GET /v1/today", requireSession(auth.today))
+		mux.HandleFunc("GET /v1/activity", requireSession(auth.activity))
+		if auth.Onboarding != nil {
+			mux.HandleFunc("GET "+onboardingPath, requireSession(auth.onboarding))
+			if auth.Onboarding.Confirmer != nil {
+				mux.HandleFunc("PUT "+confirmRoute, requireSession(auth.confirmStep(true)))
+				mux.HandleFunc("DELETE "+confirmRoute, requireSession(auth.confirmStep(false)))
+			}
+		}
 	}
 	if auth.Events != nil {
 		mux.HandleFunc("POST "+eventsPath, auth.postEvents)
@@ -46,6 +54,9 @@ func New(ready Readiness, auth Auth, limits *RateLimits, signin *SignIn, cli *CL
 	}
 	if auth.Tickets != nil {
 		mux.HandleFunc("POST "+ticketsPrefix, requireSession(auth.postTicketRoute))
+	}
+	if auth.Reports != nil {
+		mux.HandleFunc("POST "+reportsPath, requireSession(auth.postReport))
 	}
 	if auth.Stream != nil {
 		mux.HandleFunc("GET "+streamPath, auth.stream)
@@ -59,6 +70,9 @@ func New(ready Readiness, auth Auth, limits *RateLimits, signin *SignIn, cli *CL
 		signin.limits = limits
 		mux.HandleFunc("POST "+startPath, signin.start)
 		mux.HandleFunc("GET "+callbackPath, signin.callback)
+		mux.HandleFunc("POST "+pathChoicePath, signin.postPath)
+		mux.HandleFunc("POST "+pathWaitlistPath, signin.postWaitlist)
+		mux.HandleFunc(pathWaitlistRoute, signin.deleteWaitlist)
 	}
 	return auth.Session(limits.wrap(mux, CSRF(mux)))
 }

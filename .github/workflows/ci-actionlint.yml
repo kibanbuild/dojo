@@ -19,33 +19,7 @@ permissions: {}
 
 jobs:
   actionlint:
-    if: github.repository == 'kibanbuild/dojo'
-    name: GitHub Actions Schema Check
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    if: github.repository == 'kibanyadev/dojo'
     permissions:
       contents: read
-
-    steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
-        with:
-          egress-policy: block
-          allowed-endpoints: >
-            github.com:443
-            api.github.com:443
-            auth.docker.io:443
-            registry-1.docker.io:443
-            production.cloudflare.docker.com:443
-            production.cloudfront.docker.com:443
-
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Run actionlint
-        run: |
-          docker run --rm -v "$PWD:/repo" --workdir /repo \
-            rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 \
-            -color
+    uses: kibanyadev/.github/.github/workflows/reusable-actionlint.yml@5363fd3d2c7bc0a6f00f69bda52352264765628d # v1.0.0

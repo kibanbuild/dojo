@@ -27,6 +27,9 @@ type EventIn struct {
 	Passed *int32
 	Total  *int32
 	Output *string
+	Commit string // ticket.commit: 40 lower-case hex
+
+	Checks []DoctorCheckIn // doctor.run: no ItemID
 }
 
 // EventsResult counts one batch; Accepted includes the ignored events.
@@ -61,7 +64,9 @@ func (s *Store) RecordEvents(ctx context.Context, learnerID pgtype.UUID, evs []E
 
 	ids := make([]string, 0, len(evs))
 	for _, e := range evs {
-		ids = append(ids, e.ItemID)
+		if e.ItemID != "" {
+			ids = append(ids, e.ItemID)
+		}
 	}
 	found, err := q.ListTicketIDs(ctx, ListTicketIDsParams{OrgID: l.OrgID, Ids: ids})
 	if err != nil {
@@ -73,6 +78,7 @@ func (s *Store) RecordEvents(ctx context.Context, learnerID pgtype.UUID, evs []E
 	}
 
 	rows := map[string]*TicketProgress{}
+	doctorChanged := map[string]string{}
 	for _, e := range evs {
 		_, err := q.InsertEvent(ctx, InsertEventParams{
 			OrgID: l.OrgID, LearnerID: l.ID, ClientEventID: e.ClientID, Type: e.Type,
@@ -86,6 +92,12 @@ func (s *Store) RecordEvents(ctx context.Context, learnerID pgtype.UUID, evs []E
 			return res, fmt.Errorf("insert event: %w", err)
 		}
 		res.Accepted++
+		if e.Type == "doctor.run" {
+			if err := projectDoctorRun(ctx, q, l.OrgID, l.ID, e, now, doctorChanged); err != nil {
+				return res, err
+			}
+			continue
+		}
 		if !known[e.ItemID] {
 			res.Ignored++
 			continue
@@ -100,6 +112,23 @@ func (s *Store) RecordEvents(ctx context.Context, learnerID pgtype.UUID, evs []E
 			case !errors.Is(err, pgx.ErrNoRows):
 				return res, fmt.Errorf("load progress: %w", err)
 			}
+		}
+		if e.Type == "ticket.commit" {
+			next, accepted := acceptCommit(cur, e.Commit, now)
+			switch {
+			case accepted:
+				if err := q.AcceptTicketCommit(ctx, acceptParams(next)); err != nil {
+					return res, fmt.Errorf("accept commit: %w", err)
+				}
+				rows[e.ItemID] = &next
+			case cur == nil || cur.State == "started":
+				if err := q.InsertPendingCommit(ctx, InsertPendingCommitParams{
+					OrgID: l.OrgID, LearnerID: l.ID, ItemID: e.ItemID, Commit: e.Commit, ClientAt: ts(e.ClientAt),
+				}); err != nil {
+					return res, fmt.Errorf("keep pending commit: %w", err)
+				}
+			}
+			continue
 		}
 		next := projectEvent(cur, l.OrgID, l.ID, e, now)
 		if cur == nil {
@@ -126,8 +155,16 @@ func (s *Store) RecordEvents(ctx context.Context, learnerID pgtype.UUID, evs []E
 			return res, fmt.Errorf("update progress: %w", err)
 		}
 		rows[e.ItemID] = &next
+		if next.State == "passed" && (cur == nil || cur.State == "started") {
+			if err := applyPendingCommit(ctx, q, &next, now); err != nil {
+				return res, err
+			}
+		}
 	}
 	if err := notifyProgress(ctx, tx, l.ID, rows); err != nil {
+		return res, err
+	}
+	if err := notifyDoctor(ctx, tx, l.ID, doctorChanged); err != nil {
 		return res, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -137,6 +174,58 @@ func (s *Store) RecordEvents(ctx context.Context, learnerID pgtype.UUID, evs []E
 }
 
 func ts(t time.Time) pgtype.Timestamptz { return pgtype.Timestamptz{Time: t, Valid: true} }
+
+// FirstCheckDelay is how long a new commit waits before its first verification (design 3.9).
+const FirstCheckDelay = 5 * time.Second
+
+// acceptCommit applies a ticket.commit sha to a passed ticket (design 3.9). A ticket with no sha takes
+// it; pending and verified ones keep the first sha; an unverified one takes a new sha and starts its
+// clock again. It reports false when nothing changes.
+func acceptCommit(cur *TicketProgress, sha string, now time.Time) (TicketProgress, bool) {
+	if cur == nil || (cur.State != "passed" && cur.State != "revisit") {
+		return TicketProgress{}, false
+	}
+	switch cur.CommitState.String {
+	case "pending", "verified":
+		return *cur, false
+	case "unverified":
+		if cur.PassedCommit.String == sha {
+			return *cur, false
+		}
+	}
+	p := *cur
+	p.PassedCommit = pgtype.Text{String: sha, Valid: true}
+	p.CommitState = pgtype.Text{String: "pending", Valid: true}
+	p.CommitTries = 0
+	p.CommitAt = ts(now)
+	p.CommitNextAt = ts(now.Add(FirstCheckDelay))
+	return p, true
+}
+
+func acceptParams(p TicketProgress) AcceptTicketCommitParams {
+	return AcceptTicketCommitParams{PassedCommit: p.PassedCommit, CommitAt: p.CommitAt, CommitNextAt: p.CommitNextAt,
+		LearnerID: p.LearnerID, ItemID: p.ItemID}
+}
+
+// applyPendingCommit moves a sha that arrived before the pass onto the row that has just passed.
+func applyPendingCommit(ctx context.Context, q *Queries, p *TicketProgress, now time.Time) error {
+	sha, err := q.TakePendingCommit(ctx, TakePendingCommitParams{LearnerID: p.LearnerID, ItemID: p.ItemID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("take pending commit: %w", err)
+	}
+	next, ok := acceptCommit(p, sha, now)
+	if !ok {
+		return nil
+	}
+	if err := q.AcceptTicketCommit(ctx, acceptParams(next)); err != nil {
+		return fmt.Errorf("accept pending commit: %w", err)
+	}
+	*p = next
+	return nil
+}
 
 // projectEvent returns the progress row after one event (design 3.8, ticket_progress). cur is nil
 // when the learner has no row yet; now is the server clock, which caps the client's time.

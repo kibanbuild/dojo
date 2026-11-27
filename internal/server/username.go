@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/kibanbuild/dojo/internal/server/repo"
+	"github.com/kibanyadev/dojo/internal/server/repo"
 )
 
 const (
@@ -26,7 +26,7 @@ var reservedUsernames = map[string]bool{
 	"api": true, "app": true, "start": true, "review": true, "story": true, "pricing": true, "privacy": true,
 	"terms": true, "conduct": true, "settings": true, "login": true, "logout": true, "signin": true,
 	"signup": true, "auth": true, "www": true, "mail": true, "billing": true, "status": true, "docs": true,
-	"blog": true, "dojo": true, "kiban": true, "kibanbuild": true, "null": true, "undefined": true,
+	"blog": true, "dojo": true, "kiban": true, "kibanbuild": true, "kibanya": true, "kibanyadev": true, "null": true, "undefined": true,
 }
 
 // defaultUsername is the lowercased GitHub login when it is valid and not reserved.

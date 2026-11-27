@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kibanbuild/dojo/internal/sshconfig"
+	"github.com/kibanyadev/dojo/internal/sshconfig"
 )
 
 // ProbeSSH finds the SSH key dojo would use (chosen, or the default in the SSH
@@ -26,6 +26,50 @@ func ProbeSSH(m *Machine, chosen string) {
 	}
 	m.SSHKeyPath = priv
 	m.SigningKeyIsSSHKey = signingKeyIs(m.GitSigningKey, priv, pub)
+	m.SigningPub = signingPub(m.GitSigningKey, string(pub))
+}
+
+// signingPub is the public key line git signs with: the literal key, the .pub file user.signingkey
+// names (or sits next to), or the dojo key's own when git names none.
+func signingPub(value, dojoPub string) string {
+	value = strings.TrimPrefix(strings.TrimSpace(value), "key::")
+	if value == "" {
+		return dojoPub
+	}
+	if isPubLine(value) {
+		return value
+	}
+	if value == "~" || strings.HasPrefix(value, "~/") || strings.HasPrefix(value, `~\`) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		value = filepath.Join(home, value[1:])
+	}
+	for _, p := range []string{value, value + ".pub"} {
+		if line, ok := readPub(p); ok {
+			return line
+		}
+	}
+	return ""
+}
+
+// readPub reads a public key line from a regular file under 8 KiB; a FIFO, a device, a big file or
+// anything that is not a key is not read.
+func readPub(path string) (string, bool) {
+	fi, err := os.Stat(path)
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() >= 8192 {
+		return "", false
+	}
+	b, err := os.ReadFile(path) //nolint:gosec // a key path git or ssh names; regular and size-capped above
+	if err != nil || !isPubLine(string(b)) {
+		return "", false
+	}
+	return strings.TrimSpace(string(b)), true
+}
+
+func isPubLine(s string) bool {
+	return keyFields(s) != "" && (strings.HasPrefix(s, "ssh-") || strings.HasPrefix(s, "ecdsa-") || strings.HasPrefix(s, "sk-"))
 }
 
 // signingKeyIs reports whether git's user.signingkey names the key: a literal
@@ -65,15 +109,17 @@ func sshChecks(m Machine) []Result {
 	keygen := `ssh-keygen -t ed25519 -C "you@example.com"`
 	switch {
 	case m.SSHKeyPath != "":
-		rs = append(rs, Result{OK, "SSH key found: " + filepath.Base(m.SSHKeyPath), ""})
+		rs = append(rs, res("ssh_key", GroupKey, OK, "SSH key found: "+filepath.Base(m.SSHKeyPath), ""))
 	case errors.Is(m.SSHKeyErr, sshconfig.ErrNoKey):
-		rs = append(rs, Result{Warn, "no SSH key found (needed for ssh dojo, GitHub and signed commits)", keygen})
+		rs = append(rs, res("ssh_key", GroupKey, Fail, "no SSH key found (needed for ssh dojo, GitHub and signed commits)", keygen))
 	default:
-		rs = append(rs, Result{Warn, fmt.Sprintf("could not use an SSH key: %v", m.SSHKeyErr),
-			"fix or replace it, or pick another with dojo start --key <path> <role>/<ticket>"})
+		rs = append(rs, res("ssh_key", GroupKey, Fail, fmt.Sprintf("could not use an SSH key: %v", m.SSHKeyErr),
+			"fix or replace it, or pick another with dojo start --key <path> <role>/<ticket>"))
 	}
 	if !m.HasSSHKeygen {
-		rs = append(rs, Result{Warn, "`ssh-keygen` not found (git needs it to sign commits)", keygenAdvice(m.OS)})
+		rs = append(rs, res("ssh_keygen", GroupKey, Warn, "`ssh-keygen` not found (git needs it to sign commits)", keygenAdvice(m.OS)))
+	} else {
+		rs = append(rs, res("ssh_keygen", GroupKey, OK, "`ssh-keygen` found", ""))
 	}
 	if !m.HasGit {
 		return rs
@@ -92,16 +138,16 @@ func sshChecks(m Machine) []Result {
 	configured := m.GitSigningFormat == "ssh" && m.GitSigningKey != "" && m.GitSignCommits == "true"
 	switch {
 	case !configured:
-		rs = append(rs, Result{Warn, "git is not set up to sign commits with an SSH key", setup})
+		rs = append(rs, res("git_signing", GroupKey, Fail, "git is not set up to sign commits with an SSH key", setup))
 	case m.GitMajor != 0 && (m.GitMajor < 2 || m.GitMajor == 2 && m.GitMinor < 34):
-		rs = append(rs, Result{Warn, fmt.Sprintf("git %d.%d is too old to sign with an SSH key (2.34 or newer)", m.GitMajor, m.GitMinor), gitUpdateAdvice(m.OS)})
+		rs = append(rs, res("git_signing", GroupKey, Fail, fmt.Sprintf("git %d.%d is too old to sign with an SSH key (2.34 or newer)", m.GitMajor, m.GitMinor), gitUpdateAdvice(m.OS)))
 	case m.SSHKeyPath == "":
-		rs = append(rs, Result{OK, "git is configured to sign commits with an SSH key", ""})
+		rs = append(rs, res("git_signing", GroupKey, OK, "git is configured to sign commits with an SSH key", ""))
 	case m.SigningKeyIsSSHKey:
-		rs = append(rs, Result{OK, "git is configured to sign commits with " + filepath.Base(m.SSHKeyPath), ""})
+		rs = append(rs, res("git_signing", GroupKey, OK, "git is configured to sign commits with "+filepath.Base(m.SSHKeyPath), ""))
 	default:
-		rs = append(rs, Result{Warn, fmt.Sprintf("git signs commits with %s, not with the key dojo uses (%s)", m.GitSigningKey, filepath.Base(m.SSHKeyPath)),
-			"git config --global user.signingkey " + quote(pubArg) + ", or ignore this if that other key is on purpose"})
+		rs = append(rs, res("git_signing", GroupKey, Warn, fmt.Sprintf("git signs commits with %s, not with the key dojo uses (%s)", filepath.Base(m.GitSigningKey), filepath.Base(m.SSHKeyPath)),
+			"git config --global user.signingkey "+quote(pubArg)+", or ignore this if that other key is on purpose"))
 	}
 	return rs
 }

@@ -7,12 +7,13 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 // status reports local facts only: the current ticket, the lab, the login and the event queue.
 // It never calls the network, so it works offline and logged out.
 func (a *App) status(ctx context.Context) error {
+	a.retryPush(ctx) // the one network call here: it pushes waiting signed commits
 	st, err := a.load()
 	if err != nil {
 		p, _ := state.Path()
@@ -30,6 +31,11 @@ func (a *App) status(ctx context.Context) error {
 	fmt.Fprintln(a.Out, "Lab: "+a.labState(ctx))
 	fmt.Fprintln(a.Out, "Login: "+loginState())
 	fmt.Fprintln(a.Out, "Events: "+a.eventsState())
+	if st != nil {
+		if l := pushLine(st.PushPending); l != "" {
+			fmt.Fprintln(a.Out, l)
+		}
+	}
 	return nil
 }
 

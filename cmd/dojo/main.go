@@ -10,10 +10,10 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/kibanbuild/dojo"
-	"github.com/kibanbuild/dojo/internal/cli"
-	"github.com/kibanbuild/dojo/internal/doctor"
-	"github.com/kibanbuild/dojo/internal/lab"
+	"github.com/kibanyadev/dojo"
+	"github.com/kibanyadev/dojo/internal/cli"
+	"github.com/kibanyadev/dojo/internal/doctor"
+	"github.com/kibanyadev/dojo/internal/lab"
 )
 
 func main() {

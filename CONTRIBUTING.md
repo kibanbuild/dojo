@@ -57,6 +57,13 @@ table PR adds its grant rows (allowed and refused) to `grantCases` in `internal/
   neither; neither means the task role), `DOJO_S3_PATH_STYLE` (true for the stand-in). Local defaults exist for all
   of them; `pre` and `pro` require bucket and region and https endpoints. The host port is loopback only
   (`DOJO_S3_PORT`, default 9000; the integration run takes a random one). Change the port and the public endpoint together.
+- Email is the `mailpit` compose service (Mailpit: SMTP in, web inbox out), standing in for Amazon SES; the sender in
+  `internal/mail` speaks SMTP to either. The API reads `DOJO_SMTP_HOST` (empty turns the sender off), `DOJO_SMTP_PORT`,
+  `DOJO_SMTP_USERNAME` and `DOJO_SMTP_PASSWORD` (credentials require STARTTLS) and `DOJO_EMAIL_DOMAIN` (mail goes out as
+  `carmen@` that domain); compose sets Mailpit and `dojo.test`. Read the mail at the web inbox on `http://localhost:8025`
+  (`MAILPIT_PORT` moves it; the integration run takes a random port). A new learner's welcome mail (E1) shows up there
+  within a few seconds of the first sign-in. Learner reports (`POST /v1/reports`) are forwarded to `DOJO_REPORTS_TO`
+  (`reports@dojo.test` in compose; required in `pre` and `pro`).
 - `make admin-bootstrap LOGIN=ada` makes that GitHub login the first operator of the dev stack, so you can
   sign in to the operator service locally (the fake GitHub knows `ada`, `bob` and `cy`; sign-in needs a
   user with two-factor on: `ada` or `cy`, not `bob`). It runs `dojo-admin bootstrap` as a one-off with the migration

@@ -6,7 +6,7 @@ project:
   done_line: "A first learner finishes Foundations and Support L1 and passes the Support L1 work-day exam on a hosted machine, by 2027-03-31"
   waiting: "the first learner (FP ASIR/SMR students)"
   monthly_cost: 0
-  board: "https://github.com/orgs/kibanbuild/projects/2"
+  board: "https://github.com/orgs/kibanyadev/projects/3"
   next_gate: "M2: tickets on local labs mirrored on the web (M1 sign-in and operator skeleton done 2026-11-23)"
   close_if: "no learner passes Support L1 by 2027-03-31, or local labs fail on typical student PCs and hosted machines cost more than the budget allows"
   merge: manual
@@ -27,7 +27,7 @@ CLI that runs Kiban Dojo katas on a local lab VM (Lima on macOS/Linux, WSL2 on W
   workflows themselves (zizmor, actionlint); `Tools:` names repo-wide tools (gitleaks, PR title).
 - Setup steps are inline for now. A shared `.github/actions/<component>-setup` composite returns once
   actionlint accepts the `$/` self-repository syntax that zizmor asks for (actionlint 1.7.12 rejects it).
-- `permissions: {}` at the top, the minimum per job; `if: github.repository == 'kibanbuild/dojo'`;
+- `permissions: {}` at the top, the minimum per job; `if: github.repository == 'kibanyadev/dojo'`;
   Harden Runner with `egress-policy: block` on Linux jobs; actions pinned by SHA with the tag in a comment.
 - Job `name:` values are the required checks in the `main` ruleset: renaming a job means updating it.
 - Required checks cannot be path-filtered: a skipped required check blocks the PR forever. When a

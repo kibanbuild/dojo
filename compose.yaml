@@ -145,12 +145,32 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # The email stand-in (design 1.7): SMTP in on 1025 (compose network only), a web inbox and HTTP API on 8025.
+  # Production sends through Amazon SES over SMTP with the same code. Unset MAILPIT_PORT = 8025; set but empty =
+  # a random free port (the integration run). Loopback only.
+  mailpit:
+    image: axllent/mailpit:v1.31.0@sha256:c96991d9bef73594c246d89ca81411d4e916f03e76a7d2d72fa2ab5dd3c9ce24
+    ports:
+      - "127.0.0.1:${MAILPIT_PORT-8025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 4s
+      retries: 15
+    restart: unless-stopped
+
   api:
     build:
       context: .
       target: api
     environment:
       DOJO_ENV: local
+      # Email (internal/mail): the sender talks SMTP to Mailpit here and to SES in production.
+      DOJO_SMTP_HOST: ${DOJO_SMTP_HOST:-mailpit}
+      DOJO_SMTP_PORT: ${DOJO_SMTP_PORT:-1025}
+      DOJO_EMAIL_DOMAIN: ${DOJO_EMAIL_DOMAIN:-dojo.test}
+      # Where learner reports are forwarded (POST /v1/reports); Mailpit catches it locally.
+      DOJO_REPORTS_TO: ${DOJO_REPORTS_TO:-reports@dojo.test}
       # Object store (internal/storage). The API signs URLs for DOJO_S3_PUBLIC_ENDPOINT, the address the
       # host (the CLI) reaches the published port on; it connects to s3:9000 itself.
       DOJO_S3_ENDPOINT: http://s3:9000
@@ -171,6 +191,10 @@ services:
       GITHUB_AUTHORIZE_URL: ${DOJO_GITHUB_AUTHORIZE_URL:-http://localhost:8081}
       GITHUB_OAUTH_URL: ${DOJO_GITHUB_OAUTH_URL:-http://fake-github:8081}
       GITHUB_API_URL: ${DOJO_GITHUB_API_URL:-http://fake-github:8081}
+      # Ours, no scopes: lifts the anonymous limit of the commit reads. Empty locally.
+      DOJO_GITHUB_READ_TOKEN: ${DOJO_GITHUB_READ_TOKEN:-}
+      DOJO_COMMIT_VERIFY_INTERVAL_SECONDS: ${DOJO_COMMIT_VERIFY_INTERVAL_SECONDS:-60}
+      DOJO_COMMIT_VERIFY_BATCH: ${DOJO_COMMIT_VERIFY_BATCH:-20}
       TERMS_VERSION: ${TERMS_VERSION:?copy .env.example to .env}
       AUTH_STATE_KEY: ${AUTH_STATE_KEY:-local-dev-state-key-not-a-secret-0123456789}
       DATABASE_URL: postgres://dojo_api:${DOJO_API_DB_PASSWORD:?copy .env.example to .env}@db:5432/dojo?sslmode=disable&application_name=dojo-api
@@ -181,6 +205,8 @@ services:
         condition: service_completed_successfully
       s3-init:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "/dojo-api", "healthcheck"]
       interval: 2s
@@ -236,6 +262,11 @@ services:
       FAKE_GITHUB_PUBLIC_URL: ${FAKE_GITHUB_PUBLIC_URL:-http://localhost:8081}
       # Seconds between polls; tests and the dojo login e2e can lower it.
       FAKE_GITHUB_DEVICE_INTERVAL: ${FAKE_GITHUB_DEVICE_INTERVAL:-5}
+      # Unauthenticated reads allowed per remote address per hour; 0 is no limit (the rate-limit test sets it).
+      FAKE_GITHUB_RATE_LIMIT: ${FAKE_GITHUB_RATE_LIMIT:-0}
+      # Bare repositories <login>/dojo.git behind the commit and compare reads (design 3.9). The integration
+      # run mounts a host directory here (compose.it.yaml) so the test can push to it.
+      FAKE_GITHUB_GIT_ROOT: /git
     ports:
       # The browser is redirected to the authorize page. Unset = 8081; set but empty = a random free port.
       - "127.0.0.1:${FAKE_GITHUB_PORT-8081}:8081"

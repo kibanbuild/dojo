@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,8 +14,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/kibanbuild/dojo/internal/lab"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/doctor"
+	"github.com/kibanyadev/dojo/internal/lab"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 const (
@@ -48,9 +50,9 @@ func newEventID(t time.Time) string {
 }
 
 // recordEvent queues one progress event and never fails the command.
-func (a *App) recordEvent(ev state.ProgressEvent) {
+func (a *App) recordEvent(ev state.ProgressEvent) string {
 	if !a.eventsEnabled() {
-		return
+		return ""
 	}
 	now := a.now()
 	ev.ID, ev.At = newEventID(now), now.UTC().Format(time.RFC3339)
@@ -60,7 +62,7 @@ func (a *App) recordEvent(ev state.ProgressEvent) {
 	if errors.Is(err, state.ErrCorruptEvents) {
 		q = state.EventQueue{} // unreadable content is replaced; an I/O or permission error leaves the file alone
 	} else if err != nil {
-		return
+		return ""
 	}
 	if acct := state.LoadAccount(); acct != "" {
 		if q.Account != "" && q.Account != acct {
@@ -68,8 +70,33 @@ func (a *App) recordEvent(ev state.ProgressEvent) {
 		}
 		q.Account = acct
 	}
+	if ev.Type == "doctor.run" {
+		q.Events = dropDoctorRuns(q.Events) // an older result is stale
+	}
 	q.Events = append(q.Events, ev)
 	_ = state.SaveEvents(q)
+	return ev.ID
+}
+
+// dropDoctorRuns removes every unsent doctor.run, so the queue keeps only the latest one.
+func dropDoctorRuns(evs []state.ProgressEvent) []state.ProgressEvent {
+	kept := make([]state.ProgressEvent, 0, len(evs))
+	for _, e := range evs {
+		if e.Type != "doctor.run" {
+			kept = append(kept, e)
+		}
+	}
+	return kept
+}
+
+// recordDoctor queues the report of dojo doctor as one doctor.run event.
+func (a *App) recordDoctor(results []doctor.Result) {
+	home, _ := os.UserHomeDir()
+	var checks []state.DoctorCheck
+	for _, c := range doctor.WireChecks(results, home) {
+		checks = append(checks, state.DoctorCheck(c))
+	}
+	a.recordEvent(state.ProgressEvent{Type: "doctor.run", Checks: checks})
 }
 
 // cutChars keeps at most n characters, cut on a character boundary.
@@ -147,6 +174,10 @@ func catalogVersion(item string) string {
 	return ""
 }
 
+// suspendedNotice is printed when the API refuses progress for a suspended account; the events
+// stay queued and go out once the account is restored.
+const suspendedNotice = "This account is suspended: your progress stays on this computer and is sent once it is restored."
+
 // flushEvents sends the queue in batches within a short deadline and saves what is left. It never
 // fails the command.
 func (a *App) flushEvents(ctx context.Context) {
@@ -190,6 +221,11 @@ func (a *App) flushEvents(ctx context.Context) {
 		case err != nil:
 			retry = now.Add(eventsBackoff)
 			return
+		case r.status == http.StatusBadRequest && badIndex(r.body, n) >= 0:
+			// One event is never acceptable (a type an older API does not know): drop it, resend the rest.
+			i := badIndex(r.body, n)
+			done[pending[i].ID] = true
+			pending = append(pending[:i:i], pending[i+1:]...)
 		case r.status == http.StatusOK, r.status == http.StatusBadRequest: // stored, or never acceptable
 			for _, ev := range pending[:n] {
 				done[ev.ID] = true
@@ -197,6 +233,12 @@ func (a *App) flushEvents(ctx context.Context) {
 			pending = pending[n:]
 		case r.status == http.StatusUnauthorized:
 			hold = true
+			return
+		case r.status == http.StatusForbidden && r.code == "account_suspended":
+			retry = now.Add(eventsBackoff)
+			if a.Err != nil {
+				fmt.Fprintln(a.Err, suspendedNotice)
+			}
 			return
 		case r.status == http.StatusTooManyRequests:
 			retry = now.Add(retryDelay(r.retryAfter))
@@ -223,6 +265,17 @@ func settleEvents(done map[string]bool, hold bool, retry time.Time) {
 	}
 	q.Events, q.Hold, q.RetryAfter = kept, q.Hold || hold, retry
 	_ = state.SaveEvents(q)
+}
+
+// badIndex reads the failing event's index from a 400 answer; -1 when absent or outside the batch.
+func badIndex(body []byte, n int) int {
+	var e struct {
+		Index *int `json:"index"`
+	}
+	if json.Unmarshal(body, &e) != nil || e.Index == nil || *e.Index < 0 || *e.Index >= n {
+		return -1
+	}
+	return *e.Index
 }
 
 func retryDelay(ra time.Duration) time.Duration {
@@ -259,8 +312,8 @@ func (a *App) afterLogin(me *apiReply) {
 	_ = state.SaveEvents(q)
 }
 
-// recordCheck queues the verdict of a full check run.
-func (a *App) recordCheck(item string, code int, out []byte, took time.Duration) {
+// recordCheck queues the verdict of a full check run and returns the event's id ("" when events are off).
+func (a *App) recordCheck(item string, code int, out []byte, took time.Duration) string {
 	ms := min(max(int(took/time.Millisecond), 0), 86_400_000)
 	ev := state.ProgressEvent{Type: "check.run", ItemID: item, Result: "pass", DurationMS: &ms, Output: string(out)}
 	if code != 0 {
@@ -269,7 +322,7 @@ func (a *App) recordCheck(item string, code int, out []byte, took time.Duration)
 	if p, t, ok := checkCounts(out); ok {
 		ev.Passed, ev.Total = &p, &t
 	}
-	a.recordEvent(ev)
+	return a.recordEvent(ev)
 }
 
 // checkCounts reads the PASS and FAIL lines of a check's output.

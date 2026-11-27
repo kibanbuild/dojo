@@ -5,6 +5,19 @@
 
 @theme {
   --color-ctl: #7a7f8c;
+  /* Activity heat ramp, from the Today board. */
+  /* Terminal block, from the L3 boards: always dark. */
+  --color-term: #121419;
+  --color-termbar: #1c1f25;
+  --color-termline: #2a2e36;
+  --color-termfg: #e6e7e3;
+  --color-termmute: #9095a0;
+  --color-termdot: #4a4f59;
+  --color-heat0: #f2f3f7;
+  --color-heat1: #dcd3fd;
+  --color-heat2: #a996f7;
+  --color-heat3: #5ba3d9;
+  --color-heat4: #0e7490;
 }
 
 @layer base {

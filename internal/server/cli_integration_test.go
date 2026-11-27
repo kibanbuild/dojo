@@ -19,7 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/kibanbuild/dojo/internal/server/repo"
+	"github.com/kibanyadev/dojo/internal/server/repo"
 )
 
 // cliClient is a CLI on its own client IP: no cookie jar, bearer only.

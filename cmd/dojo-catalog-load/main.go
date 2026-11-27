@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/kibanbuild/dojo/internal/catalogload"
-	"github.com/kibanbuild/dojo/internal/storage"
+	"github.com/kibanyadev/dojo/internal/catalogload"
+	"github.com/kibanyadev/dojo/internal/storage"
 )
 
 func main() {

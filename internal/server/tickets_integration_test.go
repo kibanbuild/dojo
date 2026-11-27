@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/server"
+	"github.com/kibanyadev/dojo/internal/server"
 )
 
 // ticketFixture seeds the catalog with foundations/a holding three hints and signs ada up.

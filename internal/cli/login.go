@@ -19,7 +19,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 // Version is the CLI build version; releases set it with -ldflags "-X .../internal/cli.Version=v1.2.3".
@@ -263,6 +263,7 @@ func (a *App) login(ctx context.Context, f *loginFlags) error {
 	}
 	name, meReply, err := a.whoAmI(ctx, api, out.Token)
 	a.alignUsageStats(meReply)
+	a.rememberHostedDefault(meReply)
 	a.afterLogin(meReply)
 	if err != nil || name == "" {
 		fmt.Fprintln(a.Out, "Logged in.")
@@ -296,6 +297,7 @@ func (a *App) alreadyLoggedIn(ctx context.Context, api string) (bool, error) {
 		return false, netErr("could not check the saved login (dojo login --force logs in again anyway)", err)
 	case name != "":
 		a.alignUsageStats(r)
+		a.rememberHostedDefault(r)
 		a.afterLogin(r)
 		fmt.Fprintf(a.Out, "Already logged in as %s. Run dojo logout first to switch accounts.\n", name)
 		return true, nil

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/admin"
+	"github.com/kibanyadev/dojo/internal/admin"
 )
 
 // psqlAsOwner runs sql in the db container as the migration role, which owns the tables. The

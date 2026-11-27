@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/server"
+	"github.com/kibanyadev/dojo/internal/server"
 )
 
 // telemetryBody is one event batch; marker is a unique cli_version so a test counts only its rows.

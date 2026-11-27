@@ -5,7 +5,7 @@ import (
 	"path"
 	"testing"
 
-	"github.com/kibanbuild/dojo/internal/catalog"
+	"github.com/kibanyadev/dojo/internal/catalog"
 )
 
 func TestEmbeddedCatalogIsValid(t *testing.T) {

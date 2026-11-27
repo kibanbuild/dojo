@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/kibanbuild/dojo/internal/server/repo"
+	"github.com/kibanyadev/dojo/internal/server/repo"
 )
 
 type fakeCatalog struct {
@@ -22,6 +22,12 @@ type fakeCatalog struct {
 	pathRole []repo.ListCatalogPathRolesRow
 	items    []repo.ListCatalogItemsRow
 	progress []repo.ListLearnerTicketStatesRow
+	days     []repo.ListLearnerActivityDaysRow
+	total    int32
+	recent   []repo.ListLearnerRecentPassesRow
+	gotTZ    string
+	chosen   string // the learner's chosen path slug
+	firstRun *repo.GetLearnerFirstRunRow
 	err      error
 }
 
@@ -33,6 +39,10 @@ func (f *fakeCatalog) GetCatalogVersion(context.Context) (string, error) {
 		return "", pgx.ErrNoRows
 	}
 	return f.version, nil
+}
+
+func (f *fakeCatalog) GetLearnerChosenPathSlug(context.Context, pgtype.UUID) (string, error) {
+	return f.chosen, f.err
 }
 
 func (f *fakeCatalog) ListCatalogPaths(context.Context) ([]repo.ListCatalogPathsRow, error) {
@@ -55,6 +65,16 @@ func (f *fakeCatalog) ListLearnerTicketStates(context.Context, pgtype.UUID) ([]r
 	return f.progress, f.err
 }
 
+func (f *fakeCatalog) GetLearnerFirstRun(context.Context, pgtype.UUID) (repo.GetLearnerFirstRunRow, error) {
+	if f.err != nil {
+		return repo.GetLearnerFirstRunRow{}, f.err
+	}
+	if f.firstRun == nil {
+		return repo.GetLearnerFirstRunRow{}, pgx.ErrNoRows
+	}
+	return *f.firstRun, nil
+}
+
 func populatedCatalog() *fakeCatalog {
 	return &fakeCatalog{
 		version: "a1b2c3d4e5f6",
@@ -64,7 +84,7 @@ func populatedCatalog() *fakeCatalog {
 		},
 		roles: []repo.ListCatalogRolesRow{
 			{Slug: "foundations", Title: "Foundations", Kind: "foundations"},
-			{Slug: "support-l1", Title: "Support L1", Kind: "role", HasExam: true},
+			{Slug: "support-l1", Title: "Support L1", Summary: "Tickets, users, permissions, a calm reply", Kind: "role", HasExam: true},
 			{Slug: "systems-l2", Title: "Systems L2", Kind: "role", HasExam: true},
 		},
 		pathRole: []repo.ListCatalogPathRolesRow{
@@ -116,6 +136,9 @@ func TestCatalogPopulated(t *testing.T) {
 	}
 	if got.Version != "a1b2c3d4e5f6" || len(got.Paths) != 2 || len(got.Roles) != 3 || len(got.PathRole) != 4 || len(got.Items) != 4 {
 		t.Fatalf("shape: %s", rec.Body)
+	}
+	if got.Roles[1]["summary"] != "Tickets, users, permissions, a calm reply" || got.Roles[0]["summary"] != "" {
+		t.Fatalf("role summaries: %v", got.Roles)
 	}
 	it := got.Items[0]
 	if it["id"] != "foundations/a" || it["role"] != "foundations" || it["order"] != float64(1) || it["kind"] != "ticket" ||
@@ -205,8 +228,24 @@ func TestPathWithoutAnAvailablePath(t *testing.T) {
 	}
 }
 
+func TestPathReportsTheChosenPath(t *testing.T) {
+	f := populatedCatalog()
+	if _, chosen, _ := getPath(t, f); chosen {
+		t.Fatal("chosen without a choice")
+	}
+	f.chosen = "systems-devops"
+	if path, chosen, _ := getPath(t, f); !chosen || path == nil || *path != "systems-devops" {
+		t.Fatalf("%v %v", path, chosen)
+	}
+	// A choice that is not an available path in the catalog falls back to the default, unchosen.
+	f.chosen = "security"
+	if path, chosen, _ := getPath(t, f); chosen || path == nil || *path != "systems-devops" {
+		t.Fatalf("%v %v", path, chosen)
+	}
+}
+
 func TestCatalogRoutesRefuse(t *testing.T) {
-	for _, route := range []string{"/v1/catalog", "/v1/path", "/v1/today"} {
+	for _, route := range []string{"/v1/catalog", "/v1/path", "/v1/today", "/v1/activity"} {
 		if rec := getCatalogRoute(t, populatedCatalog(), route, false, true); rec.Code != 401 || rec.Body.String() != "{\"error\":\"unauthenticated\"}\n" {
 			t.Fatalf("%s anonymous: %d %s", route, rec.Code, rec.Body)
 		}
@@ -223,7 +262,7 @@ func TestReadsShareOneBudgetPerLearner(t *testing.T) {
 	s := &fakeSessions{row: activeRow(time.Now(), false)}
 	h := New(fakeReady{}, Auth{Store: s, Catalog: populatedCatalog()}, testLimits(3), nil, nil)
 	var codes []int
-	for _, route := range []string{"/v1/catalog", "/v1/path", "/v1/today", "/v1/catalog"} {
+	for _, route := range []string{"/v1/catalog", "/v1/path", "/v1/today", "/v1/activity", "/v1/catalog"} {
 		req := httptest.NewRequest(http.MethodGet, route, nil)
 		req.AddCookie(&http.Cookie{Name: SessionCookie, Value: goodToken})
 		rec := httptest.NewRecorder()

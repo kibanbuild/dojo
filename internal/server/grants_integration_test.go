@@ -59,6 +59,11 @@ var grantCases = []struct {
 	{"dojo_admin", "INSERT INTO orgs (slug, name) VALUES ('x', 'X')", false},
 
 	// learners and sessions. WHERE false: privileges are checked, no row is touched.
+	{"dojo_api", "UPDATE learners SET email_source = 'learner', first_run_seen_at = now(), updated_at = now() WHERE false", true},
+	{"dojo_api", "INSERT INTO learners (org_id, github_id, github_login, username, email, email_source, age_confirmed_at, terms_accepted_at, terms_version) SELECT id, 1, 'a', 'abc', 'a@b.c', 'github', now(), now(), 'x' FROM orgs WHERE false", true},
+	{"dojo_api", "INSERT INTO learners (org_id, github_id, github_login, username, first_run_seen_at, age_confirmed_at, terms_accepted_at, terms_version) SELECT id, 1, 'a', 'abc', now(), now(), now(), 'x' FROM orgs WHERE false", false},
+	{"dojo_admin", "SELECT email_source, first_run_seen_at FROM learners", true},
+	{"dojo_admin", "UPDATE learners SET first_run_seen_at = now() WHERE false", false},
 	{"dojo_api", "SELECT token_hash FROM sessions", true},
 	{"dojo_api", "INSERT INTO learners (org_id, github_id, github_login, username, language, age_confirmed_at, terms_accepted_at, terms_version, usage_stats) SELECT id, 1, 'a', 'abc', 'en', now(), now(), '2026-11-20', true FROM orgs WHERE false", true},
 	{"dojo_api", "UPDATE learners SET language = 'es', usage_stats = false, analytics_consent = true, email = 'a@b.c', username = 'abcd', github_login = 'x' WHERE false", true},
@@ -84,6 +89,23 @@ var grantCases = []struct {
 	{"dojo_admin", "UPDATE learners SET terms_version = 'x' WHERE false", false},
 	{"dojo_admin", "INSERT INTO learners (org_id, github_id, github_login, username, age_confirmed_at, terms_accepted_at, terms_version) SELECT id, 1, 'a', 'abc', now(), now(), 'x' FROM orgs WHERE false", false},
 	{"dojo_admin", "DELETE FROM learners WHERE false", false},
+	// chosen_path_id and path_waitlist (migration 00018): the API sets the choice, adds and removes
+	// waitlist rows and never rewrites them; the operator service only reads.
+	{"dojo_api", "UPDATE learners SET chosen_path_id = NULL, updated_at = now() WHERE false", true},
+	{"dojo_api", "INSERT INTO learners (org_id, github_id, github_login, username, language, age_confirmed_at, terms_accepted_at, terms_version, usage_stats, chosen_path_id) SELECT id, 1, 'a', 'abc', 'en', now(), now(), '2026-11-20', true, NULL FROM orgs WHERE false", true},
+	{"dojo_api", "SELECT chosen_path_id FROM learners", true},
+	{"dojo_api", "SELECT learner_id, path_id, org_id, created_at FROM path_waitlist", true},
+	{"dojo_api", "INSERT INTO path_waitlist (org_id, learner_id, path_id) SELECT l.org_id, l.id, p.id FROM learners l, paths p WHERE false", true},
+	{"dojo_api", "DELETE FROM path_waitlist WHERE false", true},
+	{"dojo_api", "INSERT INTO path_waitlist (org_id, learner_id, path_id, created_at) SELECT l.org_id, l.id, p.id, now() FROM learners l, paths p WHERE false", false},
+	{"dojo_api", "UPDATE path_waitlist SET updated_at = now() WHERE false", false},
+	{"dojo_api", "UPDATE path_waitlist SET path_id = path_id WHERE false", false},
+	{"dojo_admin", "SELECT chosen_path_id FROM learners", true},
+	{"dojo_admin", "SELECT path_id, count(*) FROM path_waitlist GROUP BY path_id", true},
+	{"dojo_admin", "UPDATE learners SET chosen_path_id = NULL WHERE false", false},
+	{"dojo_admin", "INSERT INTO path_waitlist (org_id, learner_id, path_id) SELECT l.org_id, l.id, p.id FROM learners l, paths p WHERE false", false},
+	{"dojo_admin", "DELETE FROM path_waitlist WHERE false", false},
+	{"dojo_admin", "UPDATE path_waitlist SET updated_at = now() WHERE false", false},
 	{"dojo_admin", "SELECT token_hash FROM sessions", false},
 	{"dojo_admin", "SELECT count(*) FROM sessions", false},
 	{"dojo_admin", "UPDATE sessions SET revoked_at = now() WHERE false", false},
@@ -175,7 +197,8 @@ var grantCases = []struct {
 	{"dojo_admin", "SELECT prune_admin_audit()", false},
 
 	// email_outbox: both service roles select and insert the queueing columns; id, sent_at and
-	// created_at keep defaults; no UPDATE (mark_email_sent() lands in M3) and no DELETE.
+	// created_at keep defaults; no UPDATE and no DELETE: the sender changes a row only through
+	// mark_email_sent(), which dojo_api alone may execute. email_log has no service grant at all.
 	{"dojo_api", "SELECT id, learner_id, to_address, kind, ref, sent_at, created_at FROM email_outbox", true},
 	{"dojo_api", "INSERT INTO email_outbox (learner_id, to_address, kind, ref) SELECT NULL, 'a@b.c', 'E1', 'x' WHERE false", true},
 	{"dojo_api", "INSERT INTO email_outbox (learner_id, to_address, kind, ref, sent_at) SELECT NULL, 'a@b.c', 'E1', 'x', now() WHERE false", false},
@@ -190,6 +213,15 @@ var grantCases = []struct {
 	{"dojo_admin", "UPDATE email_outbox SET sent_at = now() WHERE false", false},
 	{"dojo_admin", "DELETE FROM email_outbox WHERE false", false},
 	{"dojo_admin", "TRUNCATE email_outbox", false},
+	{"dojo_api", "SELECT mark_email_sent('0b0b0b0b-0000-4000-8000-000000000000')", true},
+	{"dojo_admin", "SELECT mark_email_sent('0b0b0b0b-0000-4000-8000-000000000000')", false},
+	{"dojo_api", "SELECT count(*) FROM email_log", false},
+	{"dojo_api", "INSERT INTO email_log (org_id, learner_id, kind) SELECT id, gen_random_uuid(), 'E1' FROM orgs WHERE false", false},
+	{"dojo_api", "UPDATE email_log SET kind = 'E2' WHERE false", false},
+	{"dojo_api", "DELETE FROM email_log WHERE false", false},
+	{"dojo_admin", "SELECT count(*) FROM email_log", false},
+	{"dojo_admin", "INSERT INTO email_log (org_id, learner_id, kind) SELECT id, gen_random_uuid(), 'E1' FROM orgs WHERE false", false},
+	{"dojo_admin", "DELETE FROM email_log WHERE false", false},
 	// events: the API inserts and reads (ON CONFLICT DO NOTHING RETURNING); append-only, no UPDATE or
 	// DELETE; id and at keep defaults; no operator access. prune_events() is owner-only.
 	{"dojo_api", "SELECT id, learner_id, client_event_id, type, payload, at, client_at FROM events", true},
@@ -207,6 +239,29 @@ var grantCases = []struct {
 	{"dojo_api", "SELECT prune_events()", false},
 	{"dojo_admin", "SELECT prune_events()", false},
 
+	// hosted_default (migration 00020): the API updates it and never inserts it; the operator service only reads.
+	{"dojo_api", "UPDATE learners SET hosted_default = true, updated_at = now() WHERE false", true},
+	{"dojo_api", "SELECT hosted_default FROM learners", true},
+	{"dojo_api", "INSERT INTO learners (org_id, github_id, github_login, username, age_confirmed_at, terms_accepted_at, terms_version, hosted_default) SELECT id, 1, 'a', 'abc', now(), now(), 'x', true FROM orgs WHERE false", false},
+	{"dojo_admin", "SELECT hosted_default FROM learners", true},
+	{"dojo_admin", "UPDATE learners SET hosted_default = true WHERE false", false},
+	// doctor_results: the API reads, inserts and updates the projected columns, and deletes (the
+	// unconfirm route); identity columns and created_at never change from it. dojo_admin only reads.
+	{"dojo_api", "SELECT learner_id, check_id, created_at, updated_at, status, text, fix, source, checked_at FROM doctor_results", true},
+	{"dojo_api", "INSERT INTO doctor_results (org_id, learner_id, check_id, status, text, fix, source, checked_at) SELECT org_id, id, 'memory', 'ok', 't', '', 'cli', now() FROM learners WHERE false", true},
+	{"dojo_api", "INSERT INTO doctor_results (org_id, learner_id, check_id, status, text, fix, source, checked_at) SELECT org_id, id, 'memory', 'ok', 't', '', 'cli', now() FROM learners WHERE false ON CONFLICT (learner_id, check_id) DO UPDATE SET updated_at = now(), status = excluded.status, text = excluded.text, fix = excluded.fix, source = excluded.source, checked_at = excluded.checked_at WHERE doctor_results.checked_at <= excluded.checked_at", true},
+	{"dojo_api", "UPDATE doctor_results SET updated_at = now(), status = 'ok', text = 't', fix = '', source = 'cli', checked_at = now() WHERE false", true},
+	{"dojo_api", "DELETE FROM doctor_results WHERE false", true},
+	{"dojo_api", "INSERT INTO doctor_results (org_id, learner_id, check_id, status, text, source, checked_at, created_at) SELECT org_id, id, 'memory', 'ok', 't', 'cli', now(), now() FROM learners WHERE false", false},
+	{"dojo_api", "UPDATE doctor_results SET check_id = 'disk' WHERE false", false},
+	{"dojo_api", "UPDATE doctor_results SET learner_id = learner_id WHERE false", false},
+	{"dojo_api", "UPDATE doctor_results SET created_at = now() WHERE false", false},
+	{"dojo_api", "TRUNCATE doctor_results", false},
+	{"dojo_admin", "SELECT learner_id, check_id, status, text, fix, source, checked_at FROM doctor_results", true},
+	{"dojo_admin", "INSERT INTO doctor_results (org_id, learner_id, check_id, status, text, source, checked_at) SELECT org_id, id, 'memory', 'ok', 't', 'cli', now() FROM learners WHERE false", false},
+	{"dojo_admin", "UPDATE doctor_results SET status = 'ok' WHERE false", false},
+	{"dojo_admin", "DELETE FROM doctor_results WHERE false", false},
+
 	// ticket_progress: the API reads, inserts and updates the projected columns; identity columns,
 	// created_at and passed_commit (M3) never change from it; no DELETE. dojo_admin only reads (A2).
 	{"dojo_api", "SELECT learner_id, item_id, state, lab, lab_state, lab_state_at, first_started_at, last_seen_at, check_count, last_check_at, last_check_ok, last_check_passed, last_check_total, last_check_output, first_passed_at, passed_seconds, passed_commit FROM ticket_progress", true},
@@ -214,7 +269,43 @@ var grantCases = []struct {
 	{"dojo_api", "UPDATE ticket_progress SET updated_at = now(), state = 'passed', lab = 'local', lab_state = 'running', lab_state_at = now(), first_started_at = now(), last_seen_at = now(), check_count = 1, last_check_at = now(), last_check_ok = true, last_check_passed = 1, last_check_total = 1, last_check_output = 'x', first_passed_at = now(), passed_seconds = 1 WHERE false", true},
 	{"dojo_api", "INSERT INTO ticket_progress (org_id, learner_id, item_id, state, first_started_at, passed_commit) SELECT org_id, id, 'a/b', 'started', now(), 'abc' FROM learners WHERE false", false},
 	{"dojo_api", "INSERT INTO ticket_progress (org_id, learner_id, item_id, state, first_started_at, created_at) SELECT org_id, id, 'a/b', 'started', now(), now() FROM learners WHERE false", false},
-	{"dojo_api", "UPDATE ticket_progress SET passed_commit = 'abc' WHERE false", false},
+	{"dojo_api", "UPDATE ticket_progress SET updated_at = now(), passed_commit = repeat('a', 40), commit_state = 'pending', commit_tries = 0, commit_at = now(), commit_next_at = now(), commit_checked_at = now() WHERE false", true},
+	{"dojo_api", "SELECT commit_state, commit_tries, commit_next_at, commit_checked_at, commit_at FROM ticket_progress", true},
+	{"dojo_api", "INSERT INTO ticket_progress (org_id, learner_id, item_id, state, first_started_at, commit_state) SELECT org_id, id, 'a/b', 'started', now(), 'pending' FROM learners WHERE false", false},
+
+	// pending_commits (migration 00021): the API reads, inserts the five columns and deletes; a repeat is
+	// ON CONFLICT DO NOTHING, so there is no UPDATE; the operator service only reads. prune_pending_commits() is owner-only.
+	{"dojo_api", "SELECT id, learner_id, item_id, \"commit\", client_at, created_at FROM pending_commits", true},
+	{"dojo_api", "INSERT INTO pending_commits (org_id, learner_id, item_id, \"commit\", client_at) SELECT org_id, id, 'a/b', repeat('a', 40), now() FROM learners WHERE false ON CONFLICT (learner_id, item_id) DO NOTHING", true},
+	{"dojo_api", "DELETE FROM pending_commits WHERE false", true},
+	{"dojo_api", "UPDATE pending_commits SET \"commit\" = repeat('b', 40) WHERE false", false},
+	{"dojo_api", "INSERT INTO pending_commits (org_id, learner_id, item_id, \"commit\", client_at, created_at) SELECT org_id, id, 'a/b', repeat('a', 40), now(), now() FROM learners WHERE false", false},
+	{"dojo_api", "TRUNCATE pending_commits", false},
+	{"dojo_admin", "SELECT learner_id, item_id, \"commit\" FROM pending_commits", true},
+	{"dojo_admin", "INSERT INTO pending_commits (org_id, learner_id, item_id, \"commit\", client_at) SELECT org_id, id, 'a/b', repeat('a', 40), now() FROM learners WHERE false", false},
+	{"dojo_admin", "DELETE FROM pending_commits WHERE false", false},
+	// ticket_reports (migration 00022): the API reads, inserts the eight columns and updates emailed_at (also what
+	// FOR UPDATE SKIP LOCKED needs); id, timestamps and the rest never come from it; no DELETE. The operator service only reads.
+	{"dojo_api", "SELECT id, org_id, learner_id, item_id, kind, cli_version, last_check_output, message, doctor_summary, emailed_at, created_at, updated_at FROM ticket_reports", true},
+	{"dojo_api", "INSERT INTO ticket_reports (org_id, learner_id, item_id, kind, cli_version, last_check_output, message, doctor_summary) SELECT org_id, id, 'a/b', 'broken_ticket', 'v', 'o', 'm', 's' FROM learners WHERE false", true},
+	{"dojo_api", "UPDATE ticket_reports SET updated_at = now(), emailed_at = now() WHERE false", true},
+	{"dojo_api", "SELECT id FROM ticket_reports WHERE false FOR UPDATE SKIP LOCKED", true},
+	{"dojo_api", "SELECT id FROM learners WHERE false FOR UPDATE", true},
+	{"dojo_api", "INSERT INTO ticket_reports (org_id, learner_id, kind, message, emailed_at) SELECT org_id, id, 'setup_help', 'm', now() FROM learners WHERE false", false},
+	{"dojo_api", "INSERT INTO ticket_reports (id, org_id, learner_id, kind, message) SELECT gen_random_uuid(), org_id, id, 'setup_help', 'm' FROM learners WHERE false", false},
+	{"dojo_api", "INSERT INTO ticket_reports (org_id, learner_id, kind, message, created_at) SELECT org_id, id, 'setup_help', 'm', now() FROM learners WHERE false", false},
+	{"dojo_api", "UPDATE ticket_reports SET message = 'x' WHERE false", false},
+	{"dojo_api", "UPDATE ticket_reports SET learner_id = learner_id WHERE false", false},
+	{"dojo_api", "UPDATE ticket_reports SET doctor_summary = 'x' WHERE false", false},
+	{"dojo_api", "UPDATE ticket_reports SET created_at = now() WHERE false", false},
+	{"dojo_api", "DELETE FROM ticket_reports WHERE false", false},
+	{"dojo_api", "TRUNCATE ticket_reports", false},
+	{"dojo_admin", "SELECT learner_id, item_id, kind, cli_version, last_check_output, message, doctor_summary, emailed_at FROM ticket_reports", true},
+	{"dojo_admin", "INSERT INTO ticket_reports (org_id, learner_id, kind, message) SELECT org_id, id, 'setup_help', 'm' FROM learners WHERE false", false},
+	{"dojo_admin", "UPDATE ticket_reports SET emailed_at = now() WHERE false", false},
+	{"dojo_admin", "DELETE FROM ticket_reports WHERE false", false},
+	{"dojo_api", "SELECT prune_pending_commits()", false},
+	{"dojo_admin", "SELECT prune_pending_commits()", false},
 	{"dojo_api", "UPDATE ticket_progress SET learner_id = learner_id WHERE false", false},
 	{"dojo_api", "UPDATE ticket_progress SET item_id = 'x' WHERE false", false},
 	{"dojo_api", "UPDATE ticket_progress SET org_id = org_id WHERE false", false},
@@ -270,13 +361,18 @@ var grantCases = []struct {
 	{"dojo_api", "UPDATE catalog_state SET catalog_version = '000000000000' WHERE false", false},
 	{"dojo_api", "DELETE FROM catalog_state WHERE false", false},
 	{"dojo_api", "TRUNCATE catalog_state", false},
+	// dojo_admin (A2 progress view): reads roles and catalog_items, nothing else of the catalog.
 	{"dojo_admin", "SELECT count(*) FROM paths", false},
-	{"dojo_admin", "SELECT count(*) FROM roles", false},
+	{"dojo_admin", "SELECT id, title, kind FROM roles", true},
 	{"dojo_admin", "SELECT count(*) FROM path_roles", false},
-	{"dojo_admin", "SELECT count(*) FROM catalog_items", false},
+	{"dojo_admin", "SELECT id, role_id, kind, title FROM catalog_items", true},
 	{"dojo_admin", "SELECT count(*) FROM catalog_state", false},
 	{"dojo_admin", "INSERT INTO paths (org_id, slug, title, status, position) SELECT id, 'x', 'X', 'planned', 1 FROM orgs WHERE false", false},
+	{"dojo_admin", "UPDATE roles SET title = 'x' WHERE false", false},
+	{"dojo_admin", "DELETE FROM roles WHERE false", false},
 	{"dojo_admin", "UPDATE catalog_items SET title = 'x' WHERE false", false},
+	{"dojo_admin", "DELETE FROM catalog_items WHERE false", false},
+	{"dojo_admin", "TRUNCATE catalog_items", false},
 	{"dojo_admin", "DELETE FROM catalog_state WHERE false", false},
 }
 

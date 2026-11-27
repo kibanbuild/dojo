@@ -18,7 +18,7 @@ permissions: {}
 
 jobs:
   conventional-commit-check:
-    if: github.repository == 'kibanbuild/dojo'
+    if: github.repository == 'kibanyadev/dojo'
     name: Check PR title format
     runs-on: ubuntu-latest
     timeout-minutes: 5

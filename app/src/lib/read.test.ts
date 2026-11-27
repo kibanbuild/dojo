@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchCatalog, fetchPath, fetchTicket, fetchToday, readBlockedUntil, ReadError, resetReadBlock } from './read';
+import { fetchActivity, fetchCatalog, fetchPath, fetchTicket, fetchToday, readBlockedUntil, ReadError, resetReadBlock } from './read';
 
 function stub(res: Response) {
   const spy = vi.fn<typeof fetch>(async () => res);
@@ -35,6 +35,21 @@ describe('read routes', () => {
     expect(init.method).toBe('GET');
     expect(init.credentials).toBe('same-origin');
     expect(new Headers(init.headers).has('X-Dojo-Csrf')).toBe(false);
+  });
+
+  it('sends the browser zone with the activity read', async () => {
+    const spy = stub(Response.json({ days: [] }));
+    await fetchActivity();
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    expect(spy.mock.calls[0]?.[0]).toBe(`/v1/activity?tz=${encodeURIComponent(zone)}`);
+  });
+
+  it('omits tz from the activity read when the browser cannot name its zone', async () => {
+    const spy = stub(Response.json({ days: [] }));
+    const zone = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(() => ({ resolvedOptions: () => ({ timeZone: '' }) }) as Intl.DateTimeFormat);
+    await fetchActivity();
+    zone.mockRestore();
+    expect(spy.mock.calls[0]?.[0]).toBe('/v1/activity');
   });
 
   it('keeps the slash of a ticket id and escapes the rest', async () => {

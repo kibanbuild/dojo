@@ -1,8 +1,11 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type todayTicket struct {
@@ -20,21 +23,43 @@ type todayRole struct {
 }
 
 type todayResponse struct {
-	Current   *todayTicket `json:"current"`
-	Next      *todayTicket `json:"next"`
-	Role      *todayRole   `json:"role"`
-	AllPassed bool         `json:"all_passed"`
+	Current   *todayTicket   `json:"current"`
+	Next      *todayTicket   `json:"next"`
+	Role      *todayRole     `json:"role"`
+	AllPassed bool           `json:"all_passed"`
+	FirstRun  *todayFirstRun `json:"first_run"`
+}
+
+// todayFirstRun is the learner's earliest first pass while they have not left "day one done" (design 3.9).
+type todayFirstRun struct {
+	ID                string    `json:"id"`
+	Title             string    `json:"title"`
+	FirstPassedAt     time.Time `json:"first_passed_at"`
+	PassedCommitState *string   `json:"passed_commit_state"`
 }
 
 // today answers what L1 draws: the ticket in progress, the next one and the role that holds them
-// (design 3.8).
+// (design 3.8), plus the first run when there is one.
 func (a Auth) today(w http.ResponseWriter, r *http.Request) {
 	p, seen, err := a.loadPath(r)
 	if err != nil {
 		readFailed(w, r, err)
 		return
 	}
-	writeNoStore(w, selectToday(p.Roles, seen))
+	out := selectToday(p.Roles, seen)
+	fr, err := a.Catalog.GetLearnerFirstRun(r.Context(), principalLearner(r))
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		readFailed(w, r, err)
+		return
+	default:
+		out.FirstRun = &todayFirstRun{ID: fr.ItemID, Title: fr.Title, FirstPassedAt: fr.FirstPassedAt.Time}
+		if fr.CommitState.Valid {
+			out.FirstRun.PassedCommitState = &fr.CommitState.String
+		}
+	}
+	writeNoStore(w, out)
 }
 
 func isOpen(state *string) bool { return state == nil || *state == "started" }

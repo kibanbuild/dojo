@@ -2,13 +2,14 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/kibanbuild/dojo/internal/server/repo"
+	"github.com/kibanyadev/dojo/internal/server/repo"
 )
 
 func seen(item, state string, at time.Time) repo.ListLearnerTicketStatesRow {
@@ -90,7 +91,7 @@ func TestTodayTicketFields(t *testing.T) {
 
 func TestTodayNoPathAndNoTickets(t *testing.T) {
 	rec := getCatalogRoute(t, &fakeCatalog{}, "/v1/today", false, false)
-	if want := `{"current":null,"next":null,"role":null,"all_passed":false}` + "\n"; rec.Body.String() != want {
+	if want := `{"current":null,"next":null,"role":null,"all_passed":false,"first_run":null}` + "\n"; rec.Body.String() != want {
 		t.Fatalf("empty: %q", rec.Body)
 	}
 	f := populatedCatalog()
@@ -98,6 +99,27 @@ func TestTodayNoPathAndNoTickets(t *testing.T) {
 	got := getToday(t, f)
 	if got.Current != nil || got.Next != nil || got.Role != nil || got.AllPassed {
 		t.Fatalf("no tickets: %+v", got)
+	}
+}
+
+func TestTodayFirstRun(t *testing.T) {
+	if got := getToday(t, populatedCatalog()); got.FirstRun != nil {
+		t.Fatalf("no first pass: %+v", got.FirstRun)
+	}
+	at := time.Date(2026, 11, 25, 9, 30, 0, 0, time.UTC)
+	f := populatedCatalog()
+	f.firstRun = &repo.GetLearnerFirstRunRow{ItemID: "foundations/a", Title: "A", FirstPassedAt: pgtype.Timestamptz{Time: at, Valid: true}}
+	got := getToday(t, f).FirstRun
+	if got == nil || got.ID != "foundations/a" || got.Title != "A" || !got.FirstPassedAt.Equal(at) || got.PassedCommitState != nil {
+		t.Fatalf("first run: %+v", got)
+	}
+	f.firstRun.CommitState = pgtype.Text{String: "pending", Valid: true}
+	if got := getToday(t, f).FirstRun; got == nil || got.PassedCommitState == nil || *got.PassedCommitState != "pending" {
+		t.Fatalf("commit state: %+v", got)
+	}
+	f.err = errors.New("db down")
+	if rec := getCatalogRoute(t, f, "/v1/today", false, false); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("read failure: %d", rec.Code)
 	}
 }
 

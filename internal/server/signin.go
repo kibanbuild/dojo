@@ -20,8 +20,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/kibanbuild/dojo/internal/github"
-	"github.com/kibanbuild/dojo/internal/server/repo"
+	"github.com/kibanyadev/dojo/internal/github"
+	"github.com/kibanyadev/dojo/internal/server/repo"
 )
 
 const (
@@ -56,9 +56,17 @@ type SignInStore interface {
 	GetOrgBySlug(ctx context.Context, slug string) (repo.Org, error)
 	GetLearnerByGithubID(ctx context.Context, githubID int64) (repo.Learner, error)
 	UpsertLearner(ctx context.Context, arg repo.UpsertLearnerParams) (repo.Learner, error)
+	// CreateLearner inserts a new learner and queues their welcome mail (E1) in the same statement.
+	CreateLearner(ctx context.Context, arg repo.UpsertLearnerParams) (repo.Learner, error)
 	SetLearnerAnalyticsConsentIfUnset(ctx context.Context, arg repo.SetLearnerAnalyticsConsentIfUnsetParams) (int64, error)
 	InsertSession(ctx context.Context, arg repo.InsertSessionParams) (repo.InsertSessionRow, error)
 	RevokeSession(ctx context.Context, id pgtype.UUID) error
+	// The path choice (design 3.9).
+	GetPathBySlug(ctx context.Context, slug string) (repo.GetPathBySlugRow, error)
+	SetLearnerChosenPath(ctx context.Context, arg repo.SetLearnerChosenPathParams) error
+	InsertPathWaitlist(ctx context.Context, arg repo.InsertPathWaitlistParams) error
+	DeletePathWaitlist(ctx context.Context, arg repo.DeletePathWaitlistParams) error
+	ApplyLearnerChoice(ctx context.Context, arg repo.ApplyLearnerChoiceParams) error
 }
 
 // SignIn runs the web OAuth flow (design 3.1).
@@ -190,6 +198,9 @@ type oauthState struct {
 	Age      bool   `json:"a"`
 	Terms    bool   `json:"t"`
 	Issued   int64  `json:"i"`
+	// Path and Waitlist are the verified dojo_path choice (design 3.9); the callback trusts only these.
+	Path     string   `json:"p,omitempty"`
+	Waitlist []string `json:"w,omitempty"`
 }
 
 func (s *SignIn) now() time.Time {
@@ -270,6 +281,8 @@ func (s *SignIn) start(w http.ResponseWriter, r *http.Request) {
 	}
 	st := oauthState{V: stateVersion, State: state, Verifier: verifier, Issued: s.now().Unix(),
 		Age: ticked(r.PostForm.Get("age")), Terms: ticked(r.PostForm.Get("terms"))}
+	choice, _ := s.readPathCookie(r)
+	st.Path, st.Waitlist = choice.Path, choice.Waitlist
 	http.SetCookie(w, s.stateCookie(s.seal(st), int(stateTTL.Seconds())))
 	http.Redirect(w, r, s.GitHub.AuthorizeURL(state, challenge, s.redirectURI()), http.StatusSeeOther)
 }
@@ -336,6 +349,12 @@ func (s *SignIn) callback(w http.ResponseWriter, r *http.Request) {
 		redirectSignin(w, r, "error=suspended")
 		return
 	}
+	// A failure here ends the sign-in before any session exists; the dojo_path cookie stays, so the retry applies it.
+	if err := s.applyChoice(ctx, l, st); err != nil {
+		slog.Error("sign-in: applying the path choice failed", "error", err)
+		redirectSignin(w, r, "error=server_error")
+		return
+	}
 	s.copyAnalyticsConsent(ctx, r, l)
 	token, err := randToken()
 	if err == nil {
@@ -353,6 +372,7 @@ func (s *SignIn) callback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.SetCookie(w, s.Auth.SetCookie(token))
+	http.SetCookie(w, s.pathCookie("", -1))
 	http.Redirect(w, r, "/app", http.StatusSeeOther)
 }
 
@@ -454,7 +474,7 @@ func (s *SignIn) learner(ctx context.Context, u github.User, email string, st oa
 	// The server clock records the confirmation; the cookie only said the boxes were ticked.
 	at := pgtype.Timestamptz{Time: s.now(), Valid: true}
 	return createWithUsername(u.Login, u.ID, func(name string) (repo.Learner, error) {
-		return s.Store.UpsertLearner(ctx, repo.UpsertLearnerParams{OrgID: org.ID, GithubID: u.ID, GithubLogin: u.Login,
+		return s.Store.CreateLearner(ctx, repo.UpsertLearnerParams{OrgID: org.ID, GithubID: u.ID, GithubLogin: u.Login,
 			Username: name, Email: mail, Language: "en", AgeConfirmedAt: at, TermsAcceptedAt: at, TermsVersion: s.TermsVersion, UsageStats: true})
 	})
 }

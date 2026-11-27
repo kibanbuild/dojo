@@ -24,7 +24,7 @@ func (q *Queries) DeleteLearner(ctx context.Context, id pgtype.UUID) (bool, erro
 }
 
 const getLearnerByGithubID = `-- name: GetLearnerByGithubID :one
-SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version FROM learners WHERE github_id = $1
+SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id, hosted_default, email_source, first_run_seen_at FROM learners WHERE github_id = $1
 `
 
 func (q *Queries) GetLearnerByGithubID(ctx context.Context, githubID int64) (Learner, error) {
@@ -46,12 +46,16 @@ func (q *Queries) GetLearnerByGithubID(ctx context.Context, githubID int64) (Lea
 		&i.AnalyticsConsent,
 		&i.SuspendedAt,
 		&i.TermsVersion,
+		&i.ChosenPathID,
+		&i.HostedDefault,
+		&i.EmailSource,
+		&i.FirstRunSeenAt,
 	)
 	return i, err
 }
 
 const getLearnerByID = `-- name: GetLearnerByID :one
-SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version FROM learners WHERE id = $1
+SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id, hosted_default, email_source, first_run_seen_at FROM learners WHERE id = $1
 `
 
 func (q *Queries) GetLearnerByID(ctx context.Context, id pgtype.UUID) (Learner, error) {
@@ -73,6 +77,164 @@ func (q *Queries) GetLearnerByID(ctx context.Context, id pgtype.UUID) (Learner, 
 		&i.AnalyticsConsent,
 		&i.SuspendedAt,
 		&i.TermsVersion,
+		&i.ChosenPathID,
+		&i.HostedDefault,
+		&i.EmailSource,
+		&i.FirstRunSeenAt,
+	)
+	return i, err
+}
+
+const getLearnerFirstRun = `-- name: GetLearnerFirstRun :one
+SELECT p.item_id, i.title, p.first_passed_at, p.commit_state
+FROM ticket_progress p
+JOIN catalog_items i ON i.id = p.item_id AND i.kind = 'ticket'
+JOIN learners l ON l.id = p.learner_id
+WHERE p.learner_id = $1 AND p.state IN ('passed', 'revisit') AND l.first_run_seen_at IS NULL
+ORDER BY p.first_passed_at, p.item_id
+LIMIT 1
+`
+
+type GetLearnerFirstRunRow struct {
+	ItemID        string
+	Title         string
+	FirstPassedAt pgtype.Timestamptz
+	CommitState   pgtype.Text
+}
+
+// The learner's earliest first pass while the first run is unseen (design 3.9); no row means no first run.
+func (q *Queries) GetLearnerFirstRun(ctx context.Context, learnerID pgtype.UUID) (GetLearnerFirstRunRow, error) {
+	row := q.db.QueryRow(ctx, getLearnerFirstRun, learnerID)
+	var i GetLearnerFirstRunRow
+	err := row.Scan(
+		&i.ItemID,
+		&i.Title,
+		&i.FirstPassedAt,
+		&i.CommitState,
+	)
+	return i, err
+}
+
+const insertLearnerWithWelcome = `-- name: InsertLearnerWithWelcome :one
+WITH ins AS (
+    INSERT INTO learners (org_id, github_id, github_login, username, email, email_source, language,
+                          age_confirmed_at, terms_accepted_at, terms_version, usage_stats)
+    VALUES ($1, $2, $3, $4, $5, CASE WHEN $5::text IS NULL THEN NULL ELSE 'github' END, $6, $7, $8, $9, $10)
+    ON CONFLICT (github_id) DO NOTHING
+    RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id, hosted_default, email_source, first_run_seen_at
+), queued AS (
+    INSERT INTO email_outbox (learner_id, to_address, kind, ref)
+    SELECT id, email, 'E1', id::text FROM ins WHERE email IS NOT NULL
+    ON CONFLICT (kind, ref) DO NOTHING
+)
+SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id, hosted_default, email_source, first_run_seen_at FROM ins
+`
+
+type InsertLearnerWithWelcomeParams struct {
+	OrgID           pgtype.UUID
+	GithubID        int64
+	GithubLogin     string
+	Username        string
+	Email           pgtype.Text
+	Language        string
+	AgeConfirmedAt  pgtype.Timestamptz
+	TermsAcceptedAt pgtype.Timestamptz
+	TermsVersion    string
+	UsageStats      bool
+}
+
+type InsertLearnerWithWelcomeRow struct {
+	ID               pgtype.UUID
+	OrgID            pgtype.UUID
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	GithubID         int64
+	GithubLogin      string
+	Username         string
+	Email            pgtype.Text
+	Language         string
+	AgeConfirmedAt   pgtype.Timestamptz
+	TermsAcceptedAt  pgtype.Timestamptz
+	UsageStats       bool
+	AnalyticsConsent pgtype.Bool
+	SuspendedAt      pgtype.Timestamptz
+	TermsVersion     string
+	ChosenPathID     pgtype.UUID
+	HostedDefault    bool
+	EmailSource      pgtype.Text
+	FirstRunSeenAt   pgtype.Timestamptz
+}
+
+// A new learner and their welcome mail (E1, ref = the learner id) in one statement, so both exist or
+// neither does. No row back means the GitHub account already had a learner (a concurrent first sign-in).
+func (q *Queries) InsertLearnerWithWelcome(ctx context.Context, arg InsertLearnerWithWelcomeParams) (InsertLearnerWithWelcomeRow, error) {
+	row := q.db.QueryRow(ctx, insertLearnerWithWelcome,
+		arg.OrgID,
+		arg.GithubID,
+		arg.GithubLogin,
+		arg.Username,
+		arg.Email,
+		arg.Language,
+		arg.AgeConfirmedAt,
+		arg.TermsAcceptedAt,
+		arg.TermsVersion,
+		arg.UsageStats,
+	)
+	var i InsertLearnerWithWelcomeRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GithubID,
+		&i.GithubLogin,
+		&i.Username,
+		&i.Email,
+		&i.Language,
+		&i.AgeConfirmedAt,
+		&i.TermsAcceptedAt,
+		&i.UsageStats,
+		&i.AnalyticsConsent,
+		&i.SuspendedAt,
+		&i.TermsVersion,
+		&i.ChosenPathID,
+		&i.HostedDefault,
+		&i.EmailSource,
+		&i.FirstRunSeenAt,
+	)
+	return i, err
+}
+
+const markFirstRunSeen = `-- name: MarkFirstRunSeen :one
+UPDATE learners SET first_run_seen_at = now(), updated_at = now()
+WHERE id = $1 AND first_run_seen_at IS NULL
+RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id, hosted_default, email_source, first_run_seen_at
+`
+
+// No row back means the first run was already seen: a repeat changes nothing.
+func (q *Queries) MarkFirstRunSeen(ctx context.Context, id pgtype.UUID) (Learner, error) {
+	row := q.db.QueryRow(ctx, markFirstRunSeen, id)
+	var i Learner
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GithubID,
+		&i.GithubLogin,
+		&i.Username,
+		&i.Email,
+		&i.Language,
+		&i.AgeConfirmedAt,
+		&i.TermsAcceptedAt,
+		&i.UsageStats,
+		&i.AnalyticsConsent,
+		&i.SuspendedAt,
+		&i.TermsVersion,
+		&i.ChosenPathID,
+		&i.HostedDefault,
+		&i.EmailSource,
+		&i.FirstRunSeenAt,
 	)
 	return i, err
 }
@@ -96,15 +258,86 @@ func (q *Queries) SetLearnerAnalyticsConsentIfUnset(ctx context.Context, arg Set
 	return result.RowsAffected(), nil
 }
 
+const setLearnerEmailWithWelcome = `-- name: SetLearnerEmailWithWelcome :one
+WITH upd AS (
+    UPDATE learners l
+    SET email = $1::text, email_source = 'learner', updated_at = now()
+    WHERE l.id = $2::uuid AND l.email IS NULL
+    RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id, hosted_default, email_source, first_run_seen_at
+), queued AS (
+    INSERT INTO email_outbox (learner_id, to_address, kind, ref)
+    SELECT upd.id, upd.email, 'E1', upd.id::text FROM upd
+    ON CONFLICT (kind, ref) DO NOTHING
+)
+SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id, hosted_default, email_source, first_run_seen_at FROM upd
+`
+
+type SetLearnerEmailWithWelcomeParams struct {
+	Email string
+	ID    pgtype.UUID
+}
+
+type SetLearnerEmailWithWelcomeRow struct {
+	ID               pgtype.UUID
+	OrgID            pgtype.UUID
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	GithubID         int64
+	GithubLogin      string
+	Username         string
+	Email            pgtype.Text
+	Language         string
+	AgeConfirmedAt   pgtype.Timestamptz
+	TermsAcceptedAt  pgtype.Timestamptz
+	UsageStats       bool
+	AnalyticsConsent pgtype.Bool
+	SuspendedAt      pgtype.Timestamptz
+	TermsVersion     string
+	ChosenPathID     pgtype.UUID
+	HostedDefault    bool
+	EmailSource      pgtype.Text
+	FirstRunSeenAt   pgtype.Timestamptz
+}
+
+// The learner's own address (design 3.9), only while none is on file, with E1 queued in the same statement.
+// No row back means an address is already stored.
+func (q *Queries) SetLearnerEmailWithWelcome(ctx context.Context, arg SetLearnerEmailWithWelcomeParams) (SetLearnerEmailWithWelcomeRow, error) {
+	row := q.db.QueryRow(ctx, setLearnerEmailWithWelcome, arg.Email, arg.ID)
+	var i SetLearnerEmailWithWelcomeRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GithubID,
+		&i.GithubLogin,
+		&i.Username,
+		&i.Email,
+		&i.Language,
+		&i.AgeConfirmedAt,
+		&i.TermsAcceptedAt,
+		&i.UsageStats,
+		&i.AnalyticsConsent,
+		&i.SuspendedAt,
+		&i.TermsVersion,
+		&i.ChosenPathID,
+		&i.HostedDefault,
+		&i.EmailSource,
+		&i.FirstRunSeenAt,
+	)
+	return i, err
+}
+
 const updateLearnerProfile = `-- name: UpdateLearnerProfile :one
 UPDATE learners
 SET username = COALESCE($2, username),
     language = COALESCE($3, language),
     usage_stats = COALESCE($4, usage_stats),
     analytics_consent = COALESCE($5, analytics_consent),
+    hosted_default = COALESCE($6, hosted_default),
     updated_at = now()
 WHERE id = $1
-RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version
+RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id, hosted_default, email_source, first_run_seen_at
 `
 
 type UpdateLearnerProfileParams struct {
@@ -113,6 +346,7 @@ type UpdateLearnerProfileParams struct {
 	Language         pgtype.Text
 	UsageStats       pgtype.Bool
 	AnalyticsConsent pgtype.Bool
+	HostedDefault    pgtype.Bool
 }
 
 func (q *Queries) UpdateLearnerProfile(ctx context.Context, arg UpdateLearnerProfileParams) (Learner, error) {
@@ -122,6 +356,7 @@ func (q *Queries) UpdateLearnerProfile(ctx context.Context, arg UpdateLearnerPro
 		arg.Language,
 		arg.UsageStats,
 		arg.AnalyticsConsent,
+		arg.HostedDefault,
 	)
 	var i Learner
 	err := row.Scan(
@@ -140,22 +375,37 @@ func (q *Queries) UpdateLearnerProfile(ctx context.Context, arg UpdateLearnerPro
 		&i.AnalyticsConsent,
 		&i.SuspendedAt,
 		&i.TermsVersion,
+		&i.ChosenPathID,
+		&i.HostedDefault,
+		&i.EmailSource,
+		&i.FirstRunSeenAt,
 	)
 	return i, err
 }
 
-const upsertLearner = `-- name: UpsertLearner :one
-INSERT INTO learners (org_id, github_id, github_login, username, email, language,
-                      age_confirmed_at, terms_accepted_at, terms_version, usage_stats)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-ON CONFLICT (github_id) DO UPDATE
-SET github_login = EXCLUDED.github_login,
-    email = COALESCE(EXCLUDED.email, learners.email),
-    updated_at = now()
-RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version
+const upsertLearnerWithWelcome = `-- name: UpsertLearnerWithWelcome :one
+WITH prev AS (
+    SELECT l.id, l.email FROM learners l WHERE l.github_id = $2
+), up AS (
+    INSERT INTO learners (org_id, github_id, github_login, username, email, email_source, language,
+                          age_confirmed_at, terms_accepted_at, terms_version, usage_stats)
+    VALUES ($1, $2, $3, $4, $5, CASE WHEN $5::text IS NULL THEN NULL ELSE 'github' END, $6, $7, $8, $9, $10)
+    ON CONFLICT (github_id) DO UPDATE
+    SET github_login = EXCLUDED.github_login,
+        email = COALESCE(EXCLUDED.email, learners.email),
+        email_source = CASE WHEN EXCLUDED.email IS NULL THEN learners.email_source ELSE 'github' END,
+        updated_at = now()
+    RETURNING id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id, hosted_default, email_source, first_run_seen_at
+), queued AS (
+    INSERT INTO email_outbox (learner_id, to_address, kind, ref)
+    SELECT up.id, up.email, 'E1', up.id::text FROM up JOIN prev ON prev.id = up.id
+    WHERE prev.email IS NULL AND up.email IS NOT NULL
+    ON CONFLICT (kind, ref) DO NOTHING
+)
+SELECT id, org_id, created_at, updated_at, github_id, github_login, username, email, language, age_confirmed_at, terms_accepted_at, usage_stats, analytics_consent, suspended_at, terms_version, chosen_path_id, hosted_default, email_source, first_run_seen_at FROM up
 `
 
-type UpsertLearnerParams struct {
+type UpsertLearnerWithWelcomeParams struct {
 	OrgID           pgtype.UUID
 	GithubID        int64
 	GithubLogin     string
@@ -168,8 +418,33 @@ type UpsertLearnerParams struct {
 	UsageStats      bool
 }
 
-func (q *Queries) UpsertLearner(ctx context.Context, arg UpsertLearnerParams) (Learner, error) {
-	row := q.db.QueryRow(ctx, upsertLearner,
+type UpsertLearnerWithWelcomeRow struct {
+	ID               pgtype.UUID
+	OrgID            pgtype.UUID
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	GithubID         int64
+	GithubLogin      string
+	Username         string
+	Email            pgtype.Text
+	Language         string
+	AgeConfirmedAt   pgtype.Timestamptz
+	TermsAcceptedAt  pgtype.Timestamptz
+	UsageStats       bool
+	AnalyticsConsent pgtype.Bool
+	SuspendedAt      pgtype.Timestamptz
+	TermsVersion     string
+	ChosenPathID     pgtype.UUID
+	HostedDefault    bool
+	EmailSource      pgtype.Text
+	FirstRunSeenAt   pgtype.Timestamptz
+}
+
+// A sign-in refresh. A GitHub email replaces the stored one and marks it as GitHub's; with none the stored one stays.
+// A learner who had no address before and now has one gets E1 in the same statement (prev reads the row as it was
+// before this statement), once however many triggers fire (ON CONFLICT on kind and ref).
+func (q *Queries) UpsertLearnerWithWelcome(ctx context.Context, arg UpsertLearnerWithWelcomeParams) (UpsertLearnerWithWelcomeRow, error) {
+	row := q.db.QueryRow(ctx, upsertLearnerWithWelcome,
 		arg.OrgID,
 		arg.GithubID,
 		arg.GithubLogin,
@@ -181,7 +456,7 @@ func (q *Queries) UpsertLearner(ctx context.Context, arg UpsertLearnerParams) (L
 		arg.TermsVersion,
 		arg.UsageStats,
 	)
-	var i Learner
+	var i UpsertLearnerWithWelcomeRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -198,6 +473,10 @@ func (q *Queries) UpsertLearner(ctx context.Context, arg UpsertLearnerParams) (L
 		&i.AnalyticsConsent,
 		&i.SuspendedAt,
 		&i.TermsVersion,
+		&i.ChosenPathID,
+		&i.HostedDefault,
+		&i.EmailSource,
+		&i.FirstRunSeenAt,
 	)
 	return i, err
 }

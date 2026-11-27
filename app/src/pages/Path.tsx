@@ -1,7 +1,7 @@
 import { Link, Navigate } from 'react-router';
 import { AppFrame } from '../components/AppFrame';
 import type { Me } from '../lib/me';
-import { READ_MESSAGES, ReadError, useCatalog, usePath, type LearnerPath, type PathItem, type PathRole, type TicketState } from '../lib/read';
+import { READ_MESSAGES, ReadError, useCatalog, usePath, type Catalog, type LearnerPath, type PathItem, type PathRole, type TicketState } from '../lib/read';
 import { useLiveData } from '../lib/stream';
 
 type RoleStatus = 'passed' | 'here' | 'next' | 'soon';
@@ -27,25 +27,27 @@ const ITEM_LABEL: Record<TicketState | 'none', string> = {
   none: 'Not started',
 };
 
-function Marker({ status }: { status: RoleStatus }) {
+function Marker({ status, locked }: { status: RoleStatus; locked: boolean }) {
   const base = 'inline-flex size-8 flex-none items-center justify-center rounded-full text-sm font-extrabold';
   if (status === 'passed') {
     return (
-      <span aria-hidden="true" className={`${base} bg-ok text-white`}>
-        ✓
+      <span className={`${base} bg-ok text-white`}>
+        <span aria-hidden="true">✓</span>
+        <span className="sr-only">done</span>
       </span>
     );
   }
   if (status === 'here') {
     return (
-      <span aria-hidden="true" className={`${base} bg-accent text-white`}>
-        ●
+      <span className={`${base} bg-accent text-white`}>
+        <span aria-hidden="true">●</span>
+        <span className="sr-only">you are here</span>
       </span>
     );
   }
   return (
     <span className={`${base} box-border border-2 border-ctl bg-surface text-muted`}>
-      <span className="sr-only">{status === 'soon' ? 'coming soon' : 'next'}</span>
+      <span className="sr-only">{locked ? 'coming later' : 'next'}</span>
     </span>
   );
 }
@@ -81,29 +83,30 @@ function RoleRow({ role, status, hereTitle, hasExam, last }: { role: PathRole; s
     ) : status === 'here' ? (
       <span className={`${PILL} bg-accentsoft text-accentink`}>You are here</span>
     ) : null;
-  const note =
-    status === 'soon'
-      ? 'Coming soon'
-      : status === 'next'
-        ? hereTitle
-          ? `after ${hereTitle}`
-          : null
-        : null;
+  let note: string | null = null;
+  if (last && status !== 'passed' && status !== 'here') note = 'the destination';
+  else if (status === 'soon') note = 'coming later';
+  else if (status === 'next' && hereTitle) note = `after ${hereTitle}`;
   const hasTickets = role.tickets_total > 0 && status !== 'soon';
   return (
     <li className="relative flex gap-3.5">
       {!last && <span aria-hidden="true" className="absolute top-8 -bottom-0 left-[15px] w-0.5 bg-line" />}
-      <Marker status={status} />
-      <div className="flex min-w-0 flex-1 flex-col gap-1 pb-6">
+      <Marker status={status} locked={role.locked} />
+      <div className="flex min-w-0 flex-1 flex-col gap-1 pb-[18px] md:pb-[22px]">
         <div className="flex flex-wrap items-center gap-2.5">
           <h2 className="m-0 text-lg font-extrabold">{role.title}</h2>
           {pill}
         </div>
+        {role.summary && <p className="m-0 text-sm leading-normal text-fg2">{role.summary}</p>}
         {hasExam && <div className={META}>ends in a role exam: one work day</div>}
-        {role.tickets_total > 0 && (
-          <div className="font-mono text-xs text-accentink">
-            {role.tickets_passed} of {role.tickets_total} tickets
-          </div>
+        {status === 'passed' ? (
+          <div className="font-mono text-xs text-accentink">passed</div>
+        ) : (
+          role.tickets_total > 0 && (
+            <div className="font-mono text-xs text-accentink">
+              {role.tickets_passed} of {role.tickets_total} tickets
+            </div>
+          )
         )}
         {note && <div className="font-mono text-xs text-accentink">{note}</div>}
         {hasTickets && (
@@ -119,6 +122,104 @@ function RoleRow({ role, status, hereTitle, hasExam, last }: { role: PathRole; s
   );
 }
 
+const CARD = 'flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5';
+const EYEBROW = 'm-0 text-xs font-bold tracking-[0.8px] text-muted uppercase';
+
+/** Belt state is not served yet (see API gaps): an empty belt, with no mark claimed. */
+function BeltPanel() {
+  return (
+    <section aria-labelledby="belt-h" className={CARD}>
+      <h2 id="belt-h" className={EYEBROW}>
+        Your belt · how you work, on every path
+      </h2>
+      <div aria-hidden="true" className="box-border h-[18px] w-[200px] rounded border border-dashed border-ctl bg-surface" />
+      <p className="m-0 text-sm leading-[1.55] text-fg2">
+        Belt marks come from what you write and how you work with others, in English. They never unlock or block a role.
+      </p>
+      <a href="/paths" className="inline-flex min-h-11 w-fit items-center text-[13px] font-bold text-accentink no-underline md:min-h-0">
+        What the belt measures
+      </a>
+    </section>
+  );
+}
+
+export interface Crossing {
+  path: string;
+  pathTitle: string;
+  shared: string[];
+  opens: string | null;
+  open: boolean;
+  planned: boolean;
+}
+
+/** Other catalog paths that share a role with this one; "opens" is the first role of theirs that follows a shared one. */
+export function crossings(catalog: Catalog, current: LearnerPath): Crossing[] {
+  if (!current.path) return [];
+  const title = (slug: string) => catalog.roles.find((r) => r.slug === slug)?.title ?? slug;
+  const mine = new Set(current.roles.map((r) => r.slug));
+  const passed = new Set(current.roles.filter((r) => r.passed).map((r) => r.slug));
+  const out: Crossing[] = [];
+  for (const p of catalog.paths) {
+    if (p.slug === current.path) continue;
+    const roles = catalog.path_roles.filter((pr) => pr.path === p.slug).sort((a, b) => a.position - b.position);
+    const shared = roles.filter((r) => mine.has(r.role));
+    if (shared.length === 0) continue;
+    const lastShared = Math.max(...shared.map((r) => roles.indexOf(r)));
+    const next = roles.slice(lastShared + 1).find((r) => !mine.has(r.role));
+    const nextHasTickets = next ? catalog.items.some((i) => i.role === next.role) : false;
+    const planned = p.status !== 'available';
+    out.push({
+      path: p.slug,
+      pathTitle: p.title,
+      shared: shared.map((r) => title(r.role)),
+      opens: next ? title(next.role) : null,
+      open: !planned && next !== undefined && nextHasTickets && shared.every((r) => passed.has(r.role)),
+      planned,
+    });
+  }
+  return out;
+}
+
+/** Holds the panel's space while the catalog loads, so it does not push the page when it arrives. */
+function CrossingPlaceholder() {
+  return <div aria-hidden="true" className={`${CARD} min-h-[170px]`} />;
+}
+
+function CrossingPanel({ items }: { items: Crossing[] }) {
+  if (items.length === 0) return null;
+  return (
+    <section aria-labelledby="cross-h" className={CARD}>
+      <h2 id="cross-h" className={EYEBROW}>
+        Paths that cross yours
+      </h2>
+      <ul className="m-0 flex list-none flex-col gap-3 p-0">
+        {items.map((c) => (
+          <li key={c.path} className="flex items-start gap-2.5 text-sm leading-[1.45]">
+            <span
+              className={`box-border inline-flex size-5 flex-none items-center justify-center rounded-full text-xs font-extrabold ${c.open ? 'bg-ok text-white' : 'border-2 border-muted'}`}
+            >
+              {c.open && <span aria-hidden="true">✓</span>}
+              <span className="sr-only">{c.open ? 'Open to you' : c.planned ? 'Coming later' : 'Not yet'}</span>
+            </span>
+            <span>
+              {c.opens ? (
+                <>
+                  {c.shared.join(' and ')} also opens <b>{c.opens}</b> on the {c.pathTitle} path{c.planned ? ', coming later' : ''}
+                </>
+              ) : (
+                <>
+                  {c.shared.join(' and ')} is shared with the <b>{c.pathTitle}</b> path{c.planned ? ', coming later' : ''}
+                </>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="m-0 text-[13px] leading-[1.55] text-muted">Switching path keeps every role you passed.</p>
+    </section>
+  );
+}
+
 function Timeline({ path }: { path: LearnerPath }) {
   const catalog = useCatalog();
   const exam = new Set(catalog.data?.roles.filter((r) => r.has_exam).map((r) => r.slug));
@@ -127,21 +228,28 @@ function Timeline({ path }: { path: LearnerPath }) {
   const hereIdx = statuses.indexOf('here');
   const hereTitle = path.roles[hereIdx]?.title ?? null;
   const target = path.roles.at(-1)?.title ?? '';
+  const cross = catalog.data ? crossings(catalog.data, path) : [];
   return (
     <>
       <div className="min-h-5 font-mono text-[13px] text-muted">{pathTitle ? `path · ${pathTitle}` : ''}</div>
       <h1 className="m-0 mt-3 text-[30px] leading-[1.1] font-extrabold tracking-tight md:text-[44px]">
         Your way to <span className="bg-(image:--hlbg) bg-clip-text text-transparent">{target}</span>
       </h1>
-      <p className="mt-4 mb-8 max-w-[60ch] text-[15px] leading-[1.55] text-fg2">
+      <p className="mt-4 mb-6 max-w-[60ch] text-[15px] leading-[1.55] text-fg2">
         {path.roles.length === 1 ? 'One role' : `${numberWord(path.roles.length)} roles`}, each a real job. Pass a role's work-day exam
         and you are ready for that job, even if you stop there.
       </p>
-      <ol aria-label="Roles on your path" className="m-0 flex max-w-[640px] list-none flex-col p-0">
-        {path.roles.map((role, i) => (
-          <RoleRow key={role.slug} role={role} status={statuses[i] ?? 'next'} hereTitle={hereTitle} hasExam={exam.has(role.slug)} last={i === path.roles.length - 1} />
-        ))}
-      </ol>
+      <div className="grid items-start gap-[18px] lg:grid-cols-[1fr_400px] lg:gap-8">
+        <ol aria-label="Roles on your path" className="m-0 flex list-none flex-col p-0">
+          {path.roles.map((role, i) => (
+            <RoleRow key={role.slug} role={role} status={statuses[i] ?? 'next'} hereTitle={hereTitle} hasExam={exam.has(role.slug)} last={i === path.roles.length - 1} />
+          ))}
+        </ol>
+        <div className="flex flex-col gap-[18px]">
+          <BeltPanel />
+          {catalog.isPending ? <CrossingPlaceholder /> : <CrossingPanel items={cross} />}
+        </div>
+      </div>
     </>
   );
 }

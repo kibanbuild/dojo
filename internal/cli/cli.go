@@ -12,15 +12,16 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/catalog"
-	"github.com/kibanbuild/dojo/internal/doctor"
-	"github.com/kibanbuild/dojo/internal/lab"
-	"github.com/kibanbuild/dojo/internal/mentor"
-	"github.com/kibanbuild/dojo/internal/sshconfig"
-	"github.com/kibanbuild/dojo/internal/state"
+	"github.com/kibanyadev/dojo/internal/catalog"
+	"github.com/kibanyadev/dojo/internal/doctor"
+	"github.com/kibanyadev/dojo/internal/lab"
+	"github.com/kibanyadev/dojo/internal/mentor"
+	"github.com/kibanyadev/dojo/internal/sshconfig"
+	"github.com/kibanyadev/dojo/internal/state"
 )
 
 // Usage is printed by dojo help.
@@ -31,11 +32,15 @@ Usage:
   dojo start [--key PATH] <role>/<ticket>
                           create a fresh lab and break it for the ticket; also lets your
                           SSH key into the lab and sets up "ssh dojo" (--key picks the
-                          key, a private or .pub path, from now on)
+                          key, a private or .pub path, from now on; --hosted asks for a
+                          hosted lab, which is coming soon)
   dojo status             show the current ticket, lab, login and waiting events
   dojo ssh                open a terminal inside the lab (or: ssh dojo)
   dojo hint               show the next hint for the current ticket
-  dojo check [--quick]    reboot the lab and verify your fix (--quick skips the reboot)
+  dojo check [--quick] [--repo PATH]
+                          reboot the lab and verify your fix (--quick skips the reboot);
+                          a pass makes a signed commit in your dojo practice clone, which
+                          is ~/dojo unless --repo PATH picks (and remembers) another
   dojo stop               stop the lab and delete the lab machine
   dojo mcp                run the mentor server your AI tool connects to (see the README)
   dojo login [--force]    sign in with GitHub (an account made on the website first)
@@ -73,12 +78,16 @@ type App struct {
 	Now         func() time.Time
 	// Probe reads the host's facts for dojo doctor.
 	Probe func(context.Context) doctor.Machine
+	// ProbeGitHub reads the clone and ssh facts key_auth needs; nil means the real probe.
+	ProbeGitHub func(context.Context, *doctor.Machine)
 	// Login says where login and logout talk to; HTTP and Sleep are replaceable for tests.
 	Login LoginConfig
 	HTTP  *http.Client
 	Sleep func(context.Context, time.Duration) error
 	// Getenv reads DOJO_TELEMETRY and DO_NOT_TRACK; nil means the process environment.
 	Getenv func(string) string
+	// pushTried is set once a command has pushed (or tried to), so it is not retried at its end.
+	pushTried bool
 }
 
 // commands are the names usage stats may record; anything else (help, a typo) is never counted.
@@ -119,6 +128,7 @@ func (a *App) run(ctx context.Context, args []string) error {
 		return nil
 	}
 	cmd, rest := args[0], args[1:]
+	a.pushTried = false
 	if !commands[cmd] {
 		if hint, ok := removed[cmd]; ok {
 			return fmt.Errorf("unknown command %q: %s (see dojo help)", cmd, hint)
@@ -127,15 +137,17 @@ func (a *App) run(ctx context.Context, args []string) error {
 	}
 	fset := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fset.SetOutput(io.Discard)
-	quick, key := new(bool), new(string)
+	quick, key, hosted, repo := new(bool), new(string), new(bool), new(string)
 	var lf *loginFlags
 	switch cmd {
 	case "login", "logout":
 		lf = newLoginFlags(cmd, fset)
 	case "check":
 		quick = fset.Bool("quick", false, "skip the reboot")
+		repo = fset.String("repo", "", "practice clone to use")
 	case "start":
 		key = fset.String("key", "", "SSH key to use")
+		hosted = fset.Bool("hosted", false, "use a hosted lab")
 	}
 	err := fset.Parse(rest)
 	var positional []string
@@ -154,10 +166,14 @@ func (a *App) run(ctx context.Context, args []string) error {
 	} else if err != nil {
 		return fmt.Errorf("%w (see dojo help)", err)
 	}
-	emptyKey := false
-	fset.Visit(func(f *flag.Flag) { emptyKey = emptyKey || (f.Name == "key" && f.Value.String() == "") })
-	if emptyKey {
-		return errors.New("--key needs a path (see dojo help)")
+	emptyPath := ""
+	fset.Visit(func(f *flag.Flag) {
+		if (f.Name == "key" || f.Name == "repo") && f.Value.String() == "" {
+			emptyPath = f.Name
+		}
+	})
+	if emptyPath != "" {
+		return fmt.Errorf("--%s needs a path (see dojo help)", emptyPath)
 	}
 	want := 0
 	if cmd == "start" {
@@ -187,6 +203,11 @@ func (a *App) run(ctx context.Context, args []string) error {
 	case "logout":
 		return a.logout(ctx, lf)
 	}
+	if cmd == "start" {
+		if err := a.hostedGate(ctx, *hosted); err != nil {
+			return err
+		}
+	}
 	backend, err := a.NewBackend(a.BackendName)
 	if err != nil {
 		return err
@@ -196,11 +217,17 @@ func (a *App) run(ctx context.Context, args []string) error {
 	}
 	switch cmd {
 	case "start":
-		return a.start(ctx, backend, positional[0], *key)
+		err := a.start(ctx, backend, positional[0], *key)
+		if err == nil {
+			a.retryPush(ctx)
+		}
+		return err
 	case "ssh":
 		return a.ssh(ctx, backend)
 	case "check":
-		return a.check(ctx, backend, *quick)
+		err := a.check(ctx, backend, *quick, *repo)
+		a.retryPush(ctx)
+		return err
 	default: // stop
 		fmt.Fprintln(a.Out, "Stopping the lab: deleting the lab machine...")
 		if err := backend.Delete(ctx); err != nil {
@@ -345,6 +372,7 @@ func (a *App) start(ctx context.Context, backend lab.Backend, id, key string) er
 	if err := a.tryMentorFiles(ctx, backend); err != nil {
 		return err
 	}
+	a.seedMentorFiles(st)
 	fmt.Fprintf(a.Out, "Lab ready in %s.\n\n", a.Now().Sub(t0).Round(time.Second))
 	a.printBrief(k)
 	fmt.Fprintln(a.Out, "Next: dojo ssh (or ssh dojo) to get in, dojo check when you think it's fixed.")
@@ -433,10 +461,20 @@ func (a *App) setupSSH(ctx context.Context, backend lab.Backend, chosen string, 
 	return priv, nil
 }
 
-func (a *App) check(ctx context.Context, backend lab.Backend, quick bool) error {
+func (a *App) check(ctx context.Context, backend lab.Backend, quick bool, repo string) error {
 	st, k, err := a.current()
 	if err != nil {
 		return err
+	}
+	if repo != "" {
+		abs, err := filepath.Abs(repo)
+		if err != nil || !isGitDir(abs) {
+			return fmt.Errorf("%s is not a git clone (dojo check --repo PATH needs your practice clone)", repo)
+		}
+		st.Repo = abs
+		if err := a.save(st); err != nil {
+			return err
+		}
 	}
 	if !quick {
 		fmt.Fprintln(a.Out, "Rebooting the lab: a real fix survives a restart...")
@@ -456,8 +494,9 @@ func (a *App) check(ctx context.Context, backend lab.Backend, quick bool) error 
 	if err != nil {
 		return err
 	}
+	eventID := ""
 	if !quick { // a quick run is not a verdict: it skips the reboot a pass needs
-		a.recordCheck(k.ID, code, out, a.now().Sub(t0))
+		eventID = a.recordCheck(k.ID, code, out, a.now().Sub(t0))
 	}
 	a.printResults(out)
 	// Kept for the mentor, after the check ran and whatever its verdict.
@@ -481,6 +520,7 @@ func (a *App) check(ctx context.Context, backend lab.Backend, quick bool) error 
 		return err
 	}
 	fmt.Fprintf(a.Out, "\nTicket passed: %s.\n", k.Title)
+	a.passCommit(ctx, st, k, eventID, out)
 	return nil
 }
 
@@ -542,13 +582,20 @@ func (a *App) doctor(ctx context.Context) error {
 		return ctx.Err()
 	}
 	results := doctor.Evaluate(m, a.BackendName, err)
-	marks := map[doctor.Status]string{doctor.OK: "✓", doctor.Warn: "!", doctor.Fail: "✗"}
+	gh, skipped := a.githubChecks(ctx, m)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	results = append(results, gh...)
+	marks := map[doctor.Status]string{doctor.OK: "✓", doctor.Warn: "!", doctor.Fail: "✗", doctor.Unknown: "?"}
 	for _, r := range results {
 		fmt.Fprintf(a.Out, "  %s %s\n", marks[r.Status], r.Text)
 		if r.Fix != "" && r.Status != doctor.OK {
 			fmt.Fprintf(a.Out, "      -> %s\n", strings.ReplaceAll(r.Fix, "\n", "\n         "))
 		}
 	}
+	printSkipped(a, skipped)
+	a.recordDoctor(results)
 	if !doctor.Ready(results) {
 		fmt.Fprintln(a.Out, "\nNot ready yet. Fix the ✗ items and run dojo doctor again.")
 		return ErrNotReady

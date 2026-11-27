@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/kibanbuild/dojo/internal/server/repo"
+	"github.com/kibanyadev/dojo/internal/server/repo"
 )
 
 const (
@@ -43,6 +43,8 @@ type SessionStore interface {
 	RevokeLearnerCLIToken(ctx context.Context, arg repo.RevokeLearnerCLITokenParams) (int64, error)
 	GetLearnerByID(ctx context.Context, id pgtype.UUID) (repo.Learner, error)
 	UpdateLearnerProfile(ctx context.Context, arg repo.UpdateLearnerProfileParams) (repo.Learner, error)
+	SetLearnerEmail(ctx context.Context, id pgtype.UUID, email string) (repo.Learner, bool, error)
+	MarkFirstRunSeen(ctx context.Context, id pgtype.UUID) (repo.Learner, error)
 	DeleteLearner(ctx context.Context, id pgtype.UUID) (bool, error)
 	InsertTelemetryEvents(ctx context.Context, arg repo.InsertTelemetryEventsParams) error
 }
@@ -50,7 +52,7 @@ type SessionStore interface {
 // Auth authenticates requests by session cookie or CLI bearer token.
 type Auth struct {
 	Store   SessionStore
-	Catalog CatalogStore // nil leaves GET /v1/catalog, /v1/path and /v1/today out
+	Catalog CatalogStore // nil leaves GET /v1/catalog, /v1/path, /v1/today and /v1/activity out
 	Bundles *Bundles     // nil leaves GET /v1/tickets/{id}/bundle out
 	Secure  bool         // cookie Secure flag, from PUBLIC_ORIGIN
 	// Events backs POST /v1/events; nil leaves the route out.
@@ -60,6 +62,10 @@ type Auth struct {
 	StreamHeartbeat time.Duration
 	// Tickets backs GET /v1/tickets/{id} and POST /v1/tickets/{id}/hints/{n}; nil leaves them out.
 	Tickets *Tickets
+	// Onboarding backs GET /v1/onboarding (it also needs Catalog); nil leaves the route out.
+	Onboarding *Onboarding
+	// Reports backs POST /v1/reports; nil leaves the route out.
+	Reports ReportStore
 }
 
 // ParseOrigin validates PUBLIC_ORIGIN for the environment (local, pre or pro) and reports
@@ -240,10 +246,12 @@ type meResponse struct {
 	ID               string  `json:"id"`
 	Username         string  `json:"username"`
 	GithubLogin      string  `json:"github_login"`
+	GithubID         int64   `json:"github_id"`
 	Email            *string `json:"email"`
 	Language         string  `json:"language"`
 	UsageStats       bool    `json:"usage_stats"`
 	AnalyticsConsent *bool   `json:"analytics_consent"`
+	HostedDefault    bool    `json:"hosted_default"`
 }
 
 func (a Auth) me(w http.ResponseWriter, r *http.Request) {
@@ -263,8 +271,8 @@ func (a Auth) me(w http.ResponseWriter, r *http.Request) {
 
 func newMeResponse(l repo.Learner) meResponse {
 	out := meResponse{
-		ID: l.ID.String(), Username: l.Username, GithubLogin: l.GithubLogin,
-		Language: l.Language, UsageStats: l.UsageStats,
+		ID: l.ID.String(), Username: l.Username, GithubLogin: l.GithubLogin, GithubID: l.GithubID,
+		Language: l.Language, UsageStats: l.UsageStats, HostedDefault: l.HostedDefault,
 	}
 	if l.Email.Valid {
 		out.Email = &l.Email.String

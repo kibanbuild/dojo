@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/kibanbuild/dojo/internal/admin"
-	"github.com/kibanbuild/dojo/internal/github"
+	"github.com/kibanyadev/dojo/internal/admin"
+	"github.com/kibanyadev/dojo/internal/github"
 )
 
 func main() {
@@ -59,7 +59,7 @@ func run(args []string) error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           admin.New(pingReady{pool}, admin.Deps{GitHub: github.New(ghCfg), Store: admin.PGStore{Pool: pool}}),
+		Handler:           admin.New(pingReady{pool}, admin.Deps{GitHub: github.New(ghCfg), Store: admin.PGStore{Pool: pool}, Learners: admin.PGLearners{Pool: pool}}),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

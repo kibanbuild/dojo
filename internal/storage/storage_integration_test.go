@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kibanbuild/dojo/internal/storage"
+	"github.com/kibanyadev/dojo/internal/storage"
 )
 
 func must(t *testing.T, name string) string {

@@ -61,17 +61,16 @@ func (s *signIn) authenticated(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-var landingPage = template.Must(template.New("landing").Parse(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Dojo operator</title>
-<meta name="viewport" content="width=device-width, initial-scale=1"></head>
-<body><main><h1>Dojo operator</h1>
-<p>Signed in as {{.Login}}</p>
-<form method="post" action="/signout"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button type="submit">Sign out</button></form>
+var landingPage = template.Must(template.New("landing").Parse(layoutTemplates + `{{template "top" .}}<header class="bar"><div class="bar-in"><div class="bar-l">{{template "brand"}}
+<nav class="nav" aria-label="Operator tools"><a href="/learners">Learners</a></nav></div>
+<form class="signout" method="post" action="/signout"><input type="hidden" name="csrf_token" value="{{.CSRF}}"><button type="submit">Sign out</button></form></div>{{template "note"}}</header>
+<main><h1>Dojo operator</h1>
+<p class="lede">Signed in as {{.Login}}</p>
 </main></body></html>
 `))
 
 func (s *signIn) landing(w http.ResponseWriter, r *http.Request) {
-	render(w, http.StatusOK, landingPage, map[string]string{"Login": operatorFrom(r.Context()).Login, "CSRF": csrfFrom(r.Context())})
+	render(w, http.StatusOK, landingPage, map[string]string{"Title": "Home", "Login": operatorFrom(r.Context()).Login, "CSRF": csrfFrom(r.Context())})
 }
 
 // signout revokes the session that made the request. It is behind authenticated, so it needs the

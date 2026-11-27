@@ -4,7 +4,9 @@
 !cmd/dojo-api
 !internal/server
 !internal/github
+!internal/mail
 !internal/storage
+!internal/mentor
 !cmd/dojo-admin
 !internal/admin
 !cmd/dojo-catalog-load

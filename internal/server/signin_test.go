@@ -16,8 +16,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/kibanbuild/dojo/internal/github"
-	"github.com/kibanbuild/dojo/internal/server/repo"
+	"github.com/kibanyadev/dojo/internal/github"
+	"github.com/kibanyadev/dojo/internal/server/repo"
 )
 
 type fakeOAuth struct {
@@ -61,6 +61,7 @@ func (f *fakeOAuth) Revoke(_ context.Context, tok string) error {
 type fakeStore struct {
 	known      *repo.Learner
 	upserts    []repo.UpsertLearnerParams
+	created    int // CreateLearner calls: each queues the welcome mail
 	conflicts  int // unique violations before the insert works
 	sessions   int
 	sessionErr error
@@ -69,6 +70,45 @@ type fakeStore struct {
 
 	consents   []repo.SetLearnerAnalyticsConsentIfUnsetParams
 	consentErr error
+
+	paths     map[string]repo.GetPathBySlugRow // slug -> row, for the onboarding routes
+	applies   []repo.ApplyLearnerChoiceParams
+	applyErr  error
+	chosen    []repo.SetLearnerChosenPathParams
+	listed    []repo.InsertPathWaitlistParams
+	unlisted  []repo.DeletePathWaitlistParams
+	choiceErr error
+}
+
+func (f *fakeStore) GetPathBySlug(_ context.Context, slug string) (repo.GetPathBySlugRow, error) {
+	if f.choiceErr != nil {
+		return repo.GetPathBySlugRow{}, f.choiceErr
+	}
+	p, ok := f.paths[slug]
+	if !ok {
+		return repo.GetPathBySlugRow{}, pgx.ErrNoRows
+	}
+	return p, nil
+}
+
+func (f *fakeStore) SetLearnerChosenPath(_ context.Context, a repo.SetLearnerChosenPathParams) error {
+	f.chosen = append(f.chosen, a)
+	return nil
+}
+
+func (f *fakeStore) InsertPathWaitlist(_ context.Context, a repo.InsertPathWaitlistParams) error {
+	f.listed = append(f.listed, a)
+	return nil
+}
+
+func (f *fakeStore) DeletePathWaitlist(_ context.Context, a repo.DeletePathWaitlistParams) error {
+	f.unlisted = append(f.unlisted, a)
+	return nil
+}
+
+func (f *fakeStore) ApplyLearnerChoice(_ context.Context, a repo.ApplyLearnerChoiceParams) error {
+	f.applies = append(f.applies, a)
+	return f.applyErr
 }
 
 func (f *fakeStore) SetLearnerAnalyticsConsentIfUnset(_ context.Context, a repo.SetLearnerAnalyticsConsentIfUnsetParams) (int64, error) {
@@ -94,6 +134,12 @@ func (f *fakeStore) UpsertLearner(_ context.Context, a repo.UpsertLearnerParams)
 		return repo.Learner{}, &pgconn.PgError{Code: "23505"}
 	}
 	return repo.Learner{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, OrgID: a.OrgID, Username: a.Username}, nil
+}
+
+// CreateLearner is the new-learner path: it records the same insert and counts the welcome-mail creations.
+func (f *fakeStore) CreateLearner(ctx context.Context, a repo.UpsertLearnerParams) (repo.Learner, error) {
+	f.created++
+	return f.UpsertLearner(ctx, a)
 }
 
 func (f *fakeStore) InsertSession(context.Context, repo.InsertSessionParams) (repo.InsertSessionRow, error) {
@@ -804,5 +850,23 @@ func TestCallbackCopiesTheConsentCookie(t *testing.T) {
 				t.Fatalf("consent writes %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// The welcome mail is queued by CreateLearner only, so a returning learner never gets a second one.
+func TestWelcomeIsQueuedOnlyForNewLearners(t *testing.T) {
+	r := newRig(t)
+	c, state := r.begin(t, startPath, bothTicks)
+	r.callback(c, "code=c&state="+state)
+	if r.st.created != 1 {
+		t.Fatalf("new learner: created=%d, want 1", r.st.created)
+	}
+
+	r = newRig(t)
+	r.st.known = &repo.Learner{Username: "ada"}
+	c, state = r.begin(t, startPath, "")
+	r.callback(c, "code=c&state="+state)
+	if r.st.created != 0 || len(r.st.upserts) != 1 {
+		t.Fatalf("returning learner: created=%d upserts=%d", r.st.created, len(r.st.upserts))
 	}
 }

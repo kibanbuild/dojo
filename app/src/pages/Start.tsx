@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
+import { EmailPrompt } from '../components/EmailPrompt';
 import { OnboardingFrame } from '../components/OnboardingFrame';
 import type { Me } from '../lib/me';
 import {
@@ -85,6 +86,7 @@ export function Start({ me }: { me: Me | null }) {
     });
   const served = onboarding.data?.waitlist ?? [];
   const isListed = (slug: string) => local.get(slug) ?? served.includes(slug);
+  const anyListed = PATHS.some((p) => isListed(p.slug));
   const [problems, setProblems] = useState<Record<string, string>>({});
 
   const problem = (slug: string, result: WriteResult) =>
@@ -123,6 +125,7 @@ export function Start({ me }: { me: Me | null }) {
       <p className="m-0 text-[15px] leading-[1.55] text-fg2">
         A path is a destination job. Every path starts with the same Foundations, and you can switch later without losing what you passed.
       </p>
+      {me && anyListed && <EmailPrompt me={me} why="Add an email address so we can tell you when a path opens." />}
       <fieldset className="m-0 min-w-0 border-0 p-0">
         <legend className="pb-3 text-xs font-bold tracking-[0.8px] text-muted uppercase">Pick your path</legend>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">

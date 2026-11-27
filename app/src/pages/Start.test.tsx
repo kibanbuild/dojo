@@ -6,6 +6,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '../routes';
 import { resetReadBlock } from '../lib/read';
+import { emailProblem } from '../lib/email';
 import { onboardingRedirect, type NextStep, type Onboarding } from '../lib/onboarding';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -42,6 +43,10 @@ function stub({ me = learner, onboarding = 'done', waitlist }: Stub = {}) {
       const method = init?.method ?? 'GET';
       calls.push({ method, url, body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined });
       if (url === '/v1/me' && method === 'GET') return me ? Response.json(me) : new Response(null, { status: 401 });
+      if (url === '/v1/me' && method === 'PATCH') {
+        me = { ...learner, email: 'saved@example.com' };
+        return Response.json(me);
+      }
       if (url === '/v1/onboarding') return typeof onboarding === 'number' ? new Response(null, { status: onboarding }) : Response.json({ ...state(onboarding), ...(waitlist ? { waitlist } : {}) });
       if (url.startsWith('/v1/onboarding/')) return new Response(null, { status: 204 });
       return new Response(null, { status: 404 });
@@ -245,5 +250,63 @@ describe('O0 waitlist readback', () => {
     await click(button('Tell me when'));
     await until(() => calls.filter((c) => c.url === '/v1/onboarding').length > before);
     expect(button("You're on the list")).toBeDefined();
+  });
+});
+
+describe('email prompt', () => {
+  it('shows on O0 for a learner without email whom the API lists on a waitlist', async () => {
+    stub({ me: { ...learner, email: null }, onboarding: 'o0', waitlist: ['security'] });
+    await mount('/start');
+    await until(() => container.querySelector('section[aria-label="Email address"]') !== null);
+  });
+
+  it('shows on Today while the account has no email, and not when it has one', async () => {
+    stub({ me: { ...learner, email: null } });
+    await mount('/today');
+    await until(() => container.querySelector('section[aria-label="Email address"]') !== null);
+    act(() => root.unmount());
+    root = createRoot(container);
+    stub({ me: learner });
+    await mount('/today');
+    await until(() => calls.some((c) => c.url === '/v1/today'));
+    expect(container.querySelector('section[aria-label="Email address"]')).toBeNull();
+  });
+
+  it('shows on O0 only once a signed-in learner without email has joined a waitlist', async () => {
+    stub({ me: { ...learner, email: null } });
+    await mount('/start');
+    await until(() => button('Tell me when') !== undefined);
+    expect(container.querySelector('section[aria-label="Email address"]')).toBeNull();
+    await click(button('Tell me when'));
+    await until(() => container.querySelector('section[aria-label="Email address"]') !== null);
+  });
+
+  it('saves through PATCH /v1/me and hides once the account has the address', async () => {
+    stub({ me: { ...learner, email: null } });
+    await mount('/today');
+    await until(() => container.querySelector('input[type=email]') !== null);
+    const input = container.querySelector<HTMLInputElement>('input[type=email]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'saved@example.com');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click(button('Save email'));
+    await until(() => container.querySelector('section[aria-label="Email address"]') === null);
+    expect(writes()).toEqual([{ method: 'PATCH', url: '/v1/me', body: { email: 'saved@example.com' } }]);
+  });
+
+  it('rejects a bad address before calling the API', async () => {
+    stub({ me: { ...learner, email: null } });
+    await mount('/today');
+    await until(() => button('Save email') !== undefined);
+    await click(button('Save email'));
+    await until(() => container.textContent?.includes('Enter your email address.') === true);
+    expect(writes()).toEqual([]);
+  });
+
+  it('validates addresses the way the API does', () => {
+    expect(emailProblem('a@b.co')).toBe('');
+    expect(emailProblem('a+tag@sub.example.com')).toBe('');
+    for (const bad of ['', 'a', 'a@b', 'a@@b.co', '"a"@b.co', 'a b@b.co', 'a@b..co', 'a,b@b.co']) expect(emailProblem(bad)).not.toBe('');
   });
 });

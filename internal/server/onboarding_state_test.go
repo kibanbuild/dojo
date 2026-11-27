@@ -1,11 +1,25 @@
 package server
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kibanyadev/dojo/internal/server/repo"
 )
+
+func TestWaitlistOutIsNeverNull(t *testing.T) {
+	for _, in := range [][]string{nil, {}} {
+		b, err := json.Marshal(onboardingResponse{Waitlist: waitlistOut(in)})
+		if err != nil || !strings.Contains(string(b), `"waitlist":[]`) {
+			t.Fatalf("%v: %s %v", in, b, err)
+		}
+	}
+	if got := waitlistOut([]string{"backend"}); len(got) != 1 || got[0] != "backend" {
+		t.Fatalf("kept slugs: %v", got)
+	}
+}
 
 func TestNextStep(t *testing.T) {
 	both := repo.Readiness{O3: true, O4: true}

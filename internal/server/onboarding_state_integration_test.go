@@ -18,8 +18,9 @@ type onboardingBody struct {
 		Slug   *string `json:"slug"`
 		Chosen bool    `json:"chosen"`
 	} `json:"path"`
-	HostedDefault bool `json:"hosted_default"`
-	CLIConnected  bool `json:"cli_connected"`
+	HostedDefault bool     `json:"hosted_default"`
+	CLIConnected  bool     `json:"cli_connected"`
+	Waitlist      []string `json:"waitlist"`
 	Checks        []struct {
 		ID, Group, Status, Text, Source string
 		CheckedAt                       string `json:"checked_at"`
@@ -43,6 +44,46 @@ func allChecks(ids ...string) []map[string]string {
 		out = append(out, dc(id, "ok", id+" ok"))
 	}
 	return out
+}
+
+func TestOnboardingListsTheWaitlist(t *testing.T) {
+	freshCatalog(t)
+	seedCatalog(t)
+	seedExtraPath(t)
+	asOwner(t, "INSERT INTO paths (org_id, slug, title, status, position) SELECT id, 'backend', 'Backend', 'planned', 4 FROM orgs WHERE slug = 'public'")
+	resetLearners(t, "1001")
+	ada := newBrowser(t)
+	if resp := ada.signIn("ada", "", "age=on&terms=on", false); resp.Header.Get("Location") != "/app" {
+		t.Fatalf("sign-in: %q", resp.Header.Get("Location"))
+	}
+	list := func() string {
+		code, body := ada.getJSON("/v1/onboarding")
+		if o := readOnboarding(t, code, body); o.Waitlist == nil {
+			t.Fatalf("waitlist is null: %s", body)
+		} else {
+			return strings.Join(o.Waitlist, ",")
+		}
+		return ""
+	}
+	if got := list(); got != "" {
+		t.Fatalf("empty: %q", got)
+	}
+	ada.mustSend("POST", "/v1/onboarding/waitlist", `{"path":"security"}`)
+	ada.mustSend("POST", "/v1/onboarding/waitlist", `{"path":"backend"}`)
+	if got := list(); got != "backend,security" {
+		t.Fatalf("joined: %q", got)
+	}
+	ada.mustSend("DELETE", "/v1/onboarding/waitlist/backend", "")
+	if got := list(); got != "security" {
+		t.Fatalf("left: %q", got)
+	}
+	asOwner(t, "UPDATE paths SET status = 'available' WHERE slug = 'security'")
+	if got := list(); got != "" {
+		t.Fatalf("became available: %q", got)
+	}
+	if waitlisted(t, "1001") != "security" {
+		t.Fatal("the row must stay when the path becomes available")
+	}
 }
 
 func TestOnboardingEveryStepIsReachable(t *testing.T) {

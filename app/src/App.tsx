@@ -2,6 +2,7 @@ import { Navigate } from 'react-router';
 import { SuspendedError, useMe } from './lib/me';
 import { onboardingRedirect, useOnboarding } from './lib/onboarding';
 import { Start } from './pages/Start';
+import { Install } from './pages/Install';
 import { StartStep, type PlaceholderStep } from './pages/StartStep';
 import { Today } from './pages/Today';
 import { Settings } from './pages/Settings';
@@ -72,11 +73,12 @@ export function StartRoute() {
 }
 
 // /app/start/install, doctor, key, first (O2 to O5): signed in only.
-export function StartStepRoute({ id }: { id: PlaceholderStep }) {
+export function StartStepRoute({ id }: { id: 'o2' | PlaceholderStep }) {
   const me = useMe();
   if (me.isPending) return <Loading />;
   if (me.isError) return <MeFailed error={me.error} retry={() => void me.refetch()} />;
   if (me.data === null) return <Navigate to="/signin" replace />;
+  if (id === 'o2') return <Install me={me.data} />;
   return <StartStep id={id} />;
 }
 

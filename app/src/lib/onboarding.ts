@@ -5,8 +5,24 @@ import { errorCode } from './settings';
 export type StepId = 'o0' | 'o2' | 'o3' | 'o4' | 'o5';
 export type NextStep = StepId | 'done';
 
+export type CheckStatus = 'ok' | 'warn' | 'fail' | 'unknown';
+
+/** One `dojo doctor` result as GET /v1/onboarding returns it (text and fix are untrusted, render them as text). */
+export interface DoctorCheck {
+  id: string;
+  group?: string;
+  status: CheckStatus;
+  text: string;
+  fix: string;
+}
+
 export interface Onboarding {
   next_step: NextStep;
+  env?: string;
+  /** The origin the install line points at (section 3.9). */
+  public_origin?: string;
+  hosted_default?: boolean;
+  checks?: DoctorCheck[];
   path: { slug: string | null; chosen: boolean };
   cli_connected: boolean;
   /** Sorted slugs of the planned paths the learner asked to hear about; a missing field reads as empty. */

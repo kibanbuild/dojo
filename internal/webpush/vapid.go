@@ -16,7 +16,7 @@ import (
 )
 
 // ExampleKey is the fixed private key of .env.example; pre and pro refuse it (design 3.10).
-const ExampleKey = "q1dXpw3UpT5VOmu_cf_v6ih07Aems3njxI-JWgLcM94"
+const ExampleKey = "q1dXpw3UpT5VOmu_cf_v6ih07Aems3njxI-JWgLcM94" // gitleaks:allow
 
 var enc = base64.RawURLEncoding
 

@@ -22,6 +22,7 @@ type fakeCatalog struct {
 	pathRole []repo.ListCatalogPathRolesRow
 	items    []repo.ListCatalogItemsRow
 	marks    []repo.ListCatalogMarksRow
+	practice []repo.ListPracticeItemsRow
 	progress []repo.ListLearnerTicketStatesRow
 	days     []repo.ListLearnerActivityDaysRow
 	total    int32
@@ -60,6 +61,10 @@ func (f *fakeCatalog) ListCatalogPathRoles(context.Context) ([]repo.ListCatalogP
 
 func (f *fakeCatalog) ListCatalogItems(context.Context) ([]repo.ListCatalogItemsRow, error) {
 	return f.items, f.err
+}
+
+func (f *fakeCatalog) ListPracticeItems(context.Context) ([]repo.ListPracticeItemsRow, error) {
+	return f.practice, f.err
 }
 
 func (f *fakeCatalog) ListCatalogMarks(context.Context) ([]repo.ListCatalogMarksRow, error) {

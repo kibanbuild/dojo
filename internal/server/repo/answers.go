@@ -88,7 +88,8 @@ func (s *Store) AnswerQuiz(ctx context.Context, in AnswerQuizIn) (AnswerQuizOut,
 		return out, ErrChoiceRange
 	}
 	if asked.Answer == nil {
-		return out, fmt.Errorf("quiz %s question %s has no answer", in.ItemID, in.QuestionID)
+		// Learner-sent ids stay out of errors: they end up in logs.
+		return out, errors.New("quiz question has no answer")
 	}
 	out.Correct = in.Choice == *asked.Answer
 	if err := q.UpsertQuizAnswer(ctx, UpsertQuizAnswerParams{OrgID: l.OrgID, LearnerID: l.ID, ItemID: in.ItemID,

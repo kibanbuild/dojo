@@ -339,7 +339,7 @@ var grantCases = []struct {
 	{"dojo_api", "SELECT id, slug, title, status, position FROM paths", true},
 	{"dojo_api", "SELECT id, slug, title, kind, has_exam, advanced FROM roles", true},
 	{"dojo_api", "SELECT path_id, role_id, position FROM path_roles", true},
-	{"dojo_api", "SELECT id, role_id, kind, position, title, est_minutes, tags, brief, hints, awards_mark, catalog_version, bundle_key, bundle_sha256, bundle_bytes FROM catalog_items", true},
+	{"dojo_api", "SELECT id, role_id, kind, position, title, est_minutes, tags, brief, hints, awards_mark, payload, difficulty, catalog_version, bundle_key, bundle_sha256, bundle_bytes FROM catalog_items", true},
 	{"dojo_api", "SELECT id, catalog_version FROM catalog_state", true},
 	{"dojo_api", "INSERT INTO paths (org_id, slug, title, status, position) SELECT id, 'x', 'X', 'planned', 1 FROM orgs WHERE false", false},
 	{"dojo_api", "UPDATE paths SET title = 'x' WHERE false", false},
@@ -354,6 +354,8 @@ var grantCases = []struct {
 	{"dojo_api", "DELETE FROM path_roles WHERE false", false},
 	{"dojo_api", "TRUNCATE path_roles", false},
 	{"dojo_api", "INSERT INTO catalog_items (id, org_id, kind, position, title, est_minutes, catalog_version) SELECT 'a/b', id, 'practice', 1, 'X', 1, '000000000000' FROM orgs WHERE false", false},
+	{"dojo_api", "UPDATE catalog_items SET payload = '{}' WHERE false", false},
+	{"dojo_api", "UPDATE catalog_items SET difficulty = 'easy' WHERE false", false},
 	{"dojo_api", "UPDATE catalog_items SET title = 'x' WHERE false", false},
 	{"dojo_api", "DELETE FROM catalog_items WHERE false", false},
 	{"dojo_api", "TRUNCATE catalog_items", false},
@@ -374,6 +376,29 @@ var grantCases = []struct {
 	{"dojo_admin", "DELETE FROM catalog_items WHERE false", false},
 	{"dojo_admin", "TRUNCATE catalog_items", false},
 	{"dojo_admin", "DELETE FROM catalog_state WHERE false", false},
+
+	// belt_marks and item_completions (migration 00025): the load writes marks as the migration role; the API
+	// inserts a completion once, never changes or removes it; dojo_admin reads both (A2 progress).
+	{"dojo_api", "SELECT id, slug, belt, title, summary, position FROM belt_marks", true},
+	{"dojo_api", "INSERT INTO belt_marks (org_id, slug, belt, title, summary, position) SELECT id, 'x', 'white', 'X', 'X', 1 FROM orgs WHERE false", false},
+	{"dojo_api", "UPDATE belt_marks SET title = 'x' WHERE false", false},
+	{"dojo_api", "DELETE FROM belt_marks WHERE false", false},
+	{"dojo_api", "TRUNCATE belt_marks", false},
+	{"dojo_api", "SELECT learner_id, item_id, completed_at FROM item_completions", true},
+	{"dojo_api", "INSERT INTO item_completions (org_id, learner_id, item_id) SELECT org_id, id, 'a/b' FROM learners WHERE false", true},
+	{"dojo_api", "INSERT INTO item_completions (org_id, learner_id, item_id, completed_at) SELECT org_id, id, 'a/b', now() FROM learners WHERE false", false},
+	{"dojo_api", "INSERT INTO item_completions (org_id, learner_id, item_id, created_at) SELECT org_id, id, 'a/b', now() FROM learners WHERE false", false},
+	{"dojo_api", "UPDATE item_completions SET updated_at = now() WHERE false", false},
+	{"dojo_api", "UPDATE item_completions SET completed_at = now() WHERE false", false},
+	{"dojo_api", "DELETE FROM item_completions WHERE false", false},
+	{"dojo_api", "TRUNCATE item_completions", false},
+	{"dojo_admin", "SELECT slug, belt, title, summary, position FROM belt_marks", true},
+	{"dojo_admin", "SELECT learner_id, item_id, completed_at FROM item_completions", true},
+	{"dojo_admin", "INSERT INTO belt_marks (org_id, slug, belt, title, summary, position) SELECT id, 'x', 'white', 'X', 'X', 1 FROM orgs WHERE false", false},
+	{"dojo_admin", "UPDATE belt_marks SET title = 'x' WHERE false", false},
+	{"dojo_admin", "INSERT INTO item_completions (org_id, learner_id, item_id) SELECT org_id, id, 'a/b' FROM learners WHERE false", false},
+	{"dojo_admin", "UPDATE item_completions SET updated_at = now() WHERE false", false},
+	{"dojo_admin", "DELETE FROM item_completions WHERE false", false},
 }
 
 // Connects by the container address: the image trusts loopback, other addresses use scram.

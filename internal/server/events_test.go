@@ -230,7 +230,7 @@ func TestDoctorRunValidation(t *testing.T) {
 	ok := `[{"id":"memory","status":"ok","text":"16 GB RAM","fix":""},{"id":"ruleset","status":"fail","text":"main has no ruleset","fix":"line 1\nline 2"}]`
 	many := func(n int) string {
 		ids := []string{"memory", "disk", "cpu", "virtualization", "vm_manager", "git", "git_identity", "git_email_github", "editor", "ssh_key",
-			"ssh_keygen", "git_signing", "key_signing", "key_auth", "repo", "ruleset", "agents_md"}
+			"ssh_keygen", "git_signing", "key_signing", "key_auth", "repo", "ruleset", "agents_md", "mcp"}
 		var parts []string
 		for i := range n {
 			id := "memory"
@@ -252,7 +252,8 @@ func TestDoctorRunValidation(t *testing.T) {
 		{"checks missing", `{"id":"` + evID1 + `","type":"doctor.run","at":"2026-11-26T09:00:00Z"}`, true},
 		{"null checks", doctorRun(evID1, `null`), true},
 		{"21 checks", doctorRun(evID1, many(21)), true},
-		{"17 distinct checks", doctorRun(evID1, many(17)), false},
+		{"18 distinct checks", doctorRun(evID1, many(18)), false},
+		{"mcp is accepted", doctorRun(evID1, `[{"id":"mcp","status":"warn","text":"No AI has connected to dojo mcp yet","fix":"f"}]`), false},
 		{"duplicate id", doctorRun(evID1, `[{"id":"git","status":"ok","text":"a","fix":""},{"id":"git","status":"ok","text":"b","fix":""}]`), true},
 		{"unknown id", doctorRun(evID1, `[{"id":"nope","status":"ok","text":"a","fix":""}]`), true},
 		{"two_factor is learner only", doctorRun(evID1, `[{"id":"two_factor","status":"ok","text":"a","fix":""}]`), true},

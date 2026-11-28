@@ -133,6 +133,7 @@ RUN pnpm install --frozen-lockfile
 COPY web/src/styles/tokens.css /src/web/src/styles/tokens.css
 COPY app/index.html app/tsconfig.json app/vite.config.ts ./
 COPY app/src ./src
+COPY app/public ./public
 RUN pnpm build
 
 FROM ${CADDY_IMAGE} AS edge

@@ -49,6 +49,7 @@ func TestStepReadiness(t *testing.T) {
 		{"a missing required id is not ready", rows(with(both(), "git", "")), false, true},
 		{"a missing O4 id is not ready", rows(with(both(), "agents_md", "")), true, false},
 		{"advisory fail never blocks", rows(with(with(both(), "editor", "fail"), "git_identity", "fail")), true, true},
+		{"an mcp fail never blocks", rows(with(both(), "mcp", "fail")), true, true},
 		{"advisory rows alone are not ready", rows(map[string]string{"editor": "ok", "git_identity": "ok"}), false, false},
 	}
 	for _, tc := range tests {
@@ -62,7 +63,7 @@ func TestStepReadiness(t *testing.T) {
 
 func TestValidDoctorCheckID(t *testing.T) {
 	for _, id := range []string{"memory", "disk", "cpu", "virtualization", "vm_manager", "git", "git_identity", "git_email_github",
-		"editor", "ssh_key", "ssh_keygen", "git_signing", "key_signing", "key_auth", "repo", "ruleset", "agents_md"} {
+		"editor", "ssh_key", "ssh_keygen", "git_signing", "key_signing", "key_auth", "repo", "ruleset", "agents_md", "mcp"} {
 		if !ValidDoctorCheckID(id) {
 			t.Errorf("%s must be accepted from the CLI", id)
 		}
@@ -75,7 +76,7 @@ func TestValidDoctorCheckID(t *testing.T) {
 }
 
 func TestCheckGroup(t *testing.T) {
-	for id, want := range map[string]string{"memory": "machine", "ssh_key": "key", "ruleset": "repo", "two_factor": "advisory", "secret_scanning": "advisory", "nope": ""} {
+	for id, want := range map[string]string{"memory": "machine", "ssh_key": "key", "ruleset": "repo", "two_factor": "advisory", "secret_scanning": "advisory", "mcp": "advisory", "nope": ""} {
 		if got := checkGroup(id); got != want {
 			t.Errorf("%s: %q, want %q", id, got, want)
 		}

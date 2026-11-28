@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const wipeCatalog = "DELETE FROM hint_opens; DELETE FROM ticket_progress; DELETE FROM catalog_items; " +
+const wipeCatalog = "DELETE FROM hint_opens; DELETE FROM item_completions; DELETE FROM ticket_progress; DELETE FROM catalog_items; " +
 	"DELETE FROM path_roles; DELETE FROM roles; DELETE FROM paths; DELETE FROM catalog_state"
 
 // freshCatalog empties the catalog tables before and after the test (the stack is not shared with a load job here).
@@ -38,11 +38,12 @@ INSERT INTO path_roles (org_id, path_id, role_id, position)
     ('systems-devops', 'foundations', 1), ('systems-devops', 'support-l1', 2),
     ('systems-devops', 'systems-l2', 3), ('security', 'foundations', 1)) AS v(p, r, pos)
   JOIN paths p ON p.slug = v.p JOIN roles r ON r.slug = v.r;
-INSERT INTO catalog_items (id, org_id, role_id, kind, position, title, est_minutes, tags, brief, hints, bundle_key, bundle_sha256, bundle_bytes, catalog_version)
+INSERT INTO catalog_items (id, org_id, role_id, kind, position, title, est_minutes, tags, brief, hints, bundle_key, bundle_sha256, bundle_bytes, catalog_version, payload)
   SELECT v.id, `+org+`, r.id, v.kind, v.pos, v.title, v.mins, v.tags::text[],
          CASE WHEN v.kind = 'ticket' THEN 'secret brief' END, CASE WHEN v.kind = 'ticket' THEN ARRAY['secret hint'] END,
          CASE WHEN v.kind = 'ticket' THEN 'bundles/x.tar.gz' END,
-         CASE WHEN v.kind = 'ticket' THEN repeat('a', 64) END, CASE WHEN v.kind = 'ticket' THEN 100 END, 'a1b2c3d4e5f6'
+         CASE WHEN v.kind = 'ticket' THEN repeat('a', 64) END, CASE WHEN v.kind = 'ticket' THEN 100 END, 'a1b2c3d4e5f6',
+         CASE WHEN v.kind <> 'ticket' THEN '{}'::jsonb END
   FROM (VALUES
     ('foundations/a', 'foundations', 'ticket', 1, 'Find the log', 10, '{terminal}'),
     ('foundations/b', 'foundations', 'ticket', 2, 'Free the disk', 15, '{}'),

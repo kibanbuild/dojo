@@ -277,6 +277,21 @@ services:
       retries: 15
     restart: unless-stopped
 
+  # The Web Push stand-in (design 3.10). The API reaches it as http://fake-push:8080/push/<token>; the
+  # published loopback port is for tests, which read what arrived. Unset = 8082; set but empty = random.
+  fake-push:
+    build:
+      context: .
+      target: fake-push
+    ports:
+      - "127.0.0.1:${FAKE_PUSH_PORT-8082}:8080"
+    healthcheck:
+      test: ["CMD", "/fake-push", "healthcheck"]
+      interval: 2s
+      timeout: 4s
+      retries: 15
+    restart: unless-stopped
+
   edge:
     build:
       context: .

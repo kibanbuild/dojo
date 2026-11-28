@@ -23,42 +23,45 @@ func write(ctx context.Context, tx pgx.Tx, cat *catalog.Catalog, bundles []*cata
 		return nil
 	}
 
-	ids := make([]string, len(cat.Tickets)) // never nil: an empty catalog must not send NULL
-	for i, t := range cat.Tickets {
-		ids[i] = t.ID
-	}
-	// Lock the rows the catalog drops, then look for progress on them: a first start racing this load
-	// either lands before the lock (and is seen) or waits for the commit and fails its foreign key.
-	rows, err := tx.Query(ctx, `
-		SELECT c.id FROM catalog_items c
-		WHERE c.kind = 'ticket' AND NOT (c.id = ANY($1)) FOR UPDATE`, ids)
+	rows, err := itemRows(cat, bundles)
 	if err != nil {
-		return fmt.Errorf("lock dropped items: %w", err)
+		return err
 	}
-	dropped, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return fmt.Errorf("lock dropped items: %w", err)
+	ids, kinds, marks := make([]string, len(rows)), make([]string, len(rows)), make([]string, len(cat.Marks))
+	for i, r := range rows {
+		ids[i], kinds[i] = r.ID, r.Kind
 	}
-	if len(dropped) > 0 {
-		var blocked []string
-		rows, err := tx.Query(ctx, `
-			SELECT c.id FROM catalog_items c
-			WHERE c.id = ANY($1) AND NOT (
-				NOT EXISTS (SELECT 1 FROM ticket_progress p WHERE p.item_id = c.id)
-				AND NOT EXISTS (SELECT 1 FROM hint_opens h WHERE h.item_id = c.id))
-			ORDER BY c.id`, dropped)
-		if err != nil {
-			return fmt.Errorf("check progress: %w", err)
+	// Marks first: items.awards_mark references them and the key is not deferrable.
+	for i, m := range cat.Marks {
+		marks[i] = m.Slug
+		pos := 1
+		for _, o := range cat.Marks[:i] {
+			if o.Belt == m.Belt {
+				pos++
+			}
 		}
-		if blocked, err = pgx.CollectRows(rows, pgx.RowTo[string]); err != nil {
-			return fmt.Errorf("check progress: %w", err)
-		}
-		if len(blocked) > 0 {
-			return fmt.Errorf("%w: %s", ErrWouldDropProgress, strings.Join(blocked, ", "))
-		}
-		if err := exec(`DELETE FROM catalog_items WHERE id = ANY($1)`, dropped); err != nil {
+		if err := exec(`INSERT INTO belt_marks (org_id, slug, belt, title, summary, position) VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (slug) DO UPDATE SET belt = EXCLUDED.belt, title = EXCLUDED.title, summary = EXCLUDED.summary,
+			position = EXCLUDED.position, updated_at = now()`, org, m.Slug, m.Belt, m.Title, m.Summary, pos); err != nil {
 			return err
 		}
+	}
+	// Lock the rows the catalog drops or changes kind, then look for learner rows on them: a first
+	// start racing this load either lands before the lock (and is seen) or waits for the commit and
+	// fails its foreign key.
+	if err := refuseLearnerRows(ctx, tx, `
+		SELECT c.id FROM catalog_items c
+		WHERE NOT (c.id = ANY($1)) FOR UPDATE`, []any{ids}, ErrWouldDropProgress, "would disappear"); err != nil {
+		return err
+	}
+	if err := refuseLearnerRows(ctx, tx, `
+		SELECT c.id FROM catalog_items c JOIN unnest($1::text[], $2::text[]) AS n(id, kind) ON n.id = c.id
+		WHERE c.kind <> n.kind FOR UPDATE OF c`, []any{ids, kinds}, ErrWouldChangeKind, "would change kind"); err != nil {
+		return err
+	}
+	// Retired items go before retired marks, the foreign key of awards_mark.
+	if err := exec(`DELETE FROM catalog_items WHERE NOT (id = ANY($1))`, ids); err != nil {
+		return err
 	}
 
 	pathSlugs, roleSlugs := []string{}, []string{}
@@ -87,18 +90,24 @@ func write(ctx context.Context, tx pgx.Tx, cat *catalog.Catalog, bundles []*cata
 			return err
 		}
 	}
-	for i, t := range cat.Tickets {
-		b := bundles[i]
+	for _, r := range rows {
+		var key, sum *string
+		var size *int
+		if r.Bundle != nil {
+			k, h, n := r.Bundle.Key(), r.Bundle.SHA256, len(r.Bundle.Data)
+			key, sum, size = &k, &h, &n
+		}
 		if err := exec(`INSERT INTO catalog_items (id, org_id, role_id, kind, position, title, est_minutes, tags, brief, hints,
-				catalog_version, bundle_key, bundle_sha256, bundle_bytes)
-			SELECT $1, $2, r.id, 'ticket', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13 FROM roles r WHERE r.slug = $3
-			ON CONFLICT (id) DO UPDATE SET role_id = EXCLUDED.role_id, position = EXCLUDED.position,
+				payload, awards_mark, difficulty, catalog_version, bundle_key, bundle_sha256, bundle_bytes)
+			VALUES ($1, $2, (SELECT id FROM roles WHERE slug = $3::text), $4, $5, $6, $7, $8, $9, $10, $11::text::jsonb, $12, $13, $14, $15, $16, $17)
+			ON CONFLICT (id) DO UPDATE SET role_id = EXCLUDED.role_id, kind = EXCLUDED.kind, position = EXCLUDED.position,
 				title = EXCLUDED.title, est_minutes = EXCLUDED.est_minutes, tags = EXCLUDED.tags,
-				brief = EXCLUDED.brief, hints = EXCLUDED.hints, catalog_version = EXCLUDED.catalog_version,
+				brief = EXCLUDED.brief, hints = EXCLUDED.hints, payload = EXCLUDED.payload, awards_mark = EXCLUDED.awards_mark,
+				difficulty = EXCLUDED.difficulty, catalog_version = EXCLUDED.catalog_version,
 				bundle_key = EXCLUDED.bundle_key, bundle_sha256 = EXCLUDED.bundle_sha256,
 				bundle_bytes = EXCLUDED.bundle_bytes, updated_at = now()`,
-			t.ID, org, t.Role, t.Order, t.Title, t.EstMinutes, nonNil(t.Tags), t.Brief, t.Hints,
-			version, b.Key(), b.SHA256, len(b.Data)); err != nil {
+			r.ID, org, r.Role, r.Kind, r.Position, r.Title, r.EstMinutes, r.Tags, r.Brief, r.Hints,
+			r.Payload, r.AwardsMark, r.Difficulty, version, key, sum, size); err != nil {
 			return err
 		}
 	}
@@ -114,6 +123,11 @@ func write(ctx context.Context, tx pgx.Tx, cat *catalog.Catalog, bundles []*cata
 		return err
 	}
 	if err := exec(`DELETE FROM roles WHERE NOT (slug = ANY($1))`, roleSlugs); err != nil {
+		return err
+	}
+	// Retired marks last: no item points at them any more. A mark learners hold is refused by the
+	// foreign key of the table that records it (the submit PR adds it).
+	if err := exec(`DELETE FROM belt_marks WHERE NOT (slug = ANY($1))`, marks); err != nil {
 		return err
 	}
 	return exec(`INSERT INTO catalog_state (id, org_id, catalog_version) VALUES (1, $1, $2)
@@ -136,4 +150,32 @@ func nonNil(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+// refuseLearnerRows runs query (which selects ids and locks them), and when any of them has a row in
+// a learner table returns the error wrapped around those ids.
+func refuseLearnerRows(ctx context.Context, tx pgx.Tx, query string, args []any, refusal error, what string) error {
+	rows, err := tx.Query(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("lock items: %w", err)
+	}
+	locked, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return fmt.Errorf("lock items: %w", err)
+	}
+	if len(locked) == 0 {
+		return nil
+	}
+	rows, err = tx.Query(ctx, `SELECT c.id FROM catalog_items c WHERE c.id = ANY($1) AND (`+hasLearnerRows()+`) ORDER BY c.id`, locked)
+	if err != nil {
+		return fmt.Errorf("check progress: %w", err)
+	}
+	blocked, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return fmt.Errorf("check progress: %w", err)
+	}
+	if len(blocked) > 0 {
+		return fmt.Errorf("%w: %s", refusal, strings.Join(blocked, ", "))
+	}
+	return nil
 }

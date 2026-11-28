@@ -41,13 +41,13 @@ func rejects(t *testing.T, name, sql, constraint string) {
 }
 
 func item(id, extra string) string {
-	// kind practice: no ticket-only columns needed, extra overrides come as column=value pairs below.
-	return "INSERT INTO catalog_items (id, org_id, kind, position, title, est_minutes, catalog_version" + extra
+	// kind practice is complete like a ticket (00025): the brief, hints and bundle columns come from base.
+	return "INSERT INTO catalog_items (id, org_id, kind, position, title, est_minutes, catalog_version, brief, hints, bundle_key, bundle_sha256, bundle_bytes" + extra
 }
 
 func TestCatalogItemChecks(t *testing.T) {
 	catalogFixtureCleanup(t)
-	const base = " FROM orgs WHERE slug = 'public'"
+	const base = ", 'brief', ARRAY['h'], 'bundles/practice/x/x.tar.gz', '" + ctSHA + "', 100 FROM orgs WHERE slug = 'public'"
 	ok := item("x", ") SELECT 'ct-ok/one', id, 'practice', 1, 'T', 10, '"+ctVersion+"'"+base)
 	asOwner(t, ok)
 
@@ -85,10 +85,78 @@ func TestCatalogItemChecks(t *testing.T) {
 	rejects(t, "sha uppercase", bundle(strings.ToUpper(ctSHA), 1), "bundle_sha256")
 	rejects(t, "bundle over 1 MiB", bundle(ctSHA, 1048577), "bundle_bytes")
 	rejects(t, "bundle empty", bundle(ctSHA, 0), "bundle_bytes")
-	rejects(t, "bundle columns all or none", set("bundle_key", "'bundles/a/b/x.tar.gz'"), "catalog_items_bundle_all_or_none")
+	rejects(t, "bundle columns all or none", set("bundle_key", "NULL"), "catalog_items_bundle_all_or_none")
 	asOwner(t, "UPDATE catalog_items SET bundle_key = 'bundles/a/b/x.tar.gz', bundle_sha256 = '"+ctSHA+"', bundle_bytes = 1048576 WHERE id = 'ct-ok/one'")
-	rejects(t, "ticket without brief and hints", set("kind", "'ticket'"), "catalog_items_ticket_complete")
-	rejects(t, "ticket without role", "UPDATE catalog_items SET kind = 'ticket', brief = 'b', hints = ARRAY['h'] WHERE id = 'ct-ok/one'", "catalog_items_ticket_complete")
+	rejects(t, "ticket without role", "UPDATE catalog_items SET kind = 'ticket' WHERE id = 'ct-ok/one'", "catalog_items_role_kind")
+}
+
+func TestCatalogKindChecks(t *testing.T) {
+	catalogFixtureCleanup(t)
+	asOwner(t, "DELETE FROM belt_marks WHERE slug LIKE 'ct-%'")
+	t.Cleanup(func() {
+		asOwner(t, "DELETE FROM catalog_items WHERE id LIKE 'ct-%'")
+		asOwner(t, "DELETE FROM belt_marks WHERE slug LIKE 'ct-%'")
+	})
+	const org = " FROM orgs WHERE slug = 'public'"
+	asOwner(t, "INSERT INTO belt_marks (org_id, slug, belt, title, summary, position) SELECT id, 'ct-mark', 'white', 'M', 'S', 1"+org)
+	asOwner(t, "INSERT INTO roles (org_id, slug, title, kind, has_exam) SELECT id, 'ct-role', 'R', 'role', true"+org)
+	pos := 0
+	// kind is a column, not a literal, so the same statement shape serves every kind.
+	row := func(id, kind, role, cols, vals string) string {
+		pos++
+		return "INSERT INTO catalog_items (id, org_id, role_id, kind, position, title, est_minutes, catalog_version" + cols + ") " +
+			"SELECT '" + id + "', o.id, " + role + ", '" + kind + "', " + strconv.Itoa(pos) + ", 'T', 1, '" + ctVersion + "'" + vals + " FROM orgs o LEFT JOIN roles r ON r.slug = 'ct-role' WHERE o.slug = 'public'"
+	}
+	const rid = "r.id"
+	asOwner(t, row("ct-role/w", "writing", rid, ", payload, awards_mark", ", '{\"a\":1}'::jsonb, 'ct-mark'"))
+	asOwner(t, row("ct-role/q", "quiz", rid, ", payload", ", '{}'::jsonb"))
+	rejects(t, "writing without payload", row("ct-role/x", "writing", rid, "", ""), "catalog_items_payload_kind")
+	rejects(t, "quiz without payload", row("ct-role/x", "quiz", rid, "", ""), "catalog_items_payload_kind")
+	rejects(t, "payload on a ticket", row("ct-role/x", "ticket", rid, ", payload, brief, hints, bundle_key, bundle_sha256, bundle_bytes",
+		", '{}'::jsonb, 'b', ARRAY['h'], 'k', '"+ctSHA+"', 1"), "catalog_items_payload_kind")
+	rejects(t, "payload not an object", row("ct-role/x", "story", rid, ", payload", ", '[]'::jsonb"), "catalog_items_payload_check")
+	rejects(t, "payload over 64 KB", row("ct-role/x", "story", rid, ", payload", ", jsonb_build_object('a', repeat('x', 65536))"), "catalog_items_payload_check")
+	asOwner(t, row("ct-role/big", "story", rid, ", payload", ", jsonb_build_object('a', repeat('x', 65000))"))
+	rejects(t, "awards_mark on a quiz", row("ct-role/x", "quiz", rid, ", payload, awards_mark", ", '{}'::jsonb, 'ct-mark'"), "catalog_items_awards_mark_kind")
+	rejects(t, "awards_mark names no mark", row("ct-role/x", "writing", rid, ", payload, awards_mark", ", '{}'::jsonb, 'ct-ghost'"), "catalog_items_awards_mark_fkey")
+	rejects(t, "difficulty on a quiz", row("ct-role/x", "quiz", rid, ", payload, difficulty", ", '{}'::jsonb, 'easy'"), "catalog_items_difficulty_kind")
+	rejects(t, "practice with a role", row("ct-p/one", "practice", rid, ", brief, hints, bundle_key, bundle_sha256, bundle_bytes",
+		", 'b', ARRAY['h'], 'k', '"+ctSHA+"', 1"), "catalog_items_role_kind")
+	rejects(t, "ticket without a role", row("ct-role/x", "ticket", "NULL", ", brief, hints, bundle_key, bundle_sha256, bundle_bytes",
+		", 'b', ARRAY['h'], 'k', '"+ctSHA+"', 1"), "catalog_items_role_kind")
+	rejects(t, "quiz without a role", row("ct-role/x", "quiz", "NULL", ", payload", ", '{}'::jsonb"), "catalog_items_role_kind")
+	rejects(t, "practice without bundle", row("ct-p/two", "practice", "NULL", ", brief, hints", ", 'b', ARRAY['h']"), "catalog_items_practice_complete")
+	rejects(t, "practice without brief", row("ct-p/two", "practice", "NULL", ", hints, bundle_key, bundle_sha256, bundle_bytes",
+		", ARRAY['h'], 'k', '"+ctSHA+"', 1"), "catalog_items_practice_complete")
+	for _, d := range []string{"easy", "medium", "hard"} {
+		asOwner(t, row("ct-p/"+d, "practice", "NULL", ", brief, hints, bundle_key, bundle_sha256, bundle_bytes, difficulty",
+			", 'b', ARRAY['h'], 'k', '"+ctSHA+"', 1, '"+d+"'"))
+	}
+	rejects(t, "difficulty unknown", "UPDATE catalog_items SET difficulty = 'insane' WHERE id = 'ct-p/easy'", "catalog_items_difficulty_check")
+	rejects(t, "a mark cannot be dropped while an item awards it", "DELETE FROM belt_marks WHERE slug = 'ct-mark'", "catalog_items_awards_mark_fkey")
+}
+
+func TestBeltMarkChecks(t *testing.T) {
+	t.Cleanup(func() { asOwner(t, "DELETE FROM belt_marks WHERE slug LIKE 'ct-%'") })
+	asOwner(t, "DELETE FROM belt_marks WHERE slug LIKE 'ct-%'")
+	mark := func(slug, belt, title, summary string, pos int) string {
+		return "INSERT INTO belt_marks (org_id, slug, belt, title, summary, position) SELECT id, '" + slug + "', '" + belt + "', '" + title +
+			"', '" + summary + "', " + strconv.Itoa(pos) + " FROM orgs WHERE slug = 'public'"
+	}
+	asOwner(t, mark("ct-one", "white", "T", "S", 1))
+	rejects(t, "slug unique", mark("ct-one", "yellow", "T", "S", 1), "belt_marks_slug_key")
+	rejects(t, "belt unknown", mark("ct-two", "purple", "T", "S", 2), "belt_marks_belt_check")
+	rejects(t, "slug uppercase", mark("CT-two", "white", "T", "S", 2), "belt_marks_slug_check")
+	rejects(t, "title empty", mark("ct-two", "white", "", "S", 2), "belt_marks_title_check")
+	rejects(t, "title over 80", mark("ct-two", "white", strings.Repeat("t", 81), "S", 2), "belt_marks_title_check")
+	rejects(t, "summary empty", mark("ct-two", "white", "T", "", 2), "belt_marks_summary_check")
+	rejects(t, "summary over 200", mark("ct-two", "white", "T", strings.Repeat("s", 201), 2), "belt_marks_summary_check")
+	rejects(t, "position zero", mark("ct-two", "white", "T", "S", 0), "belt_marks_position_check")
+	rejects(t, "position unique within a belt", mark("ct-two", "white", "T", "S", 1), "belt_marks_belt_position_key")
+	asOwner(t, mark("ct-two", "yellow", "T", "S", 1))
+	asOwner(t, mark("ct-three", "white", strings.Repeat("t", 80), strings.Repeat("s", 200), 2))
+	// Deferred: swapping positions inside one load transaction is allowed.
+	asOwner(t, "BEGIN; UPDATE belt_marks SET position = 2 WHERE slug = 'ct-one'; UPDATE belt_marks SET position = 1 WHERE slug = 'ct-three'; COMMIT")
 }
 
 func TestCatalogTicketAndPositionRules(t *testing.T) {
@@ -109,8 +177,8 @@ func TestCatalogTicketAndPositionRules(t *testing.T) {
 	if got := asOwner(t, "SELECT position FROM catalog_items WHERE id = 'ct-role/one'"); got != "2" {
 		t.Fatalf("position after swap: %q", got)
 	}
-	rejects(t, "role must exist", "INSERT INTO catalog_items (id, org_id, role_id, kind, position, title, est_minutes, catalog_version) "+
-		"SELECT 'ct-role/ghost', id, gen_random_uuid(), 'practice', 9, 'T', 1, '"+ctVersion+"' FROM orgs WHERE slug = 'public'", "catalog_items_role_id_fkey")
+	rejects(t, "role must exist", "INSERT INTO catalog_items (id, org_id, role_id, kind, position, title, est_minutes, catalog_version, brief, hints, bundle_key, bundle_sha256, bundle_bytes) "+
+		"SELECT 'ct-role/ghost', id, gen_random_uuid(), 'ticket', 9, 'T', 1, '"+ctVersion+"', 'brief', ARRAY['h'], 'bundles/ct-role/t/x.tar.gz', '"+ctSHA+"', 100 FROM orgs WHERE slug = 'public'", "catalog_items_role_id_fkey")
 }
 
 func TestCatalogPathAndRoleChecks(t *testing.T) {

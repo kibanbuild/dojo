@@ -30,6 +30,29 @@
 		file_server
 	}
 
+	# PWA files are real files, never the SPA fallback. The worker and the manifest are revalidated on
+	# every load so a deploy reaches installed apps; /app/sw.js gets scope /app/ from its own path.
+	@pwa path /app/sw.js /app/offline.html
+	handle @pwa {
+		header Cache-Control "no-cache"
+		root * /srv
+		file_server
+	}
+
+	handle /app/manifest.webmanifest {
+		header Cache-Control "no-cache"
+		header Content-Type "application/manifest+json"
+		root * /srv
+		file_server
+	}
+
+	handle /app/icons/* {
+		root * /srv
+		@iconfound file {path}
+		header @iconfound Cache-Control "public, max-age=86400"
+		file_server
+	}
+
 	@bare path /app
 	redir @bare /app/?{query} 308
 

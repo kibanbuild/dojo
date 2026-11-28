@@ -21,6 +21,7 @@ type CatalogStore interface {
 	ListCatalogRoles(ctx context.Context) ([]repo.ListCatalogRolesRow, error)
 	ListCatalogPathRoles(ctx context.Context) ([]repo.ListCatalogPathRolesRow, error)
 	ListCatalogItems(ctx context.Context) ([]repo.ListCatalogItemsRow, error)
+	ListCatalogMarks(ctx context.Context) ([]repo.ListCatalogMarksRow, error)
 	ListLearnerTicketStates(ctx context.Context, learnerID pgtype.UUID) ([]repo.ListLearnerTicketStatesRow, error)
 	ListLearnerActivityDays(ctx context.Context, arg repo.ListLearnerActivityDaysParams) ([]repo.ListLearnerActivityDaysRow, error)
 	GetLearnerFirstRun(ctx context.Context, learnerID pgtype.UUID) (repo.GetLearnerFirstRunRow, error)
@@ -60,19 +61,28 @@ type catalogItem struct {
 	Tags       []string `json:"tags"`
 }
 
+type catalogMark struct {
+	Slug     string `json:"slug"`
+	Belt     string `json:"belt"`
+	Title    string `json:"title"`
+	Summary  string `json:"summary"`
+	Position int32  `json:"position"`
+}
+
 type catalogResponse struct {
 	Version  *string           `json:"catalog_version"`
 	Paths    []catalogPath     `json:"paths"`
 	Roles    []catalogRole     `json:"roles"`
 	PathRole []catalogPathRole `json:"path_roles"`
 	Items    []catalogItem     `json:"items"`
+	Marks    []catalogMark     `json:"marks"`
 }
 
 // catalog answers the public catalog. Before the first load there is no catalog_state row:
 // the version is null and the lists are empty.
 func (a Auth) catalog(w http.ResponseWriter, r *http.Request) {
 	c, s := a.Catalog, r.Context()
-	out := catalogResponse{Paths: []catalogPath{}, Roles: []catalogRole{}, PathRole: []catalogPathRole{}, Items: []catalogItem{}}
+	out := catalogResponse{Paths: []catalogPath{}, Roles: []catalogRole{}, PathRole: []catalogPathRole{}, Items: []catalogItem{}, Marks: []catalogMark{}}
 	v, err := c.GetCatalogVersion(s)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -86,7 +96,8 @@ func (a Auth) catalog(w http.ResponseWriter, r *http.Request) {
 	roles, err2 := c.ListCatalogRoles(s)
 	prs, err3 := c.ListCatalogPathRoles(s)
 	items, err4 := c.ListCatalogItems(s)
-	if err := errors.Join(err1, err2, err3, err4); err != nil {
+	marks, err5 := c.ListCatalogMarks(s)
+	if err := errors.Join(err1, err2, err3, err4, err5); err != nil {
 		readFailed(w, r, err)
 		return
 	}
@@ -105,6 +116,9 @@ func (a Auth) catalog(w http.ResponseWriter, r *http.Request) {
 			tags = []string{}
 		}
 		out.Items = append(out.Items, catalogItem{i.ID, i.Role, i.Position, i.Kind, i.Title, i.EstMinutes, tags})
+	}
+	for _, m := range marks {
+		out.Marks = append(out.Marks, catalogMark{m.Slug, m.Belt, m.Title, m.Summary, m.Position})
 	}
 	writeNoStore(w, out)
 }

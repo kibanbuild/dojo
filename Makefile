@@ -14,7 +14,7 @@ SQLC := $(TOOLS)/sqlc-$(SQLC_VERSION)
 IT_PROJECT := dojo-it
 # The bare repositories the fake GitHub serves commits from; mounted by compose.it.yaml, pushed to by the tests.
 FAKE_GIT_DIR := $(CURDIR)/.tmp/fake-git-$(IT_PROJECT)
-COMPOSE := DOJO_FAKE_GITHUB_GIT_DIR=$(FAKE_GIT_DIR) EDGE_PORT= FAKE_GITHUB_PORT= ADMIN_PORT= DOJO_S3_PORT= MAILPIT_PORT= docker compose -p $(IT_PROJECT) -f compose.yaml -f compose.it.yaml --env-file .env.example
+COMPOSE := DOJO_FAKE_GITHUB_GIT_DIR=$(FAKE_GIT_DIR) EDGE_PORT= FAKE_GITHUB_PORT= FAKE_PUSH_PORT= ADMIN_PORT= DOJO_S3_PORT= MAILPIT_PORT= docker compose -p $(IT_PROJECT) -f compose.yaml -f compose.it.yaml --env-file .env.example
 
 # The dev stack is the default compose project (dojo); a local .env wins over the fixed values.
 # compose.dev.yaml makes http://localhost:4321 (Astro) the public origin, which only this path uses.
@@ -77,13 +77,14 @@ test-integration:
 	port=$$($(COMPOSE) port api 8080 | sed 's/.*://'); \
 	edge=$$($(COMPOSE) port edge 8080 | sed 's/.*://'); \
 	fake=$$($(COMPOSE) port fake-github 8081 | sed 's/.*://'); \
+	push=$$($(COMPOSE) port fake-push 8080 | sed 's/.*://'); \
 	admin=$$($(COMPOSE) port admin 8090 | sed 's/.*://'); \
 	s3=$$($(COMPOSE) port s3 9000 | sed 's/.*://'); \
 	mail=$$($(COMPOSE) port mailpit 8025 | sed 's/.*://'); \
 	DOJO_S3_PORT=$$s3 DOJO_S3_ACCESS_KEY=$$(sed -n 's/^DOJO_S3_ACCESS_KEY=//p' .env.example) DOJO_S3_SECRET_KEY=$$(sed -n 's/^DOJO_S3_SECRET_KEY=//p' .env.example) \
-	DOJO_ADMIN_URL=http://127.0.0.1:$$admin DOJO_API_URL=http://127.0.0.1:$$port DOJO_EDGE_URL=http://127.0.0.1:$$edge DOJO_FAKE_GITHUB_URL=http://127.0.0.1:$$fake DOJO_FAKE_GITHUB_GIT_DIR=$(FAKE_GIT_DIR) DOJO_MAILPIT_URL=http://127.0.0.1:$$mail DOJO_COMPOSE_PROJECT=$(IT_PROJECT) \
+	DOJO_ADMIN_URL=http://127.0.0.1:$$admin DOJO_API_URL=http://127.0.0.1:$$port DOJO_EDGE_URL=http://127.0.0.1:$$edge DOJO_FAKE_GITHUB_URL=http://127.0.0.1:$$fake DOJO_FAKE_PUSH_URL=http://127.0.0.1:$$push DOJO_FAKE_GITHUB_GIT_DIR=$(FAKE_GIT_DIR) DOJO_MAILPIT_URL=http://127.0.0.1:$$mail DOJO_COMPOSE_PROJECT=$(IT_PROJECT) \
 		go test -tags integration -count=1 -p 1 -v ./internal/server/ ./internal/github/ ./internal/ghread/ ./internal/admin/ ./internal/storage/ ./internal/catalogload/ \
-		|| { rc=$$?; $(COMPOSE) logs --no-color --tail=100 api admin fake-github mailpit s3 s3-init; exit $$rc; }
+		|| { rc=$$?; $(COMPOSE) logs --no-color --tail=100 api admin fake-github fake-push mailpit s3 s3-init; exit $$rc; }
 
 # Starts the stack in the background, then the SPA's Vite dev server (background, its own pid in app/.dev.pid)
 # and the web dev server in the foreground (Astro detaches when there is no terminal). The web dev

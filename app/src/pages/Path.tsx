@@ -166,7 +166,7 @@ export function crossings(catalog: Catalog, current: LearnerPath): Crossing[] {
     if (shared.length === 0) continue;
     const lastShared = Math.max(...shared.map((r) => roles.indexOf(r)));
     const next = roles.slice(lastShared + 1).find((r) => !mine.has(r.role));
-    const nextHasTickets = next ? catalog.items.some((i) => i.role === next.role) : false;
+    const nextHasTickets = next ? catalog.items.some((i) => i.kind === 'ticket' && i.role === next.role) : false;
     const planned = p.status !== 'available';
     out.push({
       path: p.slug,

@@ -21,6 +21,12 @@ FROM catalog_items i
 JOIN roles r ON r.id = i.role_id
 ORDER BY r.slug, i.position;
 
+-- Marks in belt order (design 3.10), then their place in the belt.
+-- name: ListCatalogMarks :many
+SELECT slug, belt, title, summary, position
+FROM belt_marks
+ORDER BY array_position(ARRAY['white', 'yellow', 'orange', 'green', 'blue', 'brown', 'black'], belt), position;
+
 -- name: GetTicketBundle :one
 SELECT id, catalog_version, bundle_key, bundle_sha256, bundle_bytes
 FROM catalog_items WHERE id = $1 AND bundle_key IS NOT NULL;

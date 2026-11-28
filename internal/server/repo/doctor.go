@@ -19,6 +19,7 @@ var doctorGroups = map[string]string{
 	"git": "machine", "git_identity": "machine", "editor": "machine",
 	"git_email_github": "key", "ssh_key": "key", "ssh_keygen": "key", "git_signing": "key", "key_signing": "key", "key_auth": "key",
 	"repo": "repo", "ruleset": "repo", "agents_md": "repo",
+	"mcp": "advisory",
 }
 
 // checkGroup is the group of a stored check: the CLI ids above, plus the two the learner confirms

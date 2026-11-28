@@ -32,12 +32,21 @@ export interface CatalogItem {
   tags: string[];
 }
 
+export interface CatalogMark {
+  slug: string;
+  belt: string;
+  title: string;
+  summary: string;
+  position: number;
+}
+
 export interface Catalog {
   catalog_version: string | null;
   paths: CatalogPath[];
   roles: CatalogRole[];
   path_roles: { path: string; role: string; position: number }[];
   items: CatalogItem[];
+  marks: CatalogMark[];
 }
 
 export interface PathItem {

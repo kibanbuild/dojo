@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const wipeCatalog = "DELETE FROM hint_opens; DELETE FROM ticket_progress; DELETE FROM catalog_items; " +
+const wipeCatalog = "DELETE FROM hint_opens; DELETE FROM item_completions; DELETE FROM ticket_progress; DELETE FROM catalog_items; DELETE FROM belt_marks; " +
 	"DELETE FROM path_roles; DELETE FROM roles; DELETE FROM paths; DELETE FROM catalog_state"
 
 // freshCatalog empties the catalog tables before and after the test (the stack is not shared with a load job here).
@@ -38,11 +38,12 @@ INSERT INTO path_roles (org_id, path_id, role_id, position)
     ('systems-devops', 'foundations', 1), ('systems-devops', 'support-l1', 2),
     ('systems-devops', 'systems-l2', 3), ('security', 'foundations', 1)) AS v(p, r, pos)
   JOIN paths p ON p.slug = v.p JOIN roles r ON r.slug = v.r;
-INSERT INTO catalog_items (id, org_id, role_id, kind, position, title, est_minutes, tags, brief, hints, bundle_key, bundle_sha256, bundle_bytes, catalog_version)
+INSERT INTO catalog_items (id, org_id, role_id, kind, position, title, est_minutes, tags, brief, hints, bundle_key, bundle_sha256, bundle_bytes, catalog_version, payload)
   SELECT v.id, `+org+`, r.id, v.kind, v.pos, v.title, v.mins, v.tags::text[],
          CASE WHEN v.kind = 'ticket' THEN 'secret brief' END, CASE WHEN v.kind = 'ticket' THEN ARRAY['secret hint'] END,
          CASE WHEN v.kind = 'ticket' THEN 'bundles/x.tar.gz' END,
-         CASE WHEN v.kind = 'ticket' THEN repeat('a', 64) END, CASE WHEN v.kind = 'ticket' THEN 100 END, 'a1b2c3d4e5f6'
+         CASE WHEN v.kind = 'ticket' THEN repeat('a', 64) END, CASE WHEN v.kind = 'ticket' THEN 100 END, 'a1b2c3d4e5f6',
+         CASE WHEN v.kind <> 'ticket' THEN '{}'::jsonb END
   FROM (VALUES
     ('foundations/a', 'foundations', 'ticket', 1, 'Find the log', 10, '{terminal}'),
     ('foundations/b', 'foundations', 'ticket', 2, 'Free the disk', 15, '{}'),
@@ -85,7 +86,7 @@ func TestCatalogEmptyIntegration(t *testing.T) {
 	signUp(t, "ada")
 	tok := cliToken(t, newCLIClient(t), "ada")
 	code, body, h := getAs(t, tok, "/v1/catalog")
-	if code != 200 || body != `{"catalog_version":null,"paths":[],"roles":[],"path_roles":[],"items":[]}`+"\n" || h.Get("Cache-Control") != "no-store" {
+	if code != 200 || body != `{"catalog_version":null,"paths":[],"roles":[],"path_roles":[],"items":[],"marks":[]}`+"\n" || h.Get("Cache-Control") != "no-store" {
 		t.Fatalf("catalog: %d %q %q", code, body, h.Get("Cache-Control"))
 	}
 	if code, body, _ := getAs(t, tok, "/v1/path"); code != 200 || body != `{"path":null,"chosen":false,"roles":[]}`+"\n" {
@@ -96,11 +97,18 @@ func TestCatalogEmptyIntegration(t *testing.T) {
 func TestCatalogPopulatedIntegration(t *testing.T) {
 	freshCatalog(t)
 	seedCatalog(t)
+	asOwner(t, "INSERT INTO belt_marks (org_id, slug, belt, title, summary, position) SELECT id, v.s, v.b, v.t, 'sum', v.p FROM orgs, "+
+		"(VALUES ('tidy-shell', 'yellow', 'Tidy shell', 1), ('feedback-round', 'white', 'Feedback round', 2), ('written-english', 'white', 'Written English', 1)) "+
+		"AS v(s, b, t, p) WHERE slug = 'public'")
 	resetLearners(t, "1001")
 	signUp(t, "ada")
 	tok := cliToken(t, newCLIClient(t), "ada")
 	code, body, _ := getAs(t, tok, "/v1/catalog")
 	var got struct {
+		Marks []struct {
+			Slug, Belt string
+			Position   int
+		}
 		Version  string `json:"catalog_version"`
 		Paths    []struct{ Slug string }
 		Roles    []struct{ Slug, Summary string }
@@ -123,6 +131,9 @@ func TestCatalogPopulatedIntegration(t *testing.T) {
 	}
 	if i := got.Items[0]; i.ID != "foundations/a" || i.Order != 1 || i.EstMinutes != 10 || len(i.Tags) != 1 || i.Tags[0] != "terminal" {
 		t.Fatalf("first item: %+v", i)
+	}
+	if len(got.Marks) != 3 || got.Marks[0].Slug != "written-english" || got.Marks[1].Slug != "feedback-round" || got.Marks[2].Belt != "yellow" || got.Marks[1].Position != 2 {
+		t.Fatalf("marks in belt order: %+v", got.Marks)
 	}
 	if strings.Contains(body, "secret") || strings.Contains(body, "bundles/") {
 		t.Fatalf("catalog leaks ticket content: %s", body)

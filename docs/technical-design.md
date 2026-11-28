@@ -1266,7 +1266,9 @@ the ticket route), `400 bad_request` (only the activity route, an invalid `tz`),
  "path_roles": [{"path": "systems-devops", "role": "foundations", "position": 1},
                 {"path": "systems-devops", "role": "support-l1", "position": 2}],
  "items": [{"id": "support-l1/perms-03", "role": "support-l1", "order": 3, "kind": "ticket",
-            "title": "Fix the shared folder", "est_minutes": 20, "tags": ["permissions"]}]}
+            "title": "Fix the shared folder", "est_minutes": 20, "tags": ["permissions"]}],
+ "marks": [{"slug": "written-english", "belt": "white", "title": "Written English for tickets",
+            "summary": "Write a ticket reply a colleague does not need to ask about", "position": 1}]}
 ```
 
 `GET /v1/path` is the learner's path with their state. With no `chosen_path_id` it returns the only
@@ -1553,6 +1555,7 @@ of section 3.8 for free, and a doctor result is progress (section 3.2), nothing 
 | `ruleset` | repo | `GET /repos/{login}/dojo/rules/branches/main` lists `required_signatures`, `non_fast_forward` and `deletion` |
 | `agents_md` | repo | `GET /repos/{login}/dojo/contents/AGENTS.md` answers `200` |
 | `two_factor`, `secret_scanning` | repo | Not verifiable: GitHub shows a user's 2FA and a repo's secret scanning only to its owner with a token. The page draws them as advisory steps the learner confirms; they never gate O4 |
+| `mcp` | advisory | An AI client opened `dojo mcp` in the last 30 days (`DOJO_HOME/mcp-seen.json`, written on `initialize`, section 3.10); `warn` otherwise, never `fail`, never gating O3 or O4 |
 
 - **Self-confirmed steps:** `PUT /v1/onboarding/confirmations/{step}` and `DELETE` the same path
   (`step` is `two_factor` or `secret_scanning`; `404 not_found` otherwise) write or remove the
@@ -1874,8 +1877,9 @@ validate and the deploy load run the same Go code.
   is refused when it has learner rows (`ticket_progress`, `hint_opens`, `item_completions`,
   `quiz_answers`, `story_choices`, `written_work`); so is an id that keeps its name but changes kind,
   because the stored answers would no longer fit it; with no learner rows, a kind change is the plain
-  upsert above. The drop check in `internal/catalogload` looks only at `kind` ticket now; the load PR
-  (PR 4) widens it to every kind. `internal/server/catalog_tables_integration_test.go` inserts
+  upsert above. The drop and kind-change checks in `internal/catalogload` cover every kind and read the
+  learner tables named in one list (`learnerTables`); today it holds `ticket_progress`, `hint_opens`
+  and `item_completions`, and each later table is added to it with its migration. `internal/server/catalog_tables_integration_test.go` inserts
   practice rows that 00025's practice CHECKs refuse (no bundle columns, and one with a role); the
   migration PR (PR 3) updates them. A quiz may gain,
   lose or reword questions: answers to a question id that is gone are kept and ignored, and a

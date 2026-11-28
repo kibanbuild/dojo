@@ -124,6 +124,8 @@ describe('crossings', () => {
     expect(crossings(live as never, done as never)[0]?.open).toBe(true);
     expect(crossings(live as never, fullPath as never)[0]?.open).toBe(false);
     expect(crossings({ ...live, items: [] } as never, done as never)[0]?.open).toBe(false);
+    const quizOnly = { ...live, items: [{ id: 'soc-l1/q', role: 'soc-l1', order: 1, kind: 'quiz', title: 'Q', est_minutes: 5, tags: [] }] };
+    expect(crossings(quizOnly as never, done as never)[0]?.open).toBe(false);
     const noNext = { ...live, path_roles: live.path_roles.filter((x) => x.role !== 'soc-l1') };
     expect(crossings(noNext as never, done as never)[0]).toMatchObject({ opens: null, open: false });
   });

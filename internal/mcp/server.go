@@ -39,6 +39,8 @@ type Server struct {
 	Tools                       []Tool
 	// Log gets diagnostics; nil discards them. Never stdout, which carries the protocol.
 	Log io.Writer
+	// OnInitialize runs after each accepted initialize with clientInfo.name ("" when absent).
+	OnInitialize func(clientName string)
 }
 
 type request struct {
@@ -147,6 +149,9 @@ func idOrNull(id json.RawMessage) json.RawMessage {
 func (s *Server) initialize(req request) *response {
 	var p struct {
 		ProtocolVersion string `json:"protocolVersion"`
+		ClientInfo      struct {
+			Name string `json:"name"`
+		} `json:"clientInfo"`
 	}
 	if err := json.Unmarshal(req.Params, &p); err != nil || p.ProtocolVersion == "" {
 		return fail(req.ID, codeInvalidParams, "initialize needs params.protocolVersion")
@@ -158,6 +163,9 @@ func (s *Server) initialize(req request) *response {
 		}
 	}
 	s.logf("initialize: client asked %s, answering %s", p.ProtocolVersion, version)
+	if s.OnInitialize != nil {
+		s.OnInitialize(p.ClientInfo.Name)
+	}
 	result := map[string]any{
 		"protocolVersion": version,
 		"capabilities":    map[string]any{"tools": map[string]any{}},

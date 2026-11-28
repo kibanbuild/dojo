@@ -84,3 +84,18 @@ func TestOversizedLineEndsServe(t *testing.T) {
 		t.Fatal("want an error for a line over the limit")
 	}
 }
+
+func TestInitializeReportsTheClientName(t *testing.T) {
+	var got []string
+	s := &Server{Name: "t", Version: "1", OnInitialize: func(n string) { got = append(got, n) }}
+	in := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","clientInfo":{"name":"cursor"}}}` + "\n" +
+		`{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}` + "\n" +
+		`{"jsonrpc":"2.0","id":3,"method":"initialize","params":{}}` + "\n"
+	var out bytes.Buffer
+	if err := s.Serve(context.Background(), strings.NewReader(in), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "cursor" || got[1] != "" {
+		t.Errorf("OnInitialize got %q (a refused initialize must not report)", got)
+	}
+}

@@ -21,6 +21,7 @@ type fakeCatalog struct {
 	roles    []repo.ListCatalogRolesRow
 	pathRole []repo.ListCatalogPathRolesRow
 	items    []repo.ListCatalogItemsRow
+	marks    []repo.ListCatalogMarksRow
 	progress []repo.ListLearnerTicketStatesRow
 	days     []repo.ListLearnerActivityDaysRow
 	total    int32
@@ -59,6 +60,10 @@ func (f *fakeCatalog) ListCatalogPathRoles(context.Context) ([]repo.ListCatalogP
 
 func (f *fakeCatalog) ListCatalogItems(context.Context) ([]repo.ListCatalogItemsRow, error) {
 	return f.items, f.err
+}
+
+func (f *fakeCatalog) ListCatalogMarks(context.Context) ([]repo.ListCatalogMarksRow, error) {
+	return f.marks, f.err
 }
 
 func (f *fakeCatalog) ListLearnerTicketStates(context.Context, pgtype.UUID) ([]repo.ListLearnerTicketStatesRow, error) {
@@ -116,7 +121,7 @@ func getCatalogRoute(t *testing.T, f *fakeCatalog, path string, suspend, anon bo
 
 func TestCatalogEmpty(t *testing.T) {
 	rec := getCatalogRoute(t, &fakeCatalog{}, "/v1/catalog", false, false)
-	want := `{"catalog_version":null,"paths":[],"roles":[],"path_roles":[],"items":[]}` + "\n"
+	want := `{"catalog_version":null,"paths":[],"roles":[],"path_roles":[],"items":[],"marks":[]}` + "\n"
 	if rec.Code != http.StatusOK || rec.Body.String() != want || rec.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("%d %q %q", rec.Code, rec.Body, rec.Header().Get("Cache-Control"))
 	}
@@ -152,6 +157,26 @@ func TestCatalogPopulated(t *testing.T) {
 		if _, ok := it[k]; ok {
 			t.Fatalf("catalog leaks %s", k)
 		}
+	}
+}
+
+func TestCatalogMarks(t *testing.T) {
+	f := populatedCatalog()
+	f.marks = []repo.ListCatalogMarksRow{
+		{Slug: "written-english", Belt: "white", Title: "Written English for tickets", Summary: "Write a reply", Position: 1},
+		{Slug: "tidy-shell", Belt: "yellow", Title: "Tidy shell", Summary: "Clean up", Position: 1},
+	}
+	rec := getCatalogRoute(t, f, "/v1/catalog", false, false)
+	var got struct {
+		Marks []map[string]any `json:"marks"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != 200 || len(got.Marks) != 2 {
+		t.Fatalf("%d %v %s", rec.Code, err, rec.Body)
+	}
+	m := got.Marks[0]
+	if m["slug"] != "written-english" || m["belt"] != "white" || m["title"] != "Written English for tickets" ||
+		m["summary"] != "Write a reply" || m["position"] != float64(1) || len(m) != 5 {
+		t.Fatalf("mark: %v", m)
 	}
 }
 

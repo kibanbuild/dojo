@@ -64,8 +64,8 @@ func load(t *testing.T, dir, version string) (string, error) {
 
 func wipe(t *testing.T) {
 	t.Helper()
-	sql := "DELETE FROM hint_opens; DELETE FROM ticket_progress; DELETE FROM learners WHERE github_id = 9101; " +
-		"DELETE FROM catalog_items; DELETE FROM path_roles; DELETE FROM paths; DELETE FROM roles; DELETE FROM catalog_state"
+	sql := "DELETE FROM hint_opens; DELETE FROM item_completions; DELETE FROM ticket_progress; DELETE FROM learners WHERE github_id = 9101; " +
+		"DELETE FROM catalog_items; DELETE FROM belt_marks; DELETE FROM path_roles; DELETE FROM paths; DELETE FROM roles; DELETE FROM catalog_state"
 	psql(t, sql)
 	t.Cleanup(func() { psql(t, sql) })
 }
@@ -105,7 +105,7 @@ func mustLoad(t *testing.T, dir, version, want string) {
 
 func TestFreshLoad(t *testing.T) {
 	wipe(t)
-	mustLoad(t, fixture(t), v1, "catalog "+v1+" loaded: 4 tickets, 4 bundles uploaded, 0 reused")
+	mustLoad(t, fixture(t), v1, "catalog "+v1+" loaded: 4 tickets, 0 practice, 4 bundles uploaded, 0 reused")
 
 	if got := psql(t, "SELECT count(*) || ',' || count(DISTINCT bundle_key) || ',' || bool_and(catalog_version = '"+v1+"' AND kind = 'ticket') FROM catalog_items"); got != "4,4,true" {
 		t.Fatalf("items: %s", got)
@@ -135,7 +135,7 @@ func TestReloadIsIdempotentAndKeepsUnchangedObjects(t *testing.T) {
 	mustLoad(t, dir, v1, "4 bundles uploaded, 0 reused")
 	before := psql(t, "SELECT string_agg(id || bundle_key, ',' ORDER BY id) FROM catalog_items")
 
-	mustLoad(t, dir, v2, "catalog "+v2+" loaded: 4 tickets, 0 bundles uploaded, 4 reused")
+	mustLoad(t, dir, v2, "catalog "+v2+" loaded: 4 tickets, 0 practice, 0 bundles uploaded, 4 reused")
 	if after := psql(t, "SELECT string_agg(id || bundle_key, ',' ORDER BY id) FROM catalog_items"); after != before {
 		t.Fatalf("keys changed:\n%s\n%s", before, after)
 	}
@@ -152,7 +152,7 @@ func TestReloadIsIdempotentAndKeepsUnchangedObjects(t *testing.T) {
 	if err := os.WriteFile(check, append(b, "\n# changed\n"...), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	mustLoad(t, dir, v2, "4 tickets, 1 bundles uploaded, 3 reused")
+	mustLoad(t, dir, v2, "4 tickets, 0 practice, 1 bundles uploaded, 3 reused")
 	if got := psql(t, "SELECT count(*) FROM catalog_items WHERE bundle_key <> ''"); got != "4" {
 		t.Fatalf("items: %s", got)
 	}

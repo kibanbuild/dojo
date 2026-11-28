@@ -32,6 +32,11 @@ const (
 	catalogFileName = "catalog.yaml"
 )
 
+// PracticeDir is the reserved top-level directory (and id prefix) of role-less practice tickets.
+const PracticeDir = "practice"
+
+var validDifficulty = map[string]bool{"easy": true, "medium": true, "hard": true}
+
 var (
 	slugRE = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 	idRE   = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*/[a-z0-9]+(-[a-z0-9]+)*$`)
@@ -80,6 +85,7 @@ type Ticket struct {
 	Order      int      `yaml:"order"`
 	EstMinutes int      `yaml:"est_minutes"`
 	Tags       []string `yaml:"tags"`
+	Difficulty string   `yaml:"difficulty"` // practice only: easy, medium or hard
 	Brief      string   `yaml:"brief"`
 	Hints      []string `yaml:"hints"`
 
@@ -187,8 +193,29 @@ func ParseTicket(file string, raw []byte) (*Ticket, error) {
 	return &t, nil
 }
 
+// IsPractice reports whether the id is in the reserved top-level practice directory.
+func IsPractice(id string) bool { return strings.HasPrefix(id, PracticeDir+"/") }
+
 func (t *Ticket) validate(is *issues) {
-	validateShared(is, t.ID, t.Title, t.Role, t.Order, t.EstMinutes, t.Tags)
+	if IsPractice(t.ID) {
+		checkID(is, t.ID)
+		checkTitle(is, t.Title)
+		checkEstTags(is, t.EstMinutes, t.Tags)
+		if t.Role != "" {
+			is.add("role", "a practice ticket has no role")
+		}
+		if t.Order != 0 {
+			is.add("order", "a practice ticket has no order")
+		}
+		if t.Difficulty != "" && !validDifficulty[t.Difficulty] {
+			is.add("difficulty", "%q must be easy, medium or hard", t.Difficulty)
+		}
+	} else {
+		validateShared(is, t.ID, t.Title, t.Role, t.Order, t.EstMinutes, t.Tags)
+		if t.Difficulty != "" {
+			is.add("difficulty", "only a practice ticket has a difficulty")
+		}
+	}
 	switch n := len(t.Brief); {
 	case strings.TrimSpace(t.Brief) == "":
 		is.add("brief", "is required")
@@ -209,6 +236,13 @@ func (t *Ticket) validate(is *issues) {
 
 // validateShared checks the fields every catalog item has (section 3.8, and 3.10 for the other kinds).
 func validateShared(is *issues, id, title, role string, order, estMinutes int, tags []string) {
+	checkID(is, id)
+	checkTitle(is, title)
+	checkRoleOrder(is, id, role, order)
+	checkEstTags(is, estMinutes, tags)
+}
+
+func checkID(is *issues, id string) {
 	switch {
 	case len(id) < minIDLen || len(id) > maxIDLen:
 		is.add("id", "must be %d to %d characters, got %d", minIDLen, maxIDLen, len(id))
@@ -217,9 +251,15 @@ func validateShared(is *issues, id, title, role string, order, estMinutes int, t
 	case reservedSlug(id):
 		is.add("id", "%q: the second part is a reserved action word (draft, submit, answers, choice)", id)
 	}
+}
+
+func checkTitle(is *issues, title string) {
 	if err := checkLine(title, MaxTitleChars); err != "" {
 		is.add("title", "%s", err)
 	}
+}
+
+func checkRoleOrder(is *issues, id, role string, order int) {
 	if role == "" {
 		is.add("role", "is required")
 	} else if !slugRE.MatchString(role) {
@@ -230,6 +270,9 @@ func validateShared(is *issues, id, title, role string, order, estMinutes int, t
 	if order < 1 || order > MaxOrder {
 		is.add("order", "must be 1 to %d, got %d", MaxOrder, order)
 	}
+}
+
+func checkEstTags(is *issues, estMinutes int, tags []string) {
 	if estMinutes < 1 || estMinutes > MaxEstMinutes {
 		is.add("est_minutes", "must be 1 to %d, got %d", MaxEstMinutes, estMinutes)
 	}

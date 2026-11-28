@@ -176,7 +176,7 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 			writeKey = "learner:" + p.learner.String()
 		}
 		var readKey string
-		if p, authed := principalOf(r.Context()); authed && rl.Read != nil && (isLearnerRead(pattern) || (pattern == "GET "+ticketsPrefix && isTicketRequest(r, routeTicket))) {
+		if p, authed := principalOf(r.Context()); authed && rl.Read != nil && (isLearnerRead(pattern) || pattern == "GET "+itemsPrefix || (pattern == "GET "+ticketsPrefix && isTicketRequest(r, routeTicket))) {
 			readKey = "learner:" + p.learner.String()
 		}
 		var bundleKey string
@@ -257,7 +257,7 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 // isLearnerRead reports the routed patterns that take the per-learner read budget.
 func isLearnerRead(pattern string) bool {
 	return pattern == "GET /v1/catalog" || pattern == "GET /v1/path" || pattern == "GET /v1/today" ||
-		pattern == "GET /v1/activity" || pattern == "GET "+onboardingPath
+		pattern == "GET /v1/activity" || pattern == "GET /v1/practice" || pattern == "GET "+onboardingPath
 }
 
 // isLearnerWrite reports the routed patterns that take the per-learner write budget.

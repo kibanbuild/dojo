@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createBrowserRouter, RouterProvider } from 'react-router';
 import { routes } from './routes';
+import { registerServiceWorker } from './lib/pwa';
 import './styles.css';
 
 const queryClient = new QueryClient();
@@ -18,3 +19,7 @@ createRoot(root).render(
     </QueryClientProvider>
   </StrictMode>,
 );
+
+window.addEventListener('load', () => {
+  void registerServiceWorker(import.meta.env.PROD, 'serviceWorker' in navigator ? navigator.serviceWorker : undefined);
+});

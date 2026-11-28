@@ -50,6 +50,13 @@ COPY cmd/fake-github ./cmd/fake-github
 COPY internal/fakegithub ./internal/fakegithub
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/fake-github ./cmd/fake-github
 
+FROM ${GO_IMAGE} AS build-fake-push
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/fake-push ./cmd/fake-push
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/fake-push ./cmd/fake-push
+
 FROM ${GO_IMAGE} AS build-goose
 # Pinned migration tool, built here so it never enters go.mod. Keep in step with the Makefile.
 ARG GOOSE_VERSION=v3.30.1
@@ -87,6 +94,13 @@ COPY --from=build-fake-github /out/fake-github /fake-github
 USER 65532:65532
 EXPOSE 8081
 ENTRYPOINT ["/fake-github"]
+
+# The Web Push stand-in for local and test stacks only.
+FROM scratch AS fake-push
+COPY --from=build-fake-push /out/fake-push /fake-push
+USER 65532:65532
+EXPOSE 8080
+ENTRYPOINT ["/fake-push"]
 
 FROM scratch AS migrate
 COPY --from=build-goose /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt

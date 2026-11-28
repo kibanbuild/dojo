@@ -587,6 +587,7 @@ func (a *App) doctor(ctx context.Context) error {
 		return ctx.Err()
 	}
 	results = append(results, gh...)
+	results = append(results, a.mcpCheck())
 	marks := map[doctor.Status]string{doctor.OK: "✓", doctor.Warn: "!", doctor.Fail: "✗", doctor.Unknown: "?"}
 	for _, r := range results {
 		fmt.Fprintf(a.Out, "  %s %s\n", marks[r.Status], r.Text)

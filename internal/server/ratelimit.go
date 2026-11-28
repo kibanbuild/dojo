@@ -176,7 +176,7 @@ func (rl *RateLimits) wrap(mux *http.ServeMux, next http.Handler) http.Handler {
 			writeKey = "learner:" + p.learner.String()
 		}
 		var readKey string
-		if p, authed := principalOf(r.Context()); authed && rl.Read != nil && (isLearnerRead(pattern) || (pattern == "GET "+ticketsPrefix && isTicketRequest(r, routeTicket))) {
+		if p, authed := principalOf(r.Context()); authed && rl.Read != nil && (isLearnerRead(pattern) || pattern == "GET "+itemsPrefix || (pattern == "GET "+ticketsPrefix && isTicketRequest(r, routeTicket))) {
 			readKey = "learner:" + p.learner.String()
 		}
 		var bundleKey string

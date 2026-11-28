@@ -9,6 +9,7 @@ import { First } from './pages/First';
 import { Today } from './pages/Today';
 import { Settings } from './pages/Settings';
 import { Machines } from './pages/Machines';
+import { YourAI } from './pages/YourAI';
 import { PathPage } from './pages/Path';
 import { PracticePage } from './pages/Practice';
 import { SignInPage } from './pages/SignIn';
@@ -103,6 +104,15 @@ export function MachinesRoute() {
   if (me.isError) return <MeFailed error={me.error} retry={() => void me.refetch()} />;
   if (me.data === null) return <Navigate to="/signin" replace />;
   return <Machines me={me.data} />;
+}
+
+// /app/settings/ai: same guard as /app.
+export function YourAIRoute() {
+  const me = useMe();
+  if (me.isPending) return <Loading />;
+  if (me.isError) return <MeFailed error={me.error} retry={() => void me.refetch()} />;
+  if (me.data === null) return <Navigate to="/signin" replace />;
+  return <YourAI me={me.data} />;
 }
 
 // /app/path: same guard as /app.

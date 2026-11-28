@@ -63,3 +63,7 @@ JOIN catalog_items i ON i.id = p.item_id AND i.kind IN ('ticket', 'practice')
 WHERE p.learner_id = $1 AND p.first_passed_at IS NOT NULL
 ORDER BY p.first_passed_at DESC, p.item_id
 LIMIT 3;
+
+-- Items the learner finished (design 3.10); done on Path and Today.
+-- name: ListLearnerCompletedItems :many
+SELECT item_id FROM item_completions WHERE learner_id = $1;

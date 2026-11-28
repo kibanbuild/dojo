@@ -15,6 +15,7 @@
 !internal/catalogload
 !cmd/fake-github
 !internal/fakegithub
+!cmd/fake-push
 !db/migrations
 !caddy/Caddyfile
 !web/package.json

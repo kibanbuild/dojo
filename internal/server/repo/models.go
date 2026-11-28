@@ -30,6 +30,18 @@ type AdminSession struct {
 	RevokedAt  pgtype.Timestamptz
 }
 
+type BeltMark struct {
+	ID        pgtype.UUID
+	OrgID     pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+	Slug      string
+	Belt      string
+	Title     string
+	Summary   string
+	Position  int32
+}
+
 type CatalogItem struct {
 	ID             string
 	OrgID          pgtype.UUID
@@ -48,6 +60,8 @@ type CatalogItem struct {
 	BundleKey      pgtype.Text
 	BundleSha256   pgtype.Text
 	BundleBytes    pgtype.Int4
+	Payload        []byte
+	Difficulty     pgtype.Text
 }
 
 type CatalogState struct {
@@ -122,6 +136,15 @@ type HintOpen struct {
 	ItemID    string
 	N         int16
 	OpenedAt  pgtype.Timestamptz
+}
+
+type ItemCompletion struct {
+	OrgID       pgtype.UUID
+	LearnerID   pgtype.UUID
+	ItemID      string
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+	CompletedAt pgtype.Timestamptz
 }
 
 type Learner struct {

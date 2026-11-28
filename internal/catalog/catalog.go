@@ -1,11 +1,9 @@
 package catalog
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
-	"path"
-	"sort"
+	"slices"
+	"strings"
 )
 
 // Path statuses and role kinds allowed in catalog.yaml.
@@ -45,14 +43,34 @@ type PathRole struct {
 	Position int    `yaml:"position"`
 }
 
-// Catalog is catalog.yaml plus every ticket read from the tree.
+// Belts is the fixed list of belts, in order. Belts are not catalog data.
+var Belts = []string{"white", "yellow", "orange", "green", "blue", "brown", "black"}
+
+const maxMarkSummary = 200
+
+// Mark is a belt mark listed in catalog.yaml; its place in its belt is its order in the list.
+type Mark struct {
+	Slug    string `yaml:"slug"`
+	Belt    string `yaml:"belt"`
+	Title   string `yaml:"title"`
+	Summary string `yaml:"summary"`
+}
+
+// Catalog is catalog.yaml plus every ticket and item read from the tree.
 type Catalog struct {
 	Paths     []Path     `yaml:"paths"`
 	Roles     []Role     `yaml:"roles"`
 	PathRoles []PathRole `yaml:"path_roles"`
+	Marks     []Mark     `yaml:"marks"`
 
-	// Tickets is filled by Load, sorted by role then order. ParseCatalog leaves it empty.
-	Tickets []*Ticket `yaml:"-"`
+	// Filled by Load; ParseCatalog leaves them empty. Tickets are role tickets only, sorted by role
+	// then order. Practice is sorted by id, the kind files by id within their kind.
+	Tickets   []*Ticket   `yaml:"-"`
+	Practice  []*Ticket   `yaml:"-"`
+	Writings  []*Writing  `yaml:"-"`
+	Quizzes   []*Quiz     `yaml:"-"`
+	Stories   []*Story    `yaml:"-"`
+	Feedbacks []*Feedback `yaml:"-"`
 }
 
 // ParseCatalog decodes and validates the bytes of a catalog.yaml; file names it in errors.
@@ -114,6 +132,9 @@ func (c *Catalog) validate(is *issues) {
 		r := &c.Roles[i]
 		f := fmt.Sprintf("roles[%d]", i)
 		checkSlug(is, f+".slug", r.Slug)
+		if r.Slug == PracticeDir {
+			is.add(f+".slug", "%q is reserved for practice tickets", r.Slug)
+		}
 		if roles[r.Slug] {
 			is.add(f+".slug", "%q appears twice", r.Slug)
 		}
@@ -157,69 +178,24 @@ func (c *Catalog) validate(is *issues) {
 		}
 		slots[pr.Path][pr.Position] = pr.Role
 	}
-}
 
-// Load reads catalog.yaml at the root of the tree and every <role>/<ticket>/ticket.yaml, and
-// checks them against each other: a ticket's role must be in catalog.yaml, ids are unique and
-// order is unique within a role. It reports every problem it finds, not only the first.
-func Load(tree fs.FS) (*Catalog, error) {
-	raw, err := fs.ReadFile(tree, catalogFileName)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", catalogFileName, err)
+	marks := map[string]bool{}
+	for i := range c.Marks {
+		m := &c.Marks[i]
+		f := fmt.Sprintf("marks[%d]", i)
+		checkSlug(is, f+".slug", m.Slug)
+		if marks[m.Slug] {
+			is.add(f+".slug", "%q appears twice", m.Slug)
+		}
+		marks[m.Slug] = true
+		if !slices.Contains(Belts, m.Belt) {
+			is.add(f+".belt", "%q must be one of %s", m.Belt, strings.Join(Belts, ", "))
+		}
+		if e := checkLine(m.Title, maxCatalogTitle); e != "" {
+			is.add(f+".title", "%s", e)
+		}
+		if e := checkLine(m.Summary, maxMarkSummary); e != "" {
+			is.add(f+".summary", "%s", e)
+		}
 	}
-	c, err := ParseCatalog(catalogFileName, raw)
-	if err != nil {
-		return nil, err
-	}
-	files, err := fs.Glob(tree, "*/*/"+ticketFileName)
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(files)
-	roles := map[string]bool{}
-	for _, r := range c.Roles {
-		roles[r.Slug] = true
-	}
-	var errs []error
-	ids := map[string]bool{}
-	orders := map[string]map[int]string{}
-	for _, f := range files {
-		dir := path.Dir(f)
-		t, err := LoadTicket(tree, dir)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		is := &issues{file: f}
-		if !roles[t.Role] {
-			is.add("role", "%q is not a role in %s", t.Role, catalogFileName)
-		}
-		if ids[t.ID] {
-			is.add("id", "%q appears twice", t.ID)
-		}
-		ids[t.ID] = true
-		if orders[t.Role] == nil {
-			orders[t.Role] = map[int]string{}
-		}
-		if other, dup := orders[t.Role][t.Order]; dup {
-			is.add("order", "%d is already the order of %s in role %q", t.Order, other, t.Role)
-		}
-		orders[t.Role][t.Order] = t.ID
-		if is.err() != nil {
-			errs = append(errs, is.err())
-			continue
-		}
-		c.Tickets = append(c.Tickets, t)
-	}
-	if err := errors.Join(errs...); err != nil {
-		return nil, err
-	}
-	sort.Slice(c.Tickets, func(i, j int) bool {
-		a, b := c.Tickets[i], c.Tickets[j]
-		if a.Role != b.Role {
-			return a.Role < b.Role
-		}
-		return a.Order < b.Order
-	})
-	return c, nil
 }

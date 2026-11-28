@@ -32,3 +32,4 @@
 !app/tsconfig.json
 !app/vite.config.ts
 !app/src
+!app/public

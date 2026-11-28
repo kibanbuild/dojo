@@ -199,7 +199,8 @@ One adapter, one endpoint family, two uses.
   to the learner, and writing-task and exam rubric reviews keep their own reserve: the reserve is
   a separate flag (`ai_reviews_enabled`) that only the operator turns off, so a hint spike can
   never block an exam grade.
-- **Review (writing tasks, story tone, simulated feedback rounds):** the same adapter returns a
+- **Review (writing tasks, simulated feedback rounds; story moments use fixed reactions and no AI,
+  decided 2026-11-27, contracts in section 3.10):** the same adapter returns a
   rubric review as strict JSON (a list of named boolean criteria with a quoted line as evidence).
   Feedback only: it never decides a role. The exam is the exception, section 2.7, where the same
   booleans feed the pass rule and a person checks each pass while volume is low.
@@ -333,10 +334,10 @@ are SPA routes served under `/app`: L3 is `/app/t/support-l1/perms-03`, and `doj
 | L1 Today | `/today` | Continue the ticket / Start the next one | First run (after O5): "day one done", next ticket, role progress. Empty never occurs after onboarding. Maintenance and offline show a banner. |
 | R1 Your path | `/path` | Start or continue the role; Test out of Support L1 | Systems L2 and Junior DevOps show as locked "coming later" with no test-out card. Foundations passed; belt on the side. |
 | L3 Ticket | `/t/*id` (for example `/t/support-l1/perms-03`; served at `/app/t/support-l1/perms-03`) | Copy `dojo start <id>`; Show hint; Ask Carmen (AI hint) | States below. |
-| L9 Writing task | `/t/*id` (kind `writing`) | Ask for review; Save draft | Draft saved as you type; review shows criteria and one fix. Passes when submitted (feedback only). |
-| L11 Quiz | `/quiz/:id` | Check answer, Next | Never blocks. Done screen offers the missed question again. |
-| L4 Story moment | `/story/:id` | Choose a reply | Tone review; Today shows the next moment. In v1. |
-| R6 Practice | `/practice` | Copy `dojo start <slug>` | Filter chips; a scenario you have passed shows "passed". Never blocks the path. |
+| L9 Writing task | `/w/*id` (for example `/w/support-l1/write-01`) | Ask for review; Save draft | Draft saved as you type; review shows criteria and one fix. Done when submitted (feedback only). Review pending, paused, capped and failed states (section 3.10). |
+| L11 Quiz | `/quiz/*id` | Check answer, Next | Never blocks. Done screen offers the missed question again. |
+| L4 Story moment | `/story/*id`, also the feedback round | Choose a reply (story); write a reply and ask for review (feedback) | A story shows who wrote (`from`) and, for the chosen reply, its authored verdict badge and reaction, with no AI and no trust state (decided 2026-11-27, section 3.10); Today shows the next moment. In v1. |
+| R6 Practice | `/practice` | Copy `dojo start <id>` (for example `practice/disk-full`) | Filter chips by kind, role, tag and difficulty; a scenario you have passed shows "passed". Never blocks the path. |
 | N1 Inbox | bell dropdown, `/inbox` on phone | Open the item | Empty: "Nothing new". Mark all read. |
 | K1 Command palette | `Cmd+K`, everywhere in the app on desktop | Run the highlighted action | Continue ticket, next hint, copy `dojo check`, search tickets and lessons. No docs search in v1. |
 | L6 Exam rules and preflight | `/exam/:role` | Start the exam | Rules; preflight checklist (CLI version, SSH reachable, no other lab, three free hours); disabled reason shown for each unmet rule (section 2.7). Leave says what happens to the clock and the work. |
@@ -618,7 +619,7 @@ Maintenance (X3): the site shows it, local labs keep working, `dojo check` saves
   is kept before the 14-or-older confirmation, and no session exists for a half-created account.
   A returning learner signs in without ticking them again.
 - **Rate limit:** every `/v1/auth/*` route, and anonymous `POST /v1/telemetry` (60 a minute), is limited per
-  client IP; authenticated `POST /v1/telemetry` is limited per learner (120 a minute, shared by the learner's devices), so one valid token is not unlimited. `POST /v1/events` has its own budget of 60 requests a minute per learner, `GET /v1/stream` one of 30 connections a minute, the bundle route 30 a minute, and the catalog, path, today and ticket reads share 120 a minute (section 3.8). The other authenticated writes (`PATCH /v1/me`, `DELETE /v1/me`, `DELETE /v1/me/devices/{id}`) share one budget of 10 a minute per learner, whatever the route, session or device (a `409 username_taken` is a one-guess-per-request enumeration signal, so renames are capped); `DELETE /v1/me` also keeps the per-IP limit above. Sign-out routes stay on the per-IP limit only: they reveal nothing and end the caller's own credential. The per-learner limits are taken after authentication (a request with no valid credential is a `401` and never spends a learner's budget; an authenticated write refused later, by the CSRF check or validation, still spends one, the safe side for a guessing signal), refuse with `429 rate_limited` and `Retry-After`, and are held in memory per API task with bounded size (full buckets are swept, the stalest evicted at the cap, a new learner is never refused). The client IP is the address `TRUSTED_PROXY_HOPS` entries from the right of
+  client IP; authenticated `POST /v1/telemetry` is limited per learner (120 a minute, shared by the learner's devices), so one valid token is not unlimited. `POST /v1/events` has its own budget of 60 requests a minute per learner, `GET /v1/stream` one of 30 connections a minute, the bundle route 30 a minute, and the catalog, path, today and ticket reads share 120 a minute (section 3.8; M4 adds its reads to that budget and a between-tickets write budget of 60 a minute, section 3.10). The other authenticated writes (`PATCH /v1/me`, `DELETE /v1/me`, `DELETE /v1/me/devices/{id}`) share one budget of 10 a minute per learner, whatever the route, session or device (a `409 username_taken` is a one-guess-per-request enumeration signal, so renames are capped); `DELETE /v1/me` also keeps the per-IP limit above. Sign-out routes stay on the per-IP limit only: they reveal nothing and end the caller's own credential. The per-learner limits are taken after authentication (a request with no valid credential is a `401` and never spends a learner's budget; an authenticated write refused later, by the CSRF check or validation, still spends one, the safe side for a guessing signal), refuse with `429 rate_limited` and `Retry-After`, and are held in memory per API task with bounded size (full buckets are swept, the stalest evicted at the cap, a new learner is never refused). The client IP is the address `TRUSTED_PROXY_HOPS` entries from the right of
   `X-Forwarded-For` (1 locally, behind Caddy; 2 in AWS, behind CloudFront and the ALB), or the
   connection address when the header is shorter; the header is never trusted further.
 - **CLI login:** `dojo login` uses the GitHub device flow with our client id (the same OAuth App as
@@ -761,18 +762,21 @@ each migration states the grants for `dojo_api` and `dojo_admin` (section 3.7).
 | Table | Key columns | Notes |
 |---|---|---|
 | `orgs` | `slug`, `name` | One row, `public`. |
-| `learners` | `github_id` (unique), `github_login`, `username` (unique), `email`, `language` (en, es: explanations), `extra_time`, `hosted_default`, `email_source`, `first_run_seen_at`, `age_confirmed_at`, `terms_accepted_at`, `terms_version`, `usage_stats` (bool), `analytics_consent` (null, true, false), `chosen_path_id`, `record_shared` (default false), `record_token_hash` (null when not shared), `suspended_at` | `extra_time` applies to every exam. `terms_version` is the API's required `TERMS_VERSION` at creation (1 to 32 of `a-z 0-9 . -`), insert-only like `terms_accepted_at`; rows from before the column read `unrecorded`. `record_shared` is the opt-in for the share link; the token is shown once, stored hashed, and regenerating replaces the hash. |
+| `learners` | `github_id` (unique), `github_login`, `username` (unique), `email`, `language` (en, es: explanations), `extra_time`, `hosted_default`, `email_source`, `first_run_seen_at`, `age_confirmed_at`, `terms_accepted_at`, `terms_version`, `usage_stats` (bool), `analytics_consent` (null, true, false), `chosen_path_id`, `time_zone` (IANA name, null means UTC; from M4, section 3.10), `record_shared` (default false), `record_token_hash` (null when not shared), `suspended_at` | `extra_time` applies to every exam. `terms_version` is the API's required `TERMS_VERSION` at creation (1 to 32 of `a-z 0-9 . -`), insert-only like `terms_accepted_at`; rows from before the column read `unrecorded`. `record_shared` is the opt-in for the share link; the token is shown once, stored hashed, and regenerating replaces the hash. |
 | `sessions`, `cli_tokens` | `learner_id`, `token_hash`, `last_used_at`, `revoked_at`; tokens add `device_name`, `os`, `cli_version`, `ssh_public_key` | Hashes only. M1 creates `cli_tokens` without `ssh_public_key` (the exam milestone adds it). `dojo_api` reads, inserts the device row and updates `last_used_at`, `revoked_at` and `updated_at`; no `DELETE`, and `dojo_admin` has no grant. No expiry: a token ends when revoked or when the learner is deleted (cascade). |
 | `paths` | `slug`, `title`, `status` (available, planned), `position` | Content, loaded at deploy from `catalog.yaml`. v1 data: one available path. |
 | `roles` | `slug`, `title`, `summary` (one line, at most 120 characters, default empty), `kind` (foundations, role), `has_exam`, `advanced` (default false) | Content. A role has no home path and no order of its own: membership and order live in `path_roles`, so Foundations is one row shared by every path. |
 | `path_roles` | `path_id`, `role_id`, `position` | Content. Unique `(path_id, role_id)`. |
 | `catalog_state` | `id` (always 1, `CHECK (id = 1)`), `catalog_version` | One row, upserted on `id = 1` by every successful catalog load (section 3.8) in the same transaction; before the first load there is no row and `GET /v1/catalog` answers `catalog_version: null` with empty lists. It is where `GET /v1/catalog` reads the top-level version; `catalog_items.catalog_version` keeps the version each item was last loaded with. |
-| `catalog_items` | `id` (for example `support-l1/perms-03`), `role_id` (null for practice), `kind` (ticket, writing, quiz, story, feedback, practice), `position`, `title`, `est_minutes`, `tags` (text array), `brief` (markdown), `hints` (text array, one to three), `awards_mark`, `catalog_version`, `bundle_key`, `bundle_sha256`, `bundle_bytes` | Loaded from the catalog at deploy; the API never parses YAML per request. Tickets fill `brief`, `hints` and the bundle columns (section 3.8); other kinds leave them null until their milestone. |
+| `catalog_items` | `id` (for example `support-l1/perms-03`), `role_id` (null for practice), `kind` (ticket, writing, quiz, story, feedback, practice), `position`, `title`, `est_minutes`, `tags` (text array), `brief` (markdown), `hints` (text array, one to three), `awards_mark` (a `belt_marks` slug, writing and feedback only), `payload` (jsonb, the kind fields of writing, quiz, story and feedback; from M4), `difficulty` (practice only, optional; from M4), `catalog_version`, `bundle_key`, `bundle_sha256`, `bundle_bytes` | Loaded from the catalog at deploy; the API never parses YAML per request. Tickets and practice items fill `brief`, `hints` and the bundle columns (section 3.8); the four other kinds leave them null and fill `payload` (section 3.10, migration 00025). A practice item has no role and is numbered by id order. |
 | `ticket_progress` | `learner_id`, `item_id`, `state` (started, passed, revisit), `lab` (local, hosted; null when an event other than `ticket.started` made the row), `lab_state` (starting, running, failed, stopped, expired; null until a lab event), `lab_state_at`, `first_started_at`, `last_seen_at`, `check_count`, `last_check_at`, `last_check_ok` (null before the first check), `last_check_passed`, `last_check_total`, `last_check_output`, `first_passed_at`, `passed_seconds`, `passed_commit`; from M3 `commit_state`, `commit_tries`, `commit_next_at`, `commit_checked_at`, `commit_at` (section 3.9, migration 00021) | One row per learner and item; no row means not started. Written by the events projection in the same transaction (section 3.8). `lab_state_at` and `last_check_at` are the CLI's `client_at` of the event that set the field, so an older event cannot overwrite a newer one; `first_started_at` is a `client_at` too, and `created_at` is the server's. Revisits never change `first_passed_at`. `passed_commit` stays null until M3. The record is kept for the life of the account. |
 | `hint_opens` | `learner_id`, `item_id`, `n` (1 to 3), `opened_at` | Written hints the learner opened, one row each; primary key `(learner_id, item_id, n)`, `learner_id` cascades on delete, `dojo_api` may SELECT and INSERT only (no UPDATE or DELETE). Kept apart from `ticket_progress` so opening a hint never creates a row or marks a ticket started. The count and list are read from here. |
 | `events` | `learner_id`, `client_event_id` (unique with `learner_id`; the wire field `id`), `type`, `payload` (jsonb), `at` (server clock), `client_at` | Append-only audit behind `ticket_progress`. `at` is the server's; `client_at` is what the CLI said and orders only the per-field rules of section 3.8. A `check.run` payload keeps no output (it lives in `last_check_output`). Deleted after 12 months by `prune_events()`, run by the nightly job like `prune_telemetry()`. Migration 00013 builds all three progress tables and `prune_events()` (fixed 12 months, `EXECUTE` revoked from everyone). `events` has `org_id` but no `created_at` or `updated_at` (`at` is the server time); `hint_opens` has `org_id` and `opened_at` only. `item_id` is the catalog item's text id; on `ticket_progress` and `hint_opens` it references `catalog_items (id)` with no cascade, so a catalog load cannot drop an item that has progress. `dojo_api` has `SELECT` and `INSERT` on `events` (no `UPDATE`) and `hint_opens`, and `SELECT`, `INSERT` and `UPDATE` on the projected columns of `ticket_progress`; `dojo_admin` only reads `ticket_progress`; nobody has `DELETE`. |
-| `quiz_answers`, `writing_drafts`, `story_choices` | learner, item, answers or `body`, `review` (jsonb), `submitted_at` | Feedback records. |
-| `belt_marks`, `belt_awards` | mark `slug`, `belt`, `title`; award `learner_id`, `mark_id`, `source_ref`, `awarded_at` | Maturity, from writing, simulated feedback rounds and exam artifacts. The white belt has four marks; none unlocks or blocks a role. The fourth, a feedback round, is a simulated one: Carmen or a team lead sends feedback in a `feedback` item (drawn like a story moment, L4) and the learner replies, reviewed by rubric. No peer is involved. |
+| `item_completions` | `learner_id`, `item_id`, `completed_at` | One row when a non-ticket item is done (writing or feedback submitted, quiz completed, story chosen); never removed. Today's `between` and Path's `between_items` read it (section 3.10, migration 00025). |
+| `quiz_answers` | `learner_id`, `item_id`, `question_id`, `first_choice`, `first_correct`, `first_at`, `last_choice`, `last_correct`, `last_at` | Server-checked answers; the first answer never changes and keeps the stats, a retake moves only the `last_*` columns (section 3.10, migration 00026). |
+| `story_choices` | `learner_id`, `item_id`, `choice_id`, `chosen_at` | One final choice per story moment (section 3.10, migration 00026). |
+| `written_work` | `learner_id`, `item_id`, `draft`, `draft_saved_at`, `body`, `first_submitted_at`, `submitted_at`, `submit_count`, `review_state` (pending, done, capped, failed), `review` (jsonb), `review_tries`, `review_next_at`, `reviewed_at` | Writing tasks and feedback replies: the autosaved draft, the last submitted body and its review, claimed by the review worker with a lease (section 3.10, migration 00027). Feedback only. |
+| `belt_marks`, `belt_awards` | mark `slug`, `belt` (one of the seven), `title`, `summary`, `position`; award `learner_id`, `mark_id`, `source_item_id`, `awarded_at` | Marks are loaded from `catalog.yaml`; an award is written on submit, once per learner and mark (section 3.10, migrations 00025 and 00029). Maturity, from writing, simulated feedback rounds and exam artifacts. The white belt has four marks; none unlocks or blocks a role. The fourth, a feedback round, is a simulated one: Carmen or a team lead sends feedback in a `feedback` item (drawn like a story moment, L4) and the learner replies, reviewed by rubric. No peer is involved. |
 | `exam_defs`, `exam_items` | def: role, `version`, `duration_s` (10800), `pause_s` (900), `pass_items` (4), `parts` (the four parts); item `code` (fixes, reply, brief, update, handoff), `kind` (machine, rubric), `part`, `title`, `rubric` | Content. The five items are data. |
 | `exam_attempts` | `learner_id`, `role_id`, `def_version`, `state` (preflight, preparing, running, paused, submitted, grade_pending, published, appealed, voided), `test_out`, `started_at`, `deadline`, `paused_at`, `pause_used`, `time_factor`, `machine_id`, `submitted_at`, `defend_closed_at` (set by the API when defend is answered or skipped, or by the sweeper at 30 minutes), `provisional_result`, `grade_status` (pending, published), `result` (passed, not_yet, null), `items_passed`, `published_at`, `retry_after`; `grade_status` defaults to `pending`, the publication columns to null | Partial unique index: one open attempt per learner (`state IN (preflight, preparing, running, paused, submitted, grade_pending)`), so an appeal or a voided row never blocks a retry. `result` is set once at publication; the only later changes are an overturn through `exam_appeals` and voiding (an overturn of the learner's earlier attempt), both enforced by a trigger. Unique `(id, learner_id, role_id, result)`. |
 | `exam_item_results` | `attempt_id`, `item_code`, `passed`, `rubric_result` (jsonb: booleans and evidence), `learner_summary`, `internal_output`, `override_passed` (null unless overridden), `overridden_by`, `override_note` | `internal_output` and `rubric_result` are for us; the learner sees `learner_summary`. An override wins over the scored value. |
@@ -784,14 +788,17 @@ each migration states the grants for `dojo_api` and `dojo_admin` (section 3.7).
 | `hosted_sessions` | `learner_id`, `machine_id`, `started_at`, `ended_at`, `seconds`, `counted_as` (allowance, pack, exam), `pack_id` | Source of the monthly quota (calendar month, UTC). |
 | `subscriptions`, `hour_packs`, `billing_customers`, `stripe_events` | customer id; subscription `price_kind` (founding, standard), `interval`, `status`, `current_period_end`, `cancel_at`; pack `seconds_total`, `seconds_left`, `expires_at`, `payment_ref`; event `id` unique | Written only by the webhook handler. |
 | `ai_hints` | `learner_id`, `item_id`, `seq`, `check_event_id`, `tokens_in`, `tokens_out`, `model`, `body`, `rejected_reason` | Counts per ticket and per day; drives the spend cap. |
-| `inbox_items`, `push_subscriptions`, `notification_prefs`, `email_log`, `email_suppressions` | kind, ref, `read_at`; endpoint and keys; per-kind toggles and quiet hours; kind and `sent_at`; address and reason | Story push max one a day, quiet 22:00 to 08:00. |
+| `ai_reviews` | `learner_id` (set null on delete), `item_id`, `submit_count`, `model`, `tokens_in`, `tokens_out`, `outcome` (ok, invalid, error) | One row per review call: the hidden daily cap of 20 counts it and the monthly spend estimate sums it with `ai_hints`. No learner text. Pruned after 12 months by `prune_ai_reviews()` (section 3.10, migration 00027). |
+| `inbox_items` | `learner_id`, `kind` (mark, belt, review_ready, story, quiz, check), `ref`, `title`, `body`, `url`, `read_at`, `push_state`, `push_tries`, `push_next_at`, `pushed_at` | Unique `(learner_id, kind, ref)`, so every kind is bounded; the push worker claims pending rows with a lease (section 3.10, migration 00028). |
+| `push_subscriptions`, `notification_prefs` | endpoint, `p256dh`, `auth`, `device_label`, `last_success_at`; per-kind `push` and `email` toggles | At most 10 subscriptions per learner, endpoints on an allowlist of push services. Story push max one a day, quiet 22:00 to 08:00 in the learner's zone, fixed (section 3.10, migration 00030). |
+| `email_log`, `email_suppressions` | kind and `sent_at`; address and reason | `email_log` since 00017; suppressions arrive with the bounce work. |
 | `telemetry_events` | `org_id`, `learner_id` (nullable, cascades on delete), `command`, `result`, `duration_ms`, `cli_version`, `os`, `at` (server clock) | CLI usage stats. Accepted without a token (`learner_id` null, rate limited) so the CLI can report before `dojo login`, but the CLI sends nothing until it has shown its usage-stats notice once (on first run) with `dojo telemetry off`. The API drops events sent with a token whose learner has `usage_stats` off. `dojo telemetry off` is the local switch; when logged in it also sets `learners.usage_stats` (`PATCH /v1/me` accepts `usage_stats`, a boolean, alongside `username` and `language`), which the CLI reads at login. Deleted after 12 months by `prune_telemetry()` (migration 00007: a fixed 12 months, one `DELETE`, returns the count, `EXECUTE` revoked from everyone), run by the nightly job (`db/jobs/nightly.sql`) with the migration role, so `dojo_api` has no `DELETE`, no `SELECT` and no `UPDATE`: it only inserts, and `dojo_admin` has no grant. Indexed by `at` for the prune. |
 | `ticket_reports` | `learner_id`, `item_id`, `kind` (`broken_ticket`, `setup_help`), `cli_version`, `last_check_output`, `message`, `doctor_summary`, `emailed_at` | Forwarded by email to us by the sender, which reads the unsent rows (section 3.9, M3; migration 00022). |
 | `pending_commits` | `learner_id`, `item_id`, `commit`, `client_at` (unique on the first two) | A `ticket.commit` sha that arrived before its pass; applied and deleted when the pass projects, first sha wins, removed after 30 days by `prune_pending_commits()` in the nightly job (section 3.9, migration 00021). |
 | `path_waitlist` | `learner_id`, `path_id` (unique together) | The "Tell me when" list for planned paths (section 3.9, migration 00018). |
 | `doctor_results` | `learner_id`, `check_id`, `status`, `text`, `fix`, `source` (`cli`, `learner`), `checked_at` | Latest result per `dojo doctor` check, written by the events projection and by the two self-confirmed steps (section 3.9, migration 00019). |
 | `record_items` | `learner_id`, `ref` (ticket or practice item), `shown` | What the learner chose to show on a shared record. |
-| `system_flags` | `key`, `value` | `maintenance`, `ai_enabled`, `ai_reviews_enabled`, `pass_review_required`, `min_cli_version`, `max_concurrent_machines`, `max_free_lab_machines`, `supporter_soft_cap_h` (60), `supporter_hard_cap_h` (100), `ai_cap_month`. No org. Seeded by migrations (`pass_review_required` seeded on); changed only from A3 (M5b on) or `trip_ai_cap()`. |
+| `system_flags` | `key`, `value` | `maintenance`, `ai_enabled`, `ai_reviews_enabled`, `pass_review_required`, `min_cli_version`, `max_concurrent_machines`, `max_free_lab_machines`, `supporter_soft_cap_h` (60), `supporter_hard_cap_h` (100), `ai_cap_month`. No org. Created in M4 (migration 00027) with `ai_reviews_enabled` seeded true; each later key is seeded by the migration of the milestone that first reads it (`pass_review_required` seeded on); changed only from A3 (M5b on) or `trip_ai_cap()`. |
 | `catalog_secrets` | `item_id`, `hint_guard` (patterns), `catalog_version` | API only: no endpoint returns it, never in a bundle, never readable by a learner or a CLI. Loaded at deploy from the private catalog repo (section 1.6). Created in M7 with the output guard that is its only reader; M2 does not create it. |
 | `teardown_jobs` | `resources` (machine, volume and snapshot ids), `attempts`, `done_at` | No learner id. Also used at the normal end of an exam. |
 | `operators` | `github_id` (unique), `github_login`, `added_by`, `added_at`, `revoked_at` | Operator service only; `dojo_api` has no grant. No `org_id` (platform level, like `system_flags`); migration 00008. `dojo_admin` inserts `github_id`, `github_login`, `added_by` and updates only `revoked_at`, which is one-way (a trigger refuses any change once it is set); no service role deletes. The audit FK keeps an operator row, and so its `github_login`, until that operator's audit rows are pruned after 2 years (flag for the legal review). The first row is written by `dojo-admin bootstrap` with the migration role. |
@@ -805,8 +812,9 @@ each migration states the grants for `dojo_api` and `dojo_admin` (section 3.7).
 
 | Actor | Reads | Writes |
 |---|---|---|
-| Learner (session) | Own rows only, plus the public catalog | Account settings, quiz, writing, story, exam artifacts, one appeal per attempt, report, push subscription, waitlist, record sharing |
-| CLI (token) | Own progress, ticket bundles, quota | Events, check results, telemetry, hint requests, exam commands |
+| Learner (session) | Own rows only, plus the public catalog | Account settings, quiz answers, writing drafts and submits, story choices, inbox read marks, push subscriptions (session only), notification prefs, exam artifacts, one appeal per attempt, report, waitlist, record sharing (M4 routes in section 3.10) |
+| CLI (token) | Own progress, ticket bundles, quota | Events (`doctor.run` carries the M4 `mcp` check), check results, telemetry, hint requests, exam commands |
+| Review and push workers (API tasks) | Pending `written_work` and `inbox_items` rows, by lease | Reviews, `ai_reviews`, `review_ready` items, push results (section 3.10) |
 | Stripe webhook | none | Billing tables |
 | SES bounce (SNS) | none | `email_suppressions` |
 | Runner (mTLS, API only) | its own EC2 resources | none: the API writes `machines` from its replies |
@@ -829,9 +837,11 @@ request within 30 days is a manual backup restore, not a soft delete.
 ### 3.6 API groups
 
 `/v1/auth/*`, `/v1/me` and prefs, `/v1/path`, `/v1/today`, `/v1/activity` and `/v1/catalog`, `/v1/events`, `/v1/stream` (SSE), `/v1/onboarding/*` (M3, section 3.9),
-`/v1/tickets/:id/*` (bundle, progress, written hints; M2 routes in section 3.8), `/v1/hints/ai`, `/v1/quiz`, `/v1/writing`,
-`/v1/labs` (hosted start, stop, terminal ticket), `/v1/exams/*`, `/v1/billing/*`, `/v1/inbox`,
-`/v1/push`, `/v1/reports`, `/v1/telemetry`, `/v1/webhooks/{stripe,ses}`, `/v1/health`.
+`/v1/tickets/:id/*` (bundle, progress, written hints; M2 routes in section 3.8), `/v1/hints/ai`,
+`/v1/items/:id/*` (writing, quiz, story and feedback; it replaces the planned `/v1/quiz` and `/v1/writing`),
+`/v1/practice`, `/v1/belt`, `/v1/checks`, `/v1/inbox/*`, `/v1/push/*`, `/v1/me/notifications` (M4, section 3.10),
+`/v1/labs` (hosted start, stop, terminal ticket), `/v1/exams/*`, `/v1/billing/*`,
+`/v1/reports`, `/v1/telemetry`, `/v1/webhooks/{stripe,ses}`, `/v1/health`.
 
 `POST /v1/telemetry` takes a JSON body of at most 8 KB: `cli_version` and `os` once, and `events`, 1 to 20 of
 `{command, result, duration_ms}` (`command` and `result` are 1 to 32 of `a-z0-9_-` starting with a letter, `duration_ms`
@@ -1173,7 +1183,7 @@ devices cannot deadlock on rows. Advisory locks use the two-integer form, the fi
 constant per purpose (1 for a learner's progress, 2 for the expiry sweeper), so purposes never
 collide. Registry of classes in use: 1 learner progress, `(1, hashtext(learner_id::text))`; 2 expiry
 sweeper, `(2, 0)`; 3 catalog load, `(3, 0)`; 5 email outbox row claim (the sender's, set by the email
-PR); 4 is left free. The exam sweeper (M6a) and anything later takes the next free class and adds
+PR); 6 a learner's story push (M4, section 3.10), `(6, hashtext(learner_id::text))`; 4 is left free. The exam sweeper (M6a) and anything later takes the next free class and adds
 it here. Work that several tasks can share, like the commit verifier (section 3.9), claims rows with
 a lease instead of taking a class. Row locks follow one order: any path that touches a learner and
 its `email_outbox` rows locks the learner row first (`delete_learner`, the sign-in inserts and
@@ -1796,6 +1806,674 @@ new table has `org_id`, `created_at`, `updated_at` and cascades on `learner_id`.
 
 Section 3.3 carries the column lists; the grants test (M1) covers each new table and column.
 
+### 3.10 Between-tickets contracts (M4)
+
+Decided 2026-11-27 (epic 35). Same rule as 3.8 and 3.9: later milestones add fields, kinds and event
+names and do not rewrite these. Everything is checked by integration tests on the local stack
+(section 1.7): the deterministic AI stand-in for reviews and the `fake-push` service for Web Push. M4
+sends no new email. Migrations are numbered from 00025 (00024 is the M3 lock-order fix). Every new
+route answers errors as `{"error": "<code>"}` with the usual `401 unauthenticated`,
+`403 account_suspended`, `403 csrf_rejected`, `429 rate_limited` with `Retry-After` and
+`500 server_error`; only the codes that are new are listed. A write takes the cookie with the CSRF
+headers or the bearer, as in 3.9, unless its route says otherwise. Where the canvas names something
+(mark titles, inbox lines, settings toggles), the name here is the canvas's.
+
+**What it covers.** Four item kinds that sit in a role between its tickets: writing tasks (L9),
+quizzes (L11), story moments (L4) and the feedback round (drawn on L4, reviewed like L9). Around them:
+practice scenarios (R6), belt marks (L7, L8), the inbox (N1), notifications (S3, W2, W3), Your AI (S4)
+and the PWA (W1 to W5). None of it blocks anything: a role is passed by its tickets and its exam
+alone (the Foundations rule of 3.8 counts `kind` ticket only), and a non-ticket item is never `next`.
+
+**Catalog: the four kind files.** Decided 2026-11-27. Every non-ticket item lives in
+`<role-slug>/<item-slug>/` with exactly one of `writing.yaml`, `quiz.yaml`, `story.yaml` or
+`feedback.yaml`; the file name is the kind. Two kind files in one directory, or a kind file next to a
+`ticket.yaml`, is an error naming the directory. The shared fields are those of `ticket.yaml`
+(section 3.8) with the same rules: `id` (equals the directory path), `title`, `role` (equals the first
+part of `id`, listed in `catalog.yaml`), `order`, `est_minutes`, `tags`. `order` is unique within the
+role across every kind, tickets included, and becomes `catalog_items.position`, so one number places
+a quiz between two tickets. The decoder is the strict one of 3.8 (unknown keys, duplicate keys, merge
+keys and floats refused, every problem of a file reported at once), in `internal/catalog`, and the CLI
+validate and the deploy load run the same Go code.
+
+| Kind | Field | Rule |
+|---|---|---|
+| writing | `prompt` | Markdown, 1 to 8,192 bytes, raw HTML not rendered (as `brief`). |
+| writing | `rubric` | 2 to 6 criteria `{id, text}`. `id` is `[a-z0-9]+(-[a-z0-9]+)*`, at most 32 characters, distinct within the item; `text` is 1 to 120 characters, one line. |
+| writing | `awards_mark` | Optional. A mark slug from `catalog.yaml` `marks`. |
+| quiz | `questions` | 3 to 10 `{id, text, choices, answer, explain}`. `id` as a rubric id, distinct; `text` markdown, 1 to 1,000 bytes; `choices` 2 to 5 `{text, note}`: `text` one line of 1 to 200 characters, inline markdown (so a choice can be `` `last` ``), distinct within the question; `note` 1 to 300 characters, inline markdown, what that choice does (L11 Answered: "past logins, from /var/log/wtmp"); `answer` the 0-based index of the right choice; `explain` optional, markdown, 1 to 1,000 bytes, the question-level explanation. |
+| story | `from` | `{name, role}`, who sends the scene (for example `Elena`, `Finance`): each 1 to 40 characters, one line. L4 draws it as the chat header. |
+| story | `scene` | Markdown, 1 to 4,096 bytes: the message from `from`. |
+| story | `choices` | 2 to 4 `{id, text, verdict, reaction}`. `id` as a rubric id, distinct; `text` 1 to 300 characters, one line; `verdict` `good`, `okay` or `poor`, authored, drawn as the badge of L4's panel ("good reply"); `reaction` markdown, 1 to 1,000 bytes, the panel's text. No AI is involved, and there is no trust state (decided 2026-11-27: the canvas's "+1 trust with Lucía" line is out). |
+| feedback | `from` | As story: Carmen or a team lead. |
+| feedback | `scene` | Markdown, 1 to 4,096 bytes: the feedback from `from`. |
+| feedback | `rubric`, `awards_mark` | As writing. |
+
+- **Stored as:** the load copies the shared fields into `catalog_items` as for tickets, sets `kind`,
+  leaves `brief`, `hints` and the bundle columns null, and writes the kind fields into a new column
+  `catalog_items.payload` (jsonb): `{"prompt", "rubric"}`, `{"questions"}`, `{"from", "scene",
+  "choices"}` or `{"from", "scene", "rubric"}`, in the decoder's normalized form. `awards_mark` goes to its existing column.
+  The deep shape is checked by the Go decoder; the database checks only that `payload` is an object of
+  at most 64 KB, present exactly for the four kinds, and that `awards_mark` is set only on writing and
+  feedback.
+- **What the API never sends:** a quiz question's `answer`, its choices' `note`s and its `explain`
+  before the learner answered that question, and the `verdict` and `reaction` of the story choices
+  the learner did not pick. Decided: a rubric has no internal text. L9 draws every criterion, so the
+  whole rubric is sent; a rubric is a writing guide, not an answer key.
+- **Reserved slugs:** the item-route action words `draft`, `submit`, `answers` and `choice` are refused
+  as the second part of any id (ticket, practice or item), so a path can never read both as an item
+  and as an action. The dispatcher does not rely on it: it splits by segment count (below).
+- **The upsert, every kind:** one `INSERT ... ON CONFLICT (id) DO UPDATE` per item, in the load
+  transaction of 3.8, that sets `role_id`, `kind`, `position`, `title`, `est_minutes`, `tags`,
+  `catalog_version`, `brief`, `hints`, `payload`, `awards_mark`, `difficulty` and the three bundle
+  columns on every load, writing null into each column the kind lacks: tickets and practice set
+  `brief`, `hints` and the bundle columns and null `payload` and `awards_mark` (practice may set
+  `difficulty`, a ticket nulls it); the four other kinds set `payload` (and `awards_mark` for writing
+  and feedback) and null `brief`, `hints`, `difficulty` and the bundle columns. So a row never keeps a
+  column from an earlier kind, and the CHECKs of 00025 hold after every load.
+- **Load rules,** inside the transaction and lock of 3.8: an id that leaves the catalog, of any kind,
+  is refused when it has learner rows (`ticket_progress`, `hint_opens`, `item_completions`,
+  `quiz_answers`, `story_choices`, `written_work`); so is an id that keeps its name but changes kind,
+  because the stored answers would no longer fit it; with no learner rows, a kind change is the plain
+  upsert above. The drop check in `internal/catalogload` looks only at `kind` ticket now; the load PR
+  (PR 4) widens it to every kind. `internal/server/catalog_tables_integration_test.go` inserts
+  practice rows that 00025's practice CHECKs refuse (no bundle columns, and one with a role); the
+  migration PR (PR 3) updates them. A quiz may gain,
+  lose or reword questions: answers to a question id that is gone are kept and ignored, and a
+  completed quiz stays completed.
+
+**Practice.** Decided 2026-11-27. A practice scenario is a role-less ticket in the reserved top-level
+directory `practice/<slug>/`, with a `ticket.yaml` that has no `role` and no `order` (either key is an
+error there) and the usual `setup.sh` and `check.sh`. It alone may carry an optional `difficulty`
+(`easy`, `medium` or `hard`; the key is an error in a role ticket), stored in a new
+`catalog_items.difficulty` column (null for every other item). There is no quote or teaser field. Its `id` is `practice/<slug>`; `practice` is
+refused as a role slug in `catalog.yaml`, and only `ticket.yaml` is allowed under `practice/`. The load
+writes it with `kind` practice, `role_id` null, and `position` numbered 1, 2, 3 in id order (at most
+999 practice items), and builds its bundle exactly as a ticket's
+(`bundles/practice/<slug>/<sha256>.tar.gz`).
+
+- **Everything ticket-shaped accepts it:** `GET /v1/tickets/{id}` (with `role` null, as 3.8 already
+  shows), the bundle route, written hints, `POST /v1/events` (an event for a practice id projects into
+  `ticket_progress` like a ticket's), the report form and `dojo start practice/<slug>`. The queries
+  that filter `kind = 'ticket'` for those routes become `kind IN ('ticket', 'practice')`.
+- **Nothing role-shaped counts it:** `GET /v1/path`, the Foundations rule, `tickets_passed`, the exam
+  start rule and Today's `current` and `next` read only role tickets, as today. `GET /v1/activity`
+  counts practice first passes too (decided: the graph shows lab work done, and practice is lab work);
+  `first_run` stays ticket only.
+- **R6:** `GET /v1/practice`, cookie or bearer, the read budget, `no-store`. It lists every practice
+  item (by `position`), then every ticket of the roles that are not `locked` on the learner's path (in
+  path order), each with the learner's state, so a passed ticket shows as a revisit:
+
+```json
+{"items": [{"id": "practice/disk-full", "kind": "practice", "role": null,
+            "title": "Disk full at 3 a.m.", "est_minutes": 20, "tags": ["storage"],
+            "difficulty": "medium", "state": null, "lab_state": null},
+           {"id": "support-l1/perms-03", "kind": "ticket", "role": "support-l1",
+            "title": "Fix the shared folder", "est_minutes": 20, "tags": ["permissions"],
+            "difficulty": null, "state": "passed", "lab_state": "stopped"}]}
+```
+
+  The page filters on the client with chips by kind (practice or ticket), role, tag and difficulty
+  (the canvas's Easy, Medium and Hard chips). Each card copies `dojo start <id>` with the full id
+  (`dojo start practice/disk-full`, not the canvas's bare slug).
+
+**Belt marks.** Decided 2026-11-27. `catalog.yaml` gains a fourth list, `marks`, decoded as strictly
+as the others: `slug` (as a role slug), `belt`, `title` (1 to 80 characters, one line) and `summary`
+(1 to 200 characters, one line). Slugs are distinct; a mark's place within its belt is its order in the
+list. Belts are not catalog data: they are the fixed list of seven from the design (white, yellow,
+orange, green, blue, brown, black) in `internal/catalog`, and `belt` must be one of them. Every
+`awards_mark` must name a listed mark, and every listed mark must be awarded by at least one writing or
+feedback item of the same load, so a mark is never unreachable. The load fills `belt_marks` (upsert by
+slug) before the items that point at it, and refuses to drop a mark that a learner holds.
+
+- **The white belt in M4:** four marks, all reachable. The titles are the canvas's (R1, R4, L7, L8);
+  the slugs and the earning items are this section's:
+
+| `slug` | `title` (canvas) | `summary` (from L8) | Earned by |
+|---|---|---|---|
+| `written-english` | Written English for tickets | Write a ticket reply a colleague does not need to ask about | a writing task: a ticket reply |
+| `clear-handoff` | A clear handoff | Hand over a shift so the next person can carry on | a writing task: a shift handoff |
+| `standup-update` | Standup update in English | Say what is done, what is not and what comes next | a writing task: a status update |
+| `feedback-round` | Feedback round with Carmen | Take feedback from Carmen and answer it | the feedback round |
+
+- **Award:** on submit only (writing or feedback with `awards_mark`), never on the review's outcome,
+  once per learner and mark: in the submit transaction an `INSERT INTO belt_awards ... ON CONFLICT DO
+  NOTHING`; a new row adds a `mark` inbox item. When that award makes the learner hold every mark the
+  catalog lists for that belt, the same transaction adds a `belt` inbox item (unique per belt, so it
+  is written once). A belt is held when every mark of it is held, derived on read, never stored.
+- **`GET /v1/belt`,** cookie or bearer, the read budget, `no-store`. The current belt is the first in
+  the fixed order that has marks and is not held, and `next_belt` the one after it in the fixed order;
+  when every belt with marks is held, it is the last of them with `"complete": true` and
+  `"next_belt": null`:
+
+```json
+{"belt": "white", "title": "White belt", "complete": false, "held": 2, "total": 4,
+ "next_belt": "yellow",
+ "marks": [{"slug": "written-english", "title": "Written English for tickets",
+            "summary": "Write a ticket reply a colleague does not need to ask about",
+            "held": true, "awarded_at": "2026-12-02T18:10:00Z"},
+           {"slug": "standup-update", "title": "Standup update in English", "summary": "...",
+            "held": false, "awarded_at": null}]}
+```
+
+- **L7, L8 and `/celebrate/:id`:** `:id` is the inbox item id. The submit answer names the new inbox
+  items (below); the app opens `/celebrate/<id>` once, for the `belt` item when there is one, else the
+  `mark` item, and opening it marks it read. After that it lives in the inbox like any item. L8 reads
+  "Four marks. Yellow belt tied on." from `next_belt`. `GET /v1/catalog` adds `marks` (the list above,
+  with `position`).
+
+**Items API.** One route family for the four kinds, like `/v1/tickets/*` (the id holds a slash, so
+the routes are the subtree and a dispatcher splits the path). It replaces the `/v1/quiz` and
+`/v1/writing` groups of 3.6. The dispatcher splits the path after `/v1/items/` by segment count: two
+segments are an item id (`GET`), three are an item id and an action (`draft`, `submit`, `answers`,
+`choice`); any other count, an unknown action or a malformed id is `404 not_found`. A ticket or
+practice id is `404 not_found` here, and an action the kind does not have (answers on a writing task,
+a draft on a quiz) is `404 not_found` too. Every write has a JSON body; for the body-less `POST`s of
+the inbox the app still sends `Content-Type: application/json` and `X-Dojo-Csrf`, as the CSRF rule
+of 3.1 requires of every cookie write.
+
+- **`GET /v1/items/{id}`,** cookie or bearer, the read budget, `no-store`. Every answer has `id`,
+  `kind`, `role`, `title`, `est_minutes`, `tags` and `done`, then the kind's own fields:
+
+```json
+{"id": "support-l1/write-01", "kind": "writing", "role": "support-l1",
+ "title": "Tell Elena what happened", "est_minutes": 10, "tags": ["writing"], "done": true,
+ "prompt": "Elena asked why the shared folder broke ...",
+ "rubric": [{"id": "found", "text": "What you found"}, {"id": "next", "text": "What she does now"}],
+ "awards_mark": {"slug": "written-english", "title": "Written English for tickets", "held": true},
+ "work": {"draft": "Hi Elena, ...", "draft_saved_at": "2026-12-02T18:09:40Z",
+          "body": "Hi Elena, ...", "submitted_at": "2026-12-02T18:10:00Z", "submit_count": 1,
+          "review_state": "done", "reviewed_at": "2026-12-02T18:10:06Z",
+          "review": {"criteria": [{"id": "found", "text": "What you found", "met": true,
+                                   "evidence": "The team group now owns /srv/shared", "note": ""},
+                                  {"id": "next", "text": "What she does now", "met": false,
+                                   "evidence": "", "note": "Nothing tells her she can try again."}],
+                     "next_step": "Add one line: what Elena should do now."}}}
+```
+
+  A feedback item has `scene` instead of `prompt`. `work` is null until the first draft or submit;
+  `review` is the last finished review and stays visible while a new one is pending. A quiz:
+
+```json
+{"id": "support-l1/quiz-02", "kind": "quiz", "role": "support-l1", "title": "Users and logs",
+ "est_minutes": 5, "tags": [], "done": false, "answered": 2, "total": 8, "first_try_correct": 1,
+ "questions": [{"id": "who-last", "text": "Who logged in to web-02 last night?",
+                "choices": ["`who`", "`last`", "`w`", "`journalctl -u ssh`"],
+                "answer_state": {"first_choice": 0, "first_correct": false, "last_choice": 1,
+                                 "last_correct": true, "answer": 1,
+                                 "notes": ["who is logged in right now",
+                                           "past logins, from /var/log/wtmp",
+                                           "who is logged in and what they run",
+                                           "the ssh service log"],
+                                 "explain": "`who` only shows who is logged in now ..."}},
+               {"id": "sudo-group", "text": "...", "choices": ["..."], "answer_state": null}]}
+```
+
+  `choices` is always the texts only; `notes` (one per choice, same order) and `explain` (null when
+  the question has none) come inside `answer_state`, which is null until the question is answered.
+  A story or feedback item carries `from` (`{"name", "role"}`) and `scene`; a story adds `choices` as
+  `{id, text}` only and `chosen`, null or `{"id", "verdict", "reaction", "chosen_at"}`.
+- **`PUT /v1/items/{id}/draft`** (writing, feedback), body `{"body": "<text>"}`, 0 to 4,000
+  characters, no NUL (`400 bad_request` otherwise). It upserts `written_work.draft` and answers
+  `200 {"draft_saved_at"}`. The page saves 2 s after typing stops and at most every 10 s, and shows
+  "Saved 18:09"; a failed save keeps the text in the page and says so.
+- **`POST /v1/items/{id}/submit`** (writing, feedback), "Ask for review", body `{"body": "<text>"}`,
+  1 to 4,000 characters after trimming, no NUL. In one transaction, under the learner's class-1 lock
+  (3.8), so awards and completions serialize with the event projection: it writes the body (and the
+  draft) to `written_work`, sets `submitted_at` now, `first_submitted_at` on the first submit,
+  `submit_count` plus 1, `review_tries` 0, `review_next_at` now, and `review_state` pending (or capped,
+  below); inserts the `item_completions` row on the first submit; awards the mark. It answers `200
+  {"item": <the item view>, "awarded": [{"kind": "mark", "inbox_id": "...", "slug":
+  "written-english"}]}`, where `awarded` lists the `mark` and `belt` inbox items this submit created
+  (often `[]`). A resubmit while a review is pending is allowed: the older result is discarded when
+  it arrives (below).
+- **`POST /v1/items/{id}/answers`** (quiz), body `{"question": "<id>", "choice": <0-based index>}`.
+  Checked on the server against `payload`, never by the page. One transaction, under the learner's
+  class-1 lock (3.8) like the submit, taken before anything is read, so two answers racing on the last
+  question cannot both miss (or both write) the completion. The first answer to a question writes
+  `first_choice`, `first_correct` and `first_at`, which never change (the grants refuse an update);
+  every answer, the first included, writes `last_choice`, `last_correct` and `last_at`. When the
+  learner has a first answer for every question the item lists now, the same transaction inserts the
+  `item_completions` row. It answers `200 {"correct", "answer", "notes", "explain", "done",
+  "answered", "total", "first_try_correct"}`. Errors: `404 not_found` (unknown question),
+  `400 bad_request` (choice out of range). A wrong answer never blocks: the page marks the learner's
+  pick and the right one, shows every choice's note and the explanation, can bring a missed question
+  back later in the same run (L11 Answered), and the done screen (L11 Done) shows "7 of 8" from `first_try_correct` and offers again the questions whose last
+  answer is still wrong. Retakes are just more answers: the first answers keep the stats.
+- **`POST /v1/items/{id}/choice`** (story), body `{"choice": "<id>"}`. In one transaction under the
+  learner's class-1 lock, inserts `story_choices` and the `item_completions` row, and answers
+  `200 {"chosen": {"id", "verdict", "reaction", "chosen_at"}}` with that choice's verdict and reaction
+  only. The choice is final: the same id again is a `200` with the stored answer, a different one
+  `409 already_chosen`. Errors: `400 bad_request` (not JSON, a missing or non-string `choice`),
+  `404 not_found` (unknown choice).
+- **Done** is a row in `item_completions`: writing or feedback submitted (whatever the review says),
+  quiz completed, story chosen. It is written once and never removed.
+- **SSE:** a new completion sends `event: item`, `data: {"item_id", "kind"}` at commit, so another
+  tab or device refetches Today, Path or the item.
+
+**Today and Path.** Backward compatible: `next`, `current` and every role's `items` stay ticket-only.
+
+- **Unlocking ticket:** a non-ticket item's unlocking ticket is the ticket of the same role with the
+  highest `position` below the item's. An item placed before the role's first ticket has none and is
+  unlocked from the start; an item after the role's last ticket is unlocked by that last ticket. An
+  item is unlocked when it has no unlocking ticket or its unlocking ticket is `passed` or `revisit`.
+  The inbox's unlock items (below) use the same rule.
+- **`GET /v1/today`** adds `between`: walking the roles of the learner's path in path order (locked
+  roles skipped) and each role's non-ticket items in `position` order, the first item that is unlocked
+  and has no `item_completions` row; null when there is none. It is not tied to the role of `current`
+  or `next`, so a trailing item of an earlier role is still offered after the learner moved on. Never
+  blocking, so there is no skip state (the canvas draws none). `between` carries its `role`:
+
+```json
+{"current": null, "next": {"id": "support-l1/perms-04", "title": "...", "state": null,
+                           "lab_state": null},
+ "role": {"slug": "support-l1", "title": "Support L1", "tickets_passed": 3, "tickets_total": 12},
+ "all_passed": false, "first_run": null,
+ "between": {"id": "foundations/quiz-03", "kind": "quiz", "role": "foundations",
+             "title": "Logs and permissions", "est_minutes": 5}}
+```
+
+- **`GET /v1/path`** adds `between_items` to every role, in `position` order: `[{"id", "kind",
+  "title", "order", "done"}]`, `[]` for a role with none. `tickets_passed`, `tickets_total`, `locked`
+  and `passed` keep counting tickets only. W5 "Got two minutes?" draws from it.
+
+**Reviews (writing and feedback).** Decided 2026-11-27. Asynchronous, through the review side of the
+AI adapter of section 1.4. Feedback only: a review never changes `done`, a mark, a role or anything
+else.
+
+- **The adapter call:** `internal/ai` gets one interface for both uses (hints arrive in M7) and three
+  implementations chosen by `DOJO_AI_ADAPTER`: `standin` (the default locally and in every test),
+  `bedrock` (pre and pro; the API refuses to start there with `standin`), `ollama` (the optional
+  profile of 1.7). The request is the prompt or scene, the rubric and the learner's body, the body
+  wrapped in a delimiter and treated as data; the rules (judge each criterion, quote the learner's
+  line, one next step, never rewrite the text for them) are in the system prompt. Input is capped at
+  6,000 tokens (estimated as bytes divided by 3 before the call; over it the row goes to `failed`
+  without a call, which the field caps make unreachable in practice) and output at 800 tokens.
+- **The reply is strict JSON,** refused unless it is exactly `{"criteria": [{"id", "met", "evidence",
+  "note"}], "next_step"}`: no unknown fields; every rubric id exactly once; `met` a JSON boolean;
+  `evidence` 0 to 300 characters: 1 to 300 when `met` is true, and then `normalize(evidence)` must be
+  a substring of `normalize(body)`; empty when `met` is false; `note` 0 to 200 characters; `next_step` 1 to 300 characters,
+  empty only when every criterion is met. Anything else is an `invalid` reply. The stored review copies
+  each criterion's `text` from the rubric at review time, so a later rubric edit never breaks an old
+  review. All of it is rendered escaped, as plain text.
+- **`normalize`,** defined once in `internal/ai` and used by the validator and the stand-in alike:
+  split the text on Unicode whitespace (Go's `strings.Fields`) and join the parts with one space, so
+  runs of spaces, tabs and newlines become one space and the ends are trimmed. Nothing else changes
+  (no case folding, no Unicode normalization).
+- **The stand-in** is deterministic: a criterion is met when the body contains its `id` as a whole
+  word (case-insensitive); `evidence` is `normalize` of the first line that contains it, cut to at
+  most 300 characters at a space of that normalized text (or at 300 when the first word is longer), so
+  it is still a substring of `normalize(body)` and passes the validator; `note` is empty when met and
+  "Not found: <criterion text>" otherwise, `next_step` is "Add: <first unmet criterion text>" or empty;
+  `model` is `standin`, `tokens_in` the body length divided by 4, `tokens_out` 50. A body containing
+  `[[standin:error]]` makes it fail and `[[standin:invalid]]` makes it answer invalid JSON, so the
+  retry path has tests.
+- **The worker** is a lease, like the commit verifier of 3.9: every tick
+  (`DOJO_REVIEW_INTERVAL_SECONDS`, default 10) each API task reads `ai_reviews_enabled` and, when it
+  is true, claims up to `DOJO_REVIEW_BATCH` rows (default 5) with one statement, `UPDATE written_work
+  SET review_next_at = now() + interval '5 minutes' WHERE (learner_id, item_id) IN (SELECT learner_id,
+  item_id FROM written_work WHERE review_state = 'pending' AND review_next_at <= now() ORDER BY
+  review_next_at LIMIT <batch> FOR UPDATE SKIP LOCKED) RETURNING learner_id, item_id, body,
+  submit_count, review_tries`. Before calling it applies the daily cap (below), writing `capped` with
+  the same guard as a result. The call runs outside any transaction, 60 s timeout. The result is written in one short transaction: an `ai_reviews` row
+  (always, with `learner_id` read through a subselect so a learner deleted meanwhile gives null and the
+  insert cannot fail), then, for a valid reply, `UPDATE written_work SET review_state = 'done',
+  review = ..., reviewed_at = now() ... WHERE learner_id = ... AND item_id = ... AND review_state =
+  'pending' AND submit_count = <the count it read>`, so a resubmit that landed meanwhile is never
+  overwritten. When that update hits a row the transaction upserts the `review_ready` inbox item and
+  sends `event: review`. A review gets at most 5 attempts. An adapter error or an invalid reply on an
+  attempt adds 1 to `review_tries` (the failed attempts so far) and, with the same guard, moves
+  `review_next_at` by the delay after that attempt: 30 s after the first, 2 min after the second,
+  10 min after the third, 1 h after the fourth; a failed fifth attempt sets `failed` and sends
+  `event: review`. A throttling answer from Bedrock is not an attempt: the 5-minute lease is the wait. The worker takes no class-1 lock
+  and each transaction locks one `written_work` row, so it cannot deadlock with a submit.
+- **States the learner sees:** `review_state` null (never submitted); `pending` ("Carmen is reading
+  it"); `paused`, derived on read while `ai_reviews_enabled` is false and the row is pending, never
+  stored ("Reviews are paused, your work is saved"); it resumes by itself when the flag returns;
+  `done`; `capped` ("No more reviews today. Your work is saved; ask for a review again tomorrow.");
+  `failed` ("The review could not run. Your work is saved; ask again."). A new submit from `capped` or
+  `failed` starts over.
+- **Hidden daily cap:** 20 reviews per learner per UTC day, counted from that learner's `ai_reviews`
+  rows of today with `outcome` ok or invalid (a call that never reached the model is not counted).
+  The submit checks it and sets `capped` at once; the worker checks again before calling, for two
+  racing submits. The cap is soft: rows already claimed by several tasks at the moment the count
+  reaches 20 still run, so a learner can go a few calls over (at most one batch per task); the spend
+  cap (M7) and the AWS Budget alarm (1.4) are the hard limits. The number is never shown.
+- **Spend:** decided, a table `ai_reviews` and not columns on `written_work`, because one submit can
+  make several calls (retries, resubmits) and each one spends tokens; the daily cap counts calls; and
+  M7's monthly estimate sums `ai_hints` and `ai_reviews` the same way. It holds no learner text.
+  `ai_reviews_enabled` lives in `system_flags`, which M4 creates (no migration made it yet) with that
+  one key seeded true; the hint flags arrive with M7 and A3 with M5b. The API caches the flag 30 s.
+
+**Inbox (N1).** Decided 2026-11-27. One row per learner, kind and `ref` (unique together), so every
+kind is bounded: at most one per mark, belt, item or ticket. The title, body and in-app URL are written
+with the row (English, the canvas's words), so a read is one query. An item's URL follows its kind:
+writing `/w/<id>`, story and feedback `/story/<id>`, quiz `/quiz/<id>`, ticket and practice
+`/t/<id>`, mark and belt `/celebrate/<inbox id>` (the SPA routes of 2.2, without the `/app` prefix).
+
+| `kind` | Written when | `ref` | Title, body, URL | Repeats | Push |
+|---|---|---|---|---|---|
+| `mark` | A submit awards a mark | mark slug | "Belt mark: <title>", `summary`, `/celebrate/<id>` | never | no |
+| `belt` | That award completes a belt | belt | "Four marks. <Next> belt tied on." (the count is the belt's), "<Belt> belt, <n> of <n> marks", `/celebrate/<id>` | never | no |
+| `review_ready` | The worker stores a review | item id | "Review ready: <item title>", "<met> of <n> criteria", `/w/<id>` (writing) or `/story/<id>` (feedback) | each new review (upsert, unread again) | no |
+| `story` | A first pass unlocks a story or feedback item (below) | item id | "<from name> sent you a message" (feedback: "<from name> sent you feedback"), the item title, `/story/<id>` | never | `story` |
+| `quiz` | A first pass unlocks a quiz | item id | "Quiz ready: <title>", "<n> questions, about <est> minutes", `/quiz/<id>` | never | no |
+| `check` | A `check.run` updates a ticket's or practice item's last check (3.8 ordering rule) | ticket id | "Ticket passed · <slug>", "Your fix survived the reboot." or "Check failed · <slug>", "<n> of <total> checks still red." ("Open the ticket to see the output." when the counts are unknown), `/t/<id>` | each newer check (upsert, unread again) | `check` |
+
+- **Unlocking:** when a projection moves a role ticket from started to passed (its first pass), the
+  same transaction finds the story, feedback and quiz items whose unlocking ticket (Today and Path,
+  above) is that ticket: the items of its role after it and before the role's next ticket, or every
+  item after it when it is the role's last ticket. For each one without an `item_completions` row it
+  inserts the `story` or `quiz` item (`ON CONFLICT DO NOTHING`). Items placed before a role's first
+  ticket are unlocked from the start and get none; they show as `between` on Today. Writing tasks get
+  no inbox item (the canvas draws none). An item that a later catalog load places after a ticket the
+  learner already passed is unlocked on read (`between`, `between_items`) but gets no inbox item or
+  push: intended, the unlock event is the first pass and it is not replayed.
+- **Never:** a streak, a reminder or a "you have not practiced" item. The `kind` CHECK lists the six
+  kinds above, so adding one is a migration and a review. M6 adds the exam kinds the canvas draws
+  ("Your Support L1 exam opens after your last ticket").
+- **Routes,** cookie or bearer. `GET /v1/inbox?limit=20&before=<cursor>` (read budget, `no-store`;
+  `limit` 1 to 50). Rows are ordered by `(updated_at, id)` descending, and a page is the rows strictly
+  after the cursor in that order (`(updated_at, id) < (<t>, <id>)`), so ties never repeat or skip a row. An upsert (`check`, `review_ready`) moves its row to the top, so a
+  walk already past it never shows it twice but can miss its new state until the next first page; read
+  and read-all set `read_at` only and never touch `updated_at`, so reading never reorders the list.
+  `updated_at` is written only by those upserts; the push worker's result write leaves it too. `next` is an opaque cursor, the unpadded base64url of
+  `<updated_at as RFC 3339 with microseconds>|<id>` of the page's last row, null on the last page; a
+  cursor that does not decode to that shape is `400 bad_request`, as is a bad `limit`:
+
+```json
+{"unread": 2, "next": null,
+ "items": [{"id": "0194...", "kind": "check", "ref": "support-l1/perms-02",
+            "title": "Ticket passed · perms-02", "body": "Your fix survived the reboot.",
+            "url": "/t/support-l1/perms-02", "read": false, "at": "2026-12-02T10:42:00Z"}]}
+```
+
+  `GET /v1/inbox/{id}` (read budget, `no-store`) answers one item, plus `detail` for `mark`
+  (`{"slug", "title", "summary", "belt", "held", "total"}`) and `belt` (`{"belt", "title",
+  "next_belt"}`), which L7 and L8 draw. Until PR 21 creates `belt_awards`, `held` is false and the
+  mark's `total` is the count of `belt_marks` rows for its belt; the same holds for `awards_mark.held`
+  in the item view (PR 15). PR 21 switches both reads to `belt_awards`. An id that is not a canonical UUID, an unknown id and another
+  learner's id are the same `404 not_found`, on this route and on `POST /v1/inbox/{id}/read`.
+  `POST /v1/inbox/{id}/read` and `POST /v1/inbox/read-all` answer `204` (the between-tickets budget);
+  "Mark all read" is the second. Both have no body, and the app sends the JSON content type and
+  `X-Dojo-Csrf` (Items API, above).
+- **SSE:** every insert, upsert or read that may change the unread count sends `event: inbox`,
+  `data: {}` at commit. It carries no count, so a message that arrives out of order can never show a
+  stale number: the bell and the phone tab badge refetch `GET /v1/inbox?limit=1` (its `unread`),
+  debounced by 500 ms, and the list when it is open; `ready` and `resync` refetch it too.
+
+**Notifications and push (S3, W2, W3).** Decided 2026-11-27. Web Push with our own VAPID key, no
+third-party service (section 1.1). The preference kinds are the canvas's S3 toggles, less one:
+decided 2026-11-27, S3 has no "New story moment" email toggle, because no E-code sends one and a
+toggle that does nothing is worse than none. The toggles that act in M4 are the two push ones,
+"dojo check results" and "Story tickets"; the others are stored now and acted on by the milestone
+named in the last column.
+
+| Pref `kind` | Push | Email | Default | Sent in M4 |
+|---|---|---|---|---|
+| `check` ("dojo check results") | yes | no | on | push |
+| `story` ("Story tickets") | yes | no | on | push |
+| `role_passed` | yes | yes | on, on | nothing; E2 and its push come with M6a |
+| `exam` ("Role exams") | yes | no | on | nothing; M6a |
+| `weekly` ("Weekly summary", E7) | no | yes | on | nothing; M9 |
+| `news` ("Product news") | no | yes | off (2.9) | nothing in v1 |
+
+- **Prefs:** `notification_prefs` holds one row per learner and kind the learner changed; a missing
+  row is the default. `GET /v1/me/notifications` (read budget, `no-store`) answers `{"time_zone": "Europe/Madrid",
+  "quiet_hours": {"from": "22:00", "to": "08:00"}, "prefs": [{"kind": "check", "push": true, "email":
+  null}, ...]}` with every kind, `null` for a channel the kind does not have. `PUT
+  /v1/me/notifications` takes `{"prefs": [{"kind", "push"?, "email"?}]}` (1 to 6 entries, booleans),
+  upserts and answers like the `GET`; a channel the kind lacks, an unknown kind or a repeated kind is
+  `400 bad_request`; shared write budget. E1 and E8 are account mail and have no toggle. Quiet hours
+  are fixed at 22:00 to 08:00 in the learner's zone, as the canvas says; there is no setting.
+- **Zone:** `learners.time_zone`, an IANA name validated like the `tz` of 3.8 (at most 64 characters,
+  not `Local`, accepted by Go and by Postgres), set by the push subscription below and by `PATCH
+  /v1/me {"time_zone": "<name>"}` (`400 bad_request` otherwise); the app sends the browser's zone when
+  it differs. Null means UTC.
+- **Subscriptions,** cookie only (a bearer is `403 forbidden`, as on the stream). `GET /v1/push/key`
+  (read budget, `no-store` like every GET of this section) answers `{"public_key": "<base64url, 65 bytes>"}`. `POST /v1/push/subscriptions` takes
+  the browser's `PushSubscription` plus two fields: `{"endpoint", "keys": {"p256dh", "auth"},
+  "device_label": "Safari on iPhone", "time_zone": "Europe/Madrid"}`; `p256dh` must decode to 65 bytes
+  and `auth` to 16; `device_label` is 1 to 64 printable characters the page builds from the user
+  agent. It sets `learners.time_zone`, deletes any row with the same `endpoint` (a browser belongs to
+  whoever subscribed last on it) and inserts, keeping at most 10 per learner (the oldest goes), and
+  answers `201 {"id"}`. `GET /v1/push/subscriptions` lists `{id, device_label, created_at,
+  last_success_at}` for S3 "On this phone"; `DELETE /v1/push/subscriptions/{id}` ("Turn off on this
+  phone", the page also calls `unsubscribe()`) answers `204` or `404 not_found`. Writes take the
+  shared write budget. Errors: `400 bad_request`, `400 endpoint_not_allowed`.
+- **Endpoint allowlist:** the API makes outbound requests to a URL the client chose, so the endpoint
+  must be `https`, port 443 (explicit or implied), no userinfo, at most 1,024 characters, on a host
+  that `DOJO_PUSH_ALLOWED_HOSTS` allows (default `fcm.googleapis.com`,
+  `updates.push.services.mozilla.com`, `web.push.apple.com`, `*.notify.windows.com`). Hosts are
+  compared lower-cased, without a trailing dot. A plain entry matches that host exactly. A `*.`
+  entry matches one or more whole labels in front of its suffix (`wns2-db5p.notify.windows.com`),
+  compared on label boundaries (`evilnotify.windows.com` does not match), and never the bare suffix
+  (`notify.windows.com` does not match). An IP-literal host is refused at once, as a fast pre-check;
+  the real guard is at connect time: the sender's dialer checks every resolved address in its
+  `Control` hook as the connection is made, and refuses a private, loopback, link-local, multicast or
+  unspecified one, so a name that resolves elsewhere between validation and send (DNS rebinding)
+  still cannot reach our network. It follows no redirect and times out at 5 s. Locally
+  `DOJO_PUSH_ALLOWED_ORIGINS` adds `http://fake-push:8080` and turns the dial guard off for that origin
+  only; the API refuses to start in pre or pro with it set.
+- **Sending:** an inbox item of kind `check` or `story` is written with `push_state` pending; the
+  others with `none`. A worker claims pending rows with the same lease statement as the review worker
+  (on `inbox_items.push_next_at`, batch 20, every `DOJO_PUSH_INTERVAL_SECONDS`, default 5), then
+  decides per row, reading the learner's prefs, zone and subscriptions: `skipped` when the pref is off,
+  there is no subscription, it is quiet hours in the learner's zone (a skipped push is not sent later;
+  the inbox keeps the item), the row is older than its TTL (1 hour for `check`, 12 hours for `story`),
+  or, for `story`, another `story` item was pushed on the same local day (at most one a day). Else it
+  sends to every subscription, in parallel, 5 s each. A `201` sets `last_success_at`; `404` or `410`
+  deletes that subscription; `429`, `5xx` or a network error makes the row's attempt fail; any other
+  `4xx` is logged and not retried. One success makes the row `sent` with `pushed_at`. A row gets at
+  most 4 attempts: after a failed one `push_tries` grows by 1 and `push_next_at` moves by 1 min after
+  the first, 5 min after the second, 30 min after the third; a failed fourth sets `failed`. The result
+  write is guarded by the row's `updated_at`, so a newer `check` upsert that reset the row is never
+  marked sent.
+- **One story a day, under a lock:** two tasks could otherwise each claim one of a learner's story
+  rows and both send. So a `story` row is handled in one transaction that first takes
+  `pg_try_advisory_xact_lock(6, hashtext(learner_id::text))` (class 6, the learner's story push, added
+  to the registry of 3.8); when another task holds it, the row's lease is moved to now plus 5 s and the
+  worker goes on. Inside that transaction it rechecks the one-a-day rule against the other `story`
+  rows' `pushed_at`, then sends and writes the result before it commits, so a learner's story rows are
+  sent one at a time. The transaction holds only the advisory lock and the claimed row (no other row
+  lock) for at most the 5 s of the parallel sends. `check` rows take no lock.
+- **The message:** RFC 8030 `POST` with `TTL`, `Urgency: normal` and a `Topic` (the first 32
+  characters of the base64url sha256 of `kind:ref`, so a newer check replaces an undelivered older one),
+  the payload encrypted per RFC 8291 (`aes128gcm`, one record) and the VAPID header of RFC 8292
+  (`Authorization: vapid t=<ES256 JWT>, k=<public key>`, `aud` the endpoint's origin, `exp` 12 hours,
+  `sub` `mailto:hello@<DOJO_EMAIL_DOMAIN>`). The payload is `{"title", "body", "url"}` from the inbox
+  row, at most 3,000 bytes; the service worker shows it with `tag` `kind:ref` and opens `/app<url>` on
+  a click (W3: "every notification opens the screen it talks about").
+- **Keys and code:** `DOJO_VAPID_PRIVATE_KEY` is a base64url P-256 private scalar, required in pre
+  and pro, a fixed test value in `.env.example`; the public key is derived from it. In pre and pro the
+  API refuses to start without a valid key or with the `.env.example` value, which the binary knows
+  as a constant. Rotating the key invalidates every subscription, since a subscription is bound to the
+  key it was made with: the rotation runs a one-off `DELETE FROM push_subscriptions` with the migration
+  role, and on the next visit the app, seeing `Notification.permission` granted while its endpoint is
+  not in `GET /v1/push/subscriptions` or its subscription's `applicationServerKey` differs from
+  `GET /v1/push/key`, calls `unsubscribe()` and subscribes again with the new key, with no new prompt. `internal/webpush` implements the encryption and the JWT with the
+  standard library only (`crypto/ecdh`, `crypto/ecdsa`, `crypto/hkdf`, `crypto/aes`, `crypto/cipher`),
+  tested with the RFC 8291 appendix vector: no new dependency (section 1.2).
+- **`fake-push`** is ours, like the fake GitHub (`cmd/fake-push`, a compose service on the internal
+  network): `POST /push/{token}` records headers and body and answers `201`, `POST /_fake/gone/{token}`
+  makes that endpoint answer `410`, `GET /_fake/pushes/{token}` lists what arrived. The integration
+  test plays the browser: it makes its own P-256 key and auth secret, subscribes with
+  `http://fake-push:8080/push/<token>`, posts a failing `check.run`, then reads the record, checks the
+  JWT against `GET /v1/push/key` and decrypts the payload with its own key.
+
+**S4 Your AI.** The config blocks are static text in the app (`app/src/lib/mcpConfig.ts`), one tab per
+tool (Claude, VS Code, Cursor, as the canvas tabs), each with a copy control, all running
+`dojo mcp` over stdio. This section does not fix the snippet shapes: the tools differ in file name
+and top-level key, and the S4 PR writes each snippet from that tool's current documentation and links
+the page it checked in the PR. "Test the connection" adds no route and no event type: it is a new
+`dojo doctor` check, `mcp`, group `advisory` (never gating O3 or O4), reported in the `doctor.run`
+event of 3.9 and stored in `doctor_results`.
+
+- **How the CLI knows:** `dojo mcp` writes `DOJO_HOME/mcp-seen.json` (0600, atomic) on every
+  `initialize`, holding `clientInfo.name` (printable ASCII, cut to 40 characters, `unknown` when
+  absent) and the time. `dojo doctor` reports `ok` "Your AI connected: <client>, <date>" when that file
+  is less than 30 days old, else `warn` "No AI has connected to dojo mcp yet" with the fix "Add the
+  config from Settings > Your AI, restart your AI, then run dojo doctor again".
+- **Code change:** `"mcp": "advisory"` joins the id registry in `internal/server/repo/doctor.go` (a
+  `doctor.run` from an older API refuses the unknown id with `400`, so this API change ships before
+  the CLI change). S4 reads the row from `checks` in `GET /v1/onboarding` and patches it on
+  `event: doctor`; the button says "Run dojo doctor in your terminal after your AI has started" and
+  shows "Waiting" until the row is newer than the click.
+
+**PWA (W1 to W5).** Decided 2026-11-27: a hand-written service worker in `app/`, no new dependency
+and no Vite plugin.
+
+- **Files:** `app/public/manifest.webmanifest` (name "Dojo", `start_url` `/app/today`, `scope`
+  `/app/`, `display` standalone, the AppIcons board's 192, 512 and maskable icons under
+  `app/public/icons/`), `app/public/sw.js`, `app/public/offline.html`. `main.tsx` registers
+  `/app/sw.js` with scope `/app/` in production builds only. Caddy serves `/app/sw.js` with
+  `Cache-Control: no-cache` and never answers it with the SPA fallback.
+- **Shell:** on install the worker fetches `/app/index.html`, caches it and every `/app/assets/` URL
+  it references, plus `offline.html`. Navigations are network first, refreshing the cached
+  `index.html`, and fall back to it, then to `offline.html` (W4) when nothing is cached.
+  `/app/assets/*` is cache first: the names are content hashed. The cache name carries a version
+  constant bumped when the worker's own logic changes; activation deletes other versions.
+- **Data:** network first for `GET /v1/me`, `GET /v1/today` and `GET /v1/tickets/{id}` (not the
+  bundle), keeping the last good answer of the first two and of the last 3 tickets. Offline, the cached
+  copy comes back with `X-Dojo-Offline: 1`, and the page shows the W4 banner and the current ticket
+  with its opened written hints, and disables every write and "Ask Carmen". Nothing else is cached;
+  `/v1/stream` and every write go straight to the network. There is no offline write queue on the web:
+  the CLI queues its own events (2.10). A `401` from any route deletes the data cache, and sign-out and
+  account deletion post `{"type": "clear"}` to the worker first, so no learner data stays on a shared
+  device.
+- **W1 install sheet:** on a phone-width screen not already standalone, once the learner has a first
+  pass; "Not now" is remembered 30 days (local storage). Android and desktop Chrome use
+  `beforeinstallprompt`; iPhone gets the Share, Add to Home Screen line.
+- **W2 notification ask:** the first time a `progress` event shows `check_count` rising while the app
+  is visible, never on a first visit, asked once (local storage). "Notify me" calls
+  `Notification.requestPermission()`, `pushManager.subscribe()` with the key from `GET /v1/push/key`,
+  then `POST /v1/push/subscriptions`. A denied permission makes S3 explain how to turn it on.
+- **W3:** the texts are the inbox rows above.
+- **W5 Today on the phone:** the lab state, a list of recent check runs and "Got two minutes?" (the
+  unlocked, not-done `between_items`, up to three, and the `next` ticket to read ahead), with no peer
+  message and no run numbers. `GET /v1/checks` (read budget, `no-store`) answers the learner's last 10
+  `check.run` events, newest first, from `events` (no output, which `events` never keeps); `passed`
+  and `total` are null when the CLI sent neither (3.8), and `title` is null for an item no longer in
+  the catalog. `at` is the server time. Migration 00031 adds the partial index it reads.
+
+```json
+{"checks": [{"item_id": "support-l1/perms-03", "title": "Fix the shared folder", "result": "fail",
+             "passed": 2, "total": 3, "duration_ms": 72000, "at": "2026-12-02T10:41:00Z"},
+            {"item_id": "support-l1/sudo-01", "title": "Give Ada sudo", "result": "pass",
+             "passed": null, "total": null, "duration_ms": 65000, "at": "2026-12-01T19:02:00Z"}]}
+```
+
+**Routes, limits and errors.** M4 adds one budget: the between-tickets writes, 60 a minute per
+learner across routes and devices, taken after authentication like the others (3.1). Autosave at most
+every 10 s and one answer per click stay far under it.
+
+| Route | Credential | Budget | Answer | New errors |
+|---|---|---|---|---|
+| `GET /v1/practice` | cookie or bearer | reads (120) | `200` | |
+| `GET /v1/items/{id}` | cookie or bearer | reads | `200` | `404 not_found` |
+| `PUT /v1/items/{id}/draft` | cookie or bearer | between (60) | `200 {"draft_saved_at"}` | `404 not_found`, `400 bad_request` |
+| `POST /v1/items/{id}/submit` | cookie or bearer | between | `200 {"item", "awarded"}` | `404 not_found`, `400 bad_request` |
+| `POST /v1/items/{id}/answers` | cookie or bearer | between | `200` | `404 not_found`, `400 bad_request` |
+| `POST /v1/items/{id}/choice` | cookie or bearer | between | `200 {"chosen"}` | `400 bad_request`, `404 not_found`, `409 already_chosen` |
+| `GET /v1/belt` | cookie or bearer | reads | `200` | |
+| `GET /v1/checks` | cookie or bearer | reads | `200` | |
+| `GET /v1/inbox`, `GET /v1/inbox/{id}` | cookie or bearer | reads | `200` | `400 bad_request`, `404 not_found` |
+| `POST /v1/inbox/{id}/read`, `POST /v1/inbox/read-all` | cookie or bearer | between | `204` | `404 not_found` |
+| `GET /v1/me/notifications` | cookie or bearer | reads | `200` | |
+| `PUT /v1/me/notifications` | cookie or bearer | writes (10) | `200` | `400 bad_request` |
+| `PATCH /v1/me` with `time_zone` | as 3.1 | writes | `200` | `400 bad_request` |
+| `GET /v1/push/key`, `GET /v1/push/subscriptions` | cookie only | reads | `200` | `403 forbidden` |
+| `POST /v1/push/subscriptions` | cookie only | writes | `201 {"id"}` | `403 forbidden`, `400 bad_request`, `400 endpoint_not_allowed` |
+| `DELETE /v1/push/subscriptions/{id}` | cookie only | writes | `204` | `403 forbidden`, `404 not_found` |
+
+Plus the hidden cap of 20 reviews a day, which never answers an error: the review goes `capped`.
+
+**SSE events added.** All sent with `pg_notify` on the learner's channel with an `event` key, at
+commit (3.8, 3.9); a page ignores a name it does not know.
+
+| Event | Data | Sent when | The page |
+|---|---|---|---|
+| `item` | `{"item_id", "kind"}` | a new `item_completions` row | refetches Today or Path (debounced 500 ms) and the open item |
+| `review` | `{"item_id", "review_state"}` | the worker writes `done`, `capped` or `failed` | refetches the open L9 or L4 item |
+| `inbox` | `{}` (no count) | an insert, upsert or read that may change the unread count | refetches the unread count (debounced 500 ms) and the open list |
+
+**Deleting an account.** Every new learner table has `learner_id` with `ON DELETE CASCADE`
+(`item_completions`, `quiz_answers`, `story_choices`, `written_work`, `belt_awards`, `inbox_items`,
+`push_subscriptions`, `notification_prefs`), so `delete_learner` (3.5) needs no change. `ai_reviews`
+is the exception, decided: `learner_id` is `ON DELETE SET NULL`, because what remains (item id,
+model, tokens, outcome, time) is not personal and the month's spend estimate needs it; it is pruned
+after 12 months. A review or push in flight when the learner is deleted writes nothing: the guarded
+updates find no row, and the `ai_reviews` insert reads `learner_id` through a subselect. A push already
+handed to the push service cannot be recalled. The browser's caches go with the `clear` message above.
+
+**Tables and migrations.** Each migration states its grants (3.7); every new learner table has
+`org_id`, `created_at`, `updated_at`. `item_id` references `catalog_items (id)` with no cascade, so a
+catalog load cannot drop an item with learner rows. The numbers are the plan: PRs in parallel lanes
+merge in migration order, and a PR whose number is lower than one already on `main` renumbers to the
+next free one before it merges (goose refuses an older version after a newer one).
+
+| Migration | Change | `dojo_api` | `dojo_admin` |
+|---|---|---|---|
+| 00025 (PR 3) | `catalog_items.payload` (jsonb, an object of at most 64 KB) and `catalog_items.difficulty` (`easy`, `medium`, `hard` or null, set only on practice) with CHECKs: `payload` present exactly when `kind` is writing, quiz, story or feedback; `awards_mark` only on writing and feedback; `(role_id IS NULL) = (kind = 'practice')`; a practice item complete like a ticket (`brief`, `hints` and the bundle columns not null). `belt_marks (id, slug unique, belt, title, summary, position)`, CHECKs on `belt` (the seven) and the lengths, unique `(belt, position)` deferrable. `catalog_items.awards_mark` references `belt_marks (slug)`. `item_completions (learner_id, item_id, completed_at)`, primary key on the first two | `belt_marks`: `SELECT`; `item_completions`: `SELECT`, `INSERT (org_id, learner_id, item_id)`; `payload` is covered by the table `SELECT` of 00012 | `SELECT` on `belt_marks` and `item_completions` (A2 progress) |
+| 00026 (PR 7) | `quiz_answers (learner_id, item_id, question_id, first_choice, first_correct, first_at, last_choice, last_correct, last_at)`, primary key on the first three, choices 0 to 4; `story_choices (learner_id, item_id, choice_id, chosen_at)`, primary key on the first two | `quiz_answers`: `SELECT`, `INSERT (org_id, learner_id, item_id, question_id, first_choice, first_correct, first_at, last_choice, last_correct, last_at)`, `UPDATE (updated_at, last_choice, last_correct, last_at)` (the first answer cannot change); `story_choices`: `SELECT`, `INSERT (org_id, learner_id, item_id, choice_id)`, no `UPDATE` | none (learner answers) |
+| 00027 (PR 15) | `system_flags (key primary key, value jsonb, updated_at)`, no org, seeded `ai_reviews_enabled = true`. `written_work (learner_id, item_id, draft, draft_saved_at, body, first_submitted_at, submitted_at, submit_count, review_state, review, review_tries, review_next_at, reviewed_at)`, primary key on the first two, `review_state` CHECK (`pending`, `done`, `capped`, `failed`, or null), `draft` and `body` at most 4,000 characters, a partial index on `review_next_at` where `review_state = 'pending'`. `ai_reviews (id, learner_id` `ON DELETE SET NULL`, `item_id` with no foreign key like `ticket_reports`, `submit_count, model, tokens_in, tokens_out, outcome` (`ok`, `invalid`, `error`)`)`, index on `(learner_id, created_at)`. `prune_ai_reviews()`, fixed 12 months, `EXECUTE` revoked from everyone, called from `db/jobs/nightly.sql` | `system_flags`: `SELECT`; `written_work`: `SELECT`, `INSERT (org_id, learner_id, item_id, draft, draft_saved_at, body, first_submitted_at, submitted_at, submit_count, review_state, review_next_at)`, `UPDATE (updated_at, draft, draft_saved_at, body, first_submitted_at, submitted_at, submit_count, review_state, review, review_tries, review_next_at, reviewed_at)`; `ai_reviews`: `SELECT`, `INSERT (org_id, learner_id, item_id, submit_count, model, tokens_in, tokens_out, outcome)` | `SELECT` on `system_flags` (its `UPDATE` comes with A3 in M5b); none on the other two |
+| 00028 (PR 17) | `inbox_items (id, learner_id, kind, ref, title, body, url, read_at, push_state, push_tries, push_next_at, pushed_at)`, unique `(learner_id, kind, ref)`, `kind` CHECK (the six), `push_state` CHECK (`none`, `pending`, `sent`, `skipped`, `failed`), `url` starting with `/`, length CHECKs; indexes on `(learner_id, updated_at DESC, id DESC)` (the keyset order of `GET /v1/inbox`), a partial one on `push_next_at` where `push_state = 'pending'` and a partial one on `learner_id` where `read_at IS NULL` | `SELECT`, `INSERT (org_id, learner_id, kind, ref, title, body, url, push_state, push_next_at)`, `UPDATE (updated_at, title, body, url, read_at, push_state, push_tries, push_next_at, pushed_at)`, no `DELETE` | none |
+| 00029 (PR 21) | `belt_awards (learner_id, mark_id, source_item_id, awarded_at)`, primary key on the first two, `mark_id` references `belt_marks (id)` with no cascade (the load refuses to drop a held mark), `source_item_id` with no foreign key | `SELECT`, `INSERT (org_id, learner_id, mark_id, source_item_id)` | `SELECT` |
+| 00030 (PR 28) | `learners.time_zone` (text, 1 to 64 characters, null). `push_subscriptions (id, learner_id, endpoint unique, p256dh, auth, device_label, last_success_at)` with CHECKs: `endpoint` 1 to 1,024 characters starting with `https://` or `http://` (the local stub; the API's allowlist is the real rule), `p256dh` exactly 87 and `auth` exactly 22 characters of `[A-Za-z0-9_-]` (unpadded base64url of 65 and 16 bytes), `device_label` 1 to 64 characters. `notification_prefs (learner_id, kind, push, email)`, primary key on the first two, `kind` CHECK (the six), a CHECK that `push` is null for `weekly` and `news` and `email` is null for `check`, `story` and `exam` | `learners`: `UPDATE (time_zone)`; `push_subscriptions`: `SELECT`, `INSERT (org_id, learner_id, endpoint, p256dh, auth, device_label)`, `UPDATE (updated_at, last_success_at)`, `DELETE`; `notification_prefs`: `SELECT`, `INSERT (org_id, learner_id, kind, push, email)`, `UPDATE (updated_at, push, email)` | none |
+| 00031 (PR 36) | `CREATE INDEX events_check_runs_idx ON events (learner_id, at DESC) WHERE type = 'check.run'` | none new | none new |
+
+No migration changes `events_type_check`: M4 adds no event type (`mcp` rides on `doctor.run`). Section
+3.3 carries the column lists; the grants test (M1) covers each new table and column, including the
+refused `UPDATE` of `quiz_answers.first_choice` and of `story_choices`.
+
+**Build order.** Small PRs, one concern each, under about 300 lines of code where possible, tests and
+docs in each. The catalog PRs (1 to 4) go first, except that PRs 27, 33, 36 and 38 need none of
+them (PR 14 needs only the decoders of PR 1); after PR 4 the lanes run in parallel (the dependencies are in the last column). The repo's "one PR open at a time" rule (CLAUDE.md) is relaxed to one open PR per lane
+for M4.
+
+| PR | Lane | Concern | Needs |
+|---|---|---|---|
+| 1 | catalog | `internal/catalog`: the four kind-file decoders and their field rules, the reserved action slugs | |
+| 2 | catalog | `internal/catalog`: practice tickets (with `difficulty`), `marks`, the fixed belts, the cross-file checks in `catalog.Load`; CLI validate | 1 |
+| 3 | catalog | Migration 00025 (columns, CHECKs, `belt_marks`, `item_completions`, grants and their test); updates the practice rows of `catalog_tables_integration_test.go` | |
+| 4 | catalog | The load: the upsert for every kind, practice positions, marks, drop and kind-change refusals over every kind; `GET /v1/catalog` adds `marks` | 2, 3 |
+| 5 | practice | Practice through the API: the kind filters (events, ticket view, reports, activity), `GET /v1/practice` | 4 |
+| 6 | practice | R6 Practice page with chips | 5 |
+| 7 | items | Migration 00026; the items dispatcher (segment count) and `GET /v1/items/{id}` for quiz and story | 4 |
+| 8 | items | `POST .../answers` under the class-1 lock, completion, the between-tickets budget, `event: item` | 7 |
+| 9 | items | `POST .../choice` | 8 |
+| 10 | today | The unlocking rule, Today `between` and Path `between_items` | 4 |
+| 11 | items | L11 quiz page (question, answered, done) | 8 |
+| 12 | items | L4 story page | 9 |
+| 13 | today | Today and Path UI for between items | 10 |
+| 14 | reviews | `internal/ai`: the review interface, `normalize`, strict reply validation, token caps, the stand-in | 1 (no database) |
+| 15 | reviews | Migration 00027 (`system_flags`, `written_work`, `ai_reviews`, `prune_ai_reviews()`); writing and feedback in `GET /v1/items/{id}`; `PUT .../draft` | 8 |
+| 16 | reviews | `POST .../submit`: completion, the daily cap, the paused state | 14, 15 |
+| 17 | inbox | Migration 00028; `GET /v1/inbox` (keyset paging), `GET /v1/inbox/{id}`, read and read-all, `event: inbox` | 8 |
+| 18 | inbox | `check` items from the events projection | 17 |
+| 19 | inbox | `story` and `quiz` unlock items on a first pass | 10, 17 |
+| 20 | reviews | The review worker (lease, attempts, guarded write, `review_ready` item, `event: review`) | 16, 17 |
+| 21 | inbox | Migration 00029; mark award on submit, `mark` and `belt` items, `awarded` | 16, 17 |
+| 22 | inbox | `GET /v1/belt` | 21 |
+| 23 | inbox | N1: bell dropdown and phone `/inbox` | 17 |
+| 24 | inbox | L7 and L8 at `/celebrate/*` | 21, 22, 23 |
+| 25 | reviews | L9 writing page (autosave, review states) | 16, 20 |
+| 26 | reviews | The feedback reply on L4 | 12, 25 |
+| 27 | push | `internal/webpush` (RFC 8291, VAPID, test vectors) and the `fake-push` service | |
+| 28 | push | Migration 00030; `GET /v1/push/key`, subscriptions, the allowlist and the dial guard | 27 |
+| 29 | push | Prefs routes and `time_zone` on `PATCH /v1/me` | 28 |
+| 30 | push | The push worker for `check` rows (lease, prefs, quiet hours, attempts, gone endpoints) | 18, 29 |
+| 31 | push | `story` rows under the class-6 lock, one a day | 19, 30 |
+| 32 | push | S3 Notifications page | 29 |
+| 33 | pwa | Manifest, icons, `sw.js` shell, `offline.html`, Caddy headers | |
+| 34 | pwa | The data cache and its clearing (W4) | 33 |
+| 35 | pwa | W1 install sheet and W2 notification ask (with the re-subscribe on a key change) | 28, 33 |
+| 36 | pwa | Migration 00031; `GET /v1/checks` | |
+| 37 | pwa | W5 Today on the phone | 10, 36 |
+| 38 | your-ai | The `mcp` id in the API registry | |
+| 39 | your-ai | The CLI marker in `dojo mcp` and the `mcp` doctor check | 38 |
+| 40 | your-ai | S4 Your AI page | 39 |
+| 41 | reviews | The Bedrock implementation of the adapter; it may move to M0b with the other AWS steps (section 8) without blocking M4, since compose and tests use the stand-in | 14 |
+
 ## 4. Accessibility carried into the build
 
 - Dialogs (palette, install sheet, danger zone) trap focus, restore it on close, close on Escape.
@@ -1892,7 +2570,8 @@ Still open:
    runs on the CloudFront default domain.
 4. **Tax before the first charge:** Stripe Tax, a merchant of record or a gestor, and the
    self-employment timing (pricing research, section 7).
-5. **Legal text (LG1) and the GDPR review** for learners aged 14 to 17 whose check output goes to
+5. **Legal text (LG1) and the GDPR review** for learners aged 14 to 17 whose check output, and from M4
+   whose writing-task and feedback bodies (section 3.10), go to
    Bedrock: Edith's review before the first charge.
 6. **Bedrock and SES in `eu-south-2`:** checked in M0b; the fallback is decided (section 1.1).
 7. **Anonymous GitHub rules read:** `GET /repos/{owner}/{repo}/rules/branches/{branch}` without a token
@@ -1957,8 +2636,10 @@ parallel (section 5).
   confirmations, `hosted_default` and its field in `GET /v1/onboarding`; (5) signed commit, `ticket.commit` and
   the verifier; (6) mentor files and `dojo mcp`; (7) the report form, its reader and the `Reply-To`
   field on `mail.Message`; (8) the E1 triggers, the email prompt, `email_source` and first-run Today.
-- **M4: Between tickets.** Writing tasks, quizzes and the simulated feedback round with the AI
-  review adapter, practice catalogue, inbox, belt marks, settings S3 and S4, PWA W1 to W5.
+- **M4: Between tickets.** The contracts and the PR order are in section 3.10. Writing tasks, quizzes,
+  story moments and the simulated feedback round with the AI review adapter (deterministic stand-in
+  locally), practice catalog, inbox and Web Push, belt marks, settings S3 and S4, PWA W1 to W5
+  (migrations 00025 to 00031).
 - **M5a: Runner and pool.** Packer AMI and the lab image, runner, mTLS to the API, `Backend`
   with `ec2` and the container backend, warm pool, machine lifecycle, `hosted_sessions`, machine
   ceilings and the queue, machine-start rate limits, H1. First real isolation test on EC2.

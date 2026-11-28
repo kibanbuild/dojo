@@ -300,6 +300,31 @@ func (q *Queries) ListLearnerActivityDays(ctx context.Context, arg ListLearnerAc
 	return items, nil
 }
 
+const listLearnerCompletedItems = `-- name: ListLearnerCompletedItems :many
+SELECT item_id FROM item_completions WHERE learner_id = $1
+`
+
+// Items the learner finished (design 3.10); done on Path and Today.
+func (q *Queries) ListLearnerCompletedItems(ctx context.Context, learnerID pgtype.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, listLearnerCompletedItems, learnerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var item_id string
+		if err := rows.Scan(&item_id); err != nil {
+			return nil, err
+		}
+		items = append(items, item_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLearnerRecentPasses = `-- name: ListLearnerRecentPasses :many
 SELECT p.item_id, i.title, p.first_passed_at, p.passed_commit, p.commit_state
 FROM ticket_progress p

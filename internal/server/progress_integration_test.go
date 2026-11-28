@@ -24,14 +24,15 @@ func progressLearner(t *testing.T) string {
 func progressItem(t *testing.T, id string) {
 	t.Helper()
 	clean := func() {
+		asOwner(t, "DELETE FROM item_completions WHERE item_id = '"+id+"'")
 		asOwner(t, "DELETE FROM hint_opens WHERE item_id = '"+id+"'")
 		asOwner(t, "DELETE FROM ticket_progress WHERE item_id = '"+id+"'")
 		asOwner(t, "DELETE FROM catalog_items WHERE id = '"+id+"'")
 	}
 	clean()
 	t.Cleanup(clean)
-	asOwner(t, "INSERT INTO catalog_items (id, org_id, kind, position, title, est_minutes, catalog_version) "+
-		"SELECT '"+id+"', id, 'practice', 1, 'T', 1, '0123456789ab' FROM orgs WHERE slug = 'public'")
+	asOwner(t, "INSERT INTO catalog_items (id, org_id, kind, position, title, est_minutes, catalog_version, brief, hints, bundle_key, bundle_sha256, bundle_bytes) "+
+		"SELECT '"+id+"', id, 'practice', 1, 'T', 1, '0123456789ab', 'brief', ARRAY['h'], 'bundles/practice/x/x.tar.gz', '"+ctSHA+"', 100 FROM orgs WHERE slug = 'public'")
 }
 
 // ownerExec runs one statement as the owner and returns its output and error, so a CHECK

@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/kibanyadev/dojo/internal/state"
 )
@@ -131,5 +133,88 @@ func TestMCPLogsGoToStderr(t *testing.T) {
 	}
 	if strings.Count(e.out.String(), "\n") != 1 {
 		t.Errorf("stdout must hold exactly the one response, got %q", e.out.String())
+	}
+}
+
+func initialize(t *testing.T, e *env, params string) {
+	t.Helper()
+	e.app.In = strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":` + params + "}\n")
+	if err := e.run(t, "mcp"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMCPInitializeWritesTheMarker(t *testing.T) {
+	e := newEnv(t)
+	at := time.Date(2026, 11, 28, 10, 0, 0, 0, time.UTC)
+	e.app.Now = func() time.Time { return at }
+	initialize(t, e, `{"protocolVersion":"2025-06-18","clientInfo":{"name":"claude-code"}}`)
+	got, ok, err := state.LoadMCPSeen()
+	if err != nil || !ok || got.Client != "claude-code" || !got.At.Equal(at) {
+		t.Fatalf("marker = %+v ok %v err %v", got, ok, err)
+	}
+}
+
+func TestMCPMarkerClientName(t *testing.T) {
+	long := strings.Repeat("a", 60)
+	tests := []struct{ name, params, want string }{
+		{"absent", `{"protocolVersion":"2025-06-18"}`, "unknown"},
+		{"empty", `{"protocolVersion":"2025-06-18","clientInfo":{"name":""}}`, "unknown"},
+		{"cut", `{"protocolVersion":"2025-06-18","clientInfo":{"name":"` + long + `"}}`, long[:40]},
+		{"non printable dropped", `{"protocolVersion":"2025-06-18","clientInfo":{"name":"a\u0000b\ncéd"}}`, "abcd"},
+		{"only non printable", `{"protocolVersion":"2025-06-18","clientInfo":{"name":"éé"}}`, "unknown"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			initialize(t, e, tt.params)
+			if got, _, _ := state.LoadMCPSeen(); got.Client != tt.want {
+				t.Errorf("client = %q, want %q", got.Client, tt.want)
+			}
+		})
+	}
+}
+
+func TestMCPToolCallDoesNotWriteTheMarker(t *testing.T) {
+	e := newEnv(t)
+	mcpCall(t, e, "current_ticket")
+	if _, ok, _ := state.LoadMCPSeen(); ok {
+		t.Fatal("only initialize writes the marker")
+	}
+}
+
+func TestMCPMarkerFailureDoesNotStopTheServer(t *testing.T) {
+	e := newEnv(t)
+	home, _ := state.Dir()
+	if err := os.MkdirAll(home+"/mcp-seen.json", 0o700); err != nil { // a directory in the way
+		t.Fatal(err)
+	}
+	var errBuf bytes.Buffer
+	e.app.Err = &errBuf
+	initialize(t, e, `{"protocolVersion":"2025-06-18"}`)
+	if !strings.Contains(e.out.String(), `"protocolVersion"`) {
+		t.Errorf("no initialize answer: %s", e.out.String())
+	}
+	if !strings.Contains(errBuf.String(), "mcp-seen") {
+		t.Errorf("failure not logged: %q", errBuf.String())
+	}
+}
+
+func TestDoctorReportsTheAI(t *testing.T) {
+	e := newEnv(t)
+	now := time.Date(2026, 11, 28, 10, 0, 0, 0, time.UTC)
+	e.app.Now = func() time.Time { return now }
+	_ = e.run(t, "doctor")
+	if !strings.Contains(e.out.String(), "No AI has connected to dojo mcp yet") ||
+		!strings.Contains(e.out.String(), "Add the config from Settings > Your AI") {
+		t.Errorf("never connected: %s", e.out.String())
+	}
+	if err := state.SaveMCPSeen(state.MCPSeen{Client: "cursor", At: now.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	e.out.Reset()
+	_ = e.run(t, "doctor")
+	if !strings.Contains(e.out.String(), "Your AI connected: cursor, ") {
+		t.Errorf("connected: %s", e.out.String())
 	}
 }

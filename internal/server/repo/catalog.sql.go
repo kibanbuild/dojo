@@ -108,6 +108,47 @@ func (q *Queries) ListCatalogItems(ctx context.Context) ([]ListCatalogItemsRow, 
 	return items, nil
 }
 
+const listCatalogMarks = `-- name: ListCatalogMarks :many
+SELECT slug, belt, title, summary, position
+FROM belt_marks
+ORDER BY array_position(ARRAY['white', 'yellow', 'orange', 'green', 'blue', 'brown', 'black'], belt), position
+`
+
+type ListCatalogMarksRow struct {
+	Slug     string
+	Belt     string
+	Title    string
+	Summary  string
+	Position int32
+}
+
+// Marks in belt order (design 3.10), then their place in the belt.
+func (q *Queries) ListCatalogMarks(ctx context.Context) ([]ListCatalogMarksRow, error) {
+	rows, err := q.db.Query(ctx, listCatalogMarks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCatalogMarksRow
+	for rows.Next() {
+		var i ListCatalogMarksRow
+		if err := rows.Scan(
+			&i.Slug,
+			&i.Belt,
+			&i.Title,
+			&i.Summary,
+			&i.Position,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCatalogPathRoles = `-- name: ListCatalogPathRoles :many
 SELECT p.slug AS path, r.slug AS role, pr.position
 FROM path_roles pr

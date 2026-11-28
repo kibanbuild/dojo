@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -17,6 +18,9 @@ import (
 
 // ErrWouldDropProgress means the load would remove catalog items learners have progress on.
 var ErrWouldDropProgress = errors.New("catalog load refused: items with learner progress would disappear")
+
+// ErrWouldChangeKind means the load would change the kind of a catalog item learners have progress on.
+var ErrWouldChangeKind = errors.New("catalog load refused: items with learner progress would change kind")
 
 var versionRE = regexp.MustCompile(`^[0-9a-f]{12}$`)
 
@@ -35,7 +39,8 @@ func Version(commit string) (string, error) {
 type Result struct {
 	Uploaded int // bundles put in the store
 	Reused   int // bundles whose key already existed
-	Tickets  int
+	Tickets  int // role tickets
+	Practice int
 }
 
 // Beginner opens the transaction; *pgxpool.Pool satisfies it.
@@ -54,8 +59,10 @@ func Load(ctx context.Context, db Beginner, store storage.Store, tree fs.FS, ver
 	if err != nil {
 		return res, err
 	}
-	bundles := make([]*catalog.Bundle, len(cat.Tickets))
-	for i, t := range cat.Tickets {
+	// Role tickets first, then practice: itemRows reads them in that order.
+	all := append(slices.Clone(cat.Tickets), cat.Practice...)
+	bundles := make([]*catalog.Bundle, len(all))
+	for i, t := range all {
 		if bundles[i], err = catalog.BuildBundle(tree, t.ID); err != nil {
 			return res, err
 		}
@@ -73,7 +80,8 @@ func Load(ctx context.Context, db Beginner, store storage.Store, tree fs.FS, ver
 			res.Reused++
 		}
 	}
-	res.Tickets = len(bundles)
+	res.Tickets = len(cat.Tickets)
+	res.Practice = len(cat.Practice)
 
 	tx, err := db.Begin(ctx)
 	if err != nil {

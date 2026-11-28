@@ -64,6 +64,6 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	if err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(out, "catalog %s loaded: %d tickets, %d bundles uploaded, %d reused\n", version, res.Tickets, res.Uploaded, res.Reused)
+	_, _ = fmt.Fprintf(out, "catalog %s loaded: %d tickets, %d practice, %d bundles uploaded, %d reused\n", version, res.Tickets, res.Practice, res.Uploaded, res.Reused)
 	return nil
 }

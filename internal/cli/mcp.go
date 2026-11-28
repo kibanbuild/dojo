@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kibanyadev/dojo/internal/catalog"
+	"github.com/kibanyadev/dojo/internal/doctor"
 	"github.com/kibanyadev/dojo/internal/mcp"
 	"github.com/kibanyadev/dojo/internal/mentor"
 	"github.com/kibanyadev/dojo/internal/state"
@@ -31,7 +32,7 @@ func (a *App) mcp(ctx context.Context) error {
 func (a *App) mcpServer() *mcp.Server {
 	const role = " You are the learner's mentor: explain and point to documentation, and never give the fix or the command that solves the ticket."
 	return &mcp.Server{
-		Name: "dojo", Version: "dev", Instructions: mentor.Rules, Log: a.Err,
+		Name: "dojo", Version: "dev", Instructions: mentor.Rules, Log: a.Err, OnInitialize: a.markMCPSeen,
 		Tools: []mcp.Tool{
 			{Name: "current_ticket", Run: a.toolTicket,
 				Description: "The ticket the learner is working on: id, title and the task statement they see." + role},
@@ -129,4 +130,39 @@ func (a *App) toolHints() (string, error) {
 		fmt.Fprintf(&b, "Hint %d/%d: %s\n", i+1, len(k.Hints), h)
 	}
 	return b.String(), nil
+}
+
+// markMCPSeen records that an AI connected, for the advisory `mcp` doctor check. A failure only
+// costs that check, so it is logged and never stops the server.
+func (a *App) markMCPSeen(client string) {
+	now := time.Now
+	if a.Now != nil {
+		now = a.Now
+	}
+	if err := state.SaveMCPSeen(state.MCPSeen{Client: mcpClientName(client), At: now()}); err != nil && a.Err != nil {
+		fmt.Fprintf(a.Err, "could not write mcp-seen.json: %v\n", err)
+	}
+}
+
+// mcpClientName keeps printable ASCII, at most 40 characters, "unknown" when nothing is left.
+func mcpClientName(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= 0x20 && r < 0x7f && b.Len() < 40 {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == 0 {
+		return "unknown"
+	}
+	return b.String()
+}
+
+func (a *App) mcpCheck() doctor.Result {
+	now := time.Now
+	if a.Now != nil {
+		now = a.Now
+	}
+	m, seen, err := state.LoadMCPSeen()
+	return doctor.MCP(m.Client, m.At, seen && err == nil, now())
 }

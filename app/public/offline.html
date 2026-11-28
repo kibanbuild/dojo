@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#FBFBFD" />
+    <title>Offline - Dojo</title>
+    <style>
+      body { margin: 0; background: #FBFBFD; color: #0E0F14; font: 15px/1.5 system-ui, sans-serif; }
+      header { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #E3E5EC; }
+      header span { font: 600 16px ui-monospace, monospace; }
+      main { padding: 18px 16px; max-width: 640px; }
+      [role="status"] { display: flex; gap: 10px; align-items: flex-start; border-radius: 14px; background: #F2F3F7; border: 1px solid #E3E5EC; padding: 12px 14px; font-size: 14px; }
+      i { flex: none; width: 10px; height: 10px; margin-top: 6px; border-radius: 99px; background: #8A5A00; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <svg width="24" height="24" viewBox="0 0 64 64" aria-hidden="true" stroke-width="2.66" stroke-linejoin="miter">
+        <g fill="#0E0F14" stroke="#0E0F14">
+          <polygon points="29.40,30.01 16.82,43.68 22.87,47.91 32.30,33.88" />
+          <polygon points="35.69,30.01 48.27,43.80 41.86,47.91 32.79,33.88" />
+          <polygon points="4.00,21.54 60.00,21.54 60.00,30.49 4.00,30.49" />
+        </g>
+        <polygon points="23.23,19.97 38.11,16.10 41.98,32.07 26.86,35.69" fill="#6A3DF5" stroke="#6A3DF5" />
+      </svg>
+      <span>dojo</span>
+    </header>
+    <main>
+      <div role="status">
+        <i aria-hidden="true"></i>
+        <span><b>You are offline.</b> Your lab keeps running on your laptop, and dojo check results show here when you are back.</span>
+      </div>
+    </main>
+  </body>
+</html>
